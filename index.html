@@ -2,39 +2,20 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <!-- iPad用の設定：全画面表示、拡大縮小制御 -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="配球スコア">
-  
-  <!-- ホーム画面に追加した際のアイコン（野球ボール） -->
   <link rel="apple-touch-icon" href="https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/26be.png">
   <title>配球スコアアプリ</title>
-
-  <!-- Tailwind CSS (デザイン用) -->
   <script src="https://cdn.tailwindcss.com"></script>
-
-  <!-- React & Babel (システム動作用) -->
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
   <style>
-    /* アプリ特有の長押し選択やスクロールのバウンドを防止 */
-    body { 
-      -webkit-touch-callout: none; 
-      overscroll-behavior-y: none;
-      user-select: none;
-    }
-    /* スクロールバー非表示（iPad向け） */
-    ::-webkit-scrollbar {
-      display: none;
-    }
-    .grid-bg {
-      background-image: radial-gradient(#cbd5e1 1px, transparent 1px);
-      background-size: 20px 20px;
-    }
+    body { -webkit-touch-callout: none; overscroll-behavior-y: none; user-select: none; }
+    ::-webkit-scrollbar { display: none; }
+    .grid-bg { background-image: radial-gradient(#cbd5e1 1px, transparent 1px); background-size: 20px 20px; }
   </style>
 </head>
 <body class="bg-slate-100">
@@ -44,9 +25,8 @@
     const { useState, useMemo, useEffect } = React;
 
     function BaseballAnalyzer() {
-      // --- 1. 状態管理（すべてのステートを先頭に定義） ---
+      // --- 1. ステート管理（Hooksは必ず先頭に定義） ---
       
-      // 試合進行
       const [gameState, setGameState] = useState(() => {
         const saved = localStorage.getItem('baseball_gameState');
         return saved ? JSON.parse(saved) : {
@@ -54,13 +34,11 @@
         };
       });
 
-      // 試合情報
       const [gameInfo, setGameInfo] = useState(() => {
         const saved = localStorage.getItem('baseball_gameInfo');
         return saved ? JSON.parse(saved) : { date: new Date().toISOString().split('T')[0], teamTop: '先攻チーム', teamBottom: '後攻チーム' };
       });
 
-      // スタメン
       const [lineups, setLineups] = useState(() => {
         const saved = localStorage.getItem('baseball_lineups');
         return saved ? JSON.parse(saved) : {
@@ -69,74 +47,90 @@
         };
       });
 
-      // 全投球履歴
       const [pitches, setPitches] = useState(() => {
         const saved = localStorage.getItem('baseball_pitches');
         return saved ? JSON.parse(saved) : [];
       });
 
-      // 戻る(Undo)用履歴
-      const [history, setHistory] = useState([]);
+      const [undoStack, setUndoStack] = useState(() => {
+        const saved = localStorage.getItem('baseball_undoStack');
+        return saved ? JSON.parse(saved) : [];
+      });
+      const [redoStack, setRedoStack] = useState(() => {
+        const saved = localStorage.getItem('baseball_redoStack');
+        return saved ? JSON.parse(saved) : [];
+      });
 
-      // UI表示フラグ
       const [showSettings, setShowSettings] = useState(false);
       const [showExport, setShowExport] = useState(false);
       const [showInPlayResult, setShowInPlayResult] = useState(false);
       const [selectedPosition, setSelectedPosition] = useState(null);
       const [analysisFilter, setAnalysisFilter] = useState({ pitcher: 'ALL', batterSide: 'ALL' });
-      
-      // 現在入力中
       const [currentPitch, setCurrentPitch] = useState({ course: null, type: 'ストレート系' });
 
-      // --- 2. オートセーブ（自動保存）機能 ---
+      // --- 2. 永続化機能 ---
       useEffect(() => {
         localStorage.setItem('baseball_gameState', JSON.stringify(gameState));
         localStorage.setItem('baseball_gameInfo', JSON.stringify(gameInfo));
         localStorage.setItem('baseball_lineups', JSON.stringify(lineups));
         localStorage.setItem('baseball_pitches', JSON.stringify(pitches));
-      }, [gameState, gameInfo, lineups, pitches]);
+        localStorage.setItem('baseball_undoStack', JSON.stringify(undoStack));
+        localStorage.setItem('baseball_redoStack', JSON.stringify(redoStack));
+      }, [gameState, gameInfo, lineups, pitches, undoStack, redoStack]);
 
-      // --- 3. コアロジック ---
+      // --- 3. 履歴管理 (Undo / Redo) ---
+      const createSnapshot = () => ({
+        gameState: JSON.parse(JSON.stringify(gameState)),
+        pitches: [...pitches],
+        showInPlayResult,
+        selectedPosition
+      });
 
-      // 状態の保存（Undo用）
-      const saveStateToHistory = () => {
-        const snapshot = {
-          gameState: JSON.parse(JSON.stringify(gameState)),
-          pitches: [...pitches]
-        };
-        setHistory(prev => [...prev, snapshot].slice(-30));
+      const recordAction = () => {
+        const snapshot = createSnapshot();
+        setUndoStack(prev => [...prev, snapshot].slice(-100));
+        setRedoStack([]); 
       };
 
-      // 1手戻る
       const handleUndo = () => {
-        if (history.length === 0) return;
-        const last = history[history.length - 1];
+        if (undoStack.length === 0) return;
+        const currentSnapshot = createSnapshot();
+        setRedoStack(prev => [...prev, currentSnapshot]);
+        const last = undoStack[undoStack.length - 1];
         setGameState(last.gameState);
         setPitches(last.pitches);
-        setHistory(prev => prev.slice(0, -1));
-        setShowInPlayResult(false);
-        setSelectedPosition(null);
+        setShowInPlayResult(last.showInPlayResult);
+        setSelectedPosition(last.selectedPosition);
+        setUndoStack(prev => prev.slice(0, -1));
       };
 
-      // 新しい試合を始める
+      const handleRedo = () => {
+        if (redoStack.length === 0) return;
+        const currentSnapshot = createSnapshot();
+        setUndoStack(prev => [...prev, currentSnapshot]);
+        const next = redoStack[redoStack.length - 1];
+        setGameState(next.gameState);
+        setPitches(next.pitches);
+        setShowInPlayResult(next.showInPlayResult);
+        setSelectedPosition(next.selectedPosition);
+        setRedoStack(prev => prev.slice(0, -1));
+      };
+
+      // --- 4. 試合進行ロジック ---
       const handleNewGame = () => {
         if (window.confirm("データを全消去して新試合を開始しますか？")) {
-          const freshGameState = { inning: 1, isTop: true, outs: 0, balls: 0, strikes: 0, batter: 1, runs: { top: [0,0,0,0,0,0,0,0,0], bottom: [0,0,0,0,0,0,0,0,0] } };
-          setGameState(freshGameState);
+          setUndoStack([]); setRedoStack([]);
+          setGameState({ inning: 1, isTop: true, outs: 0, balls: 0, strikes: 0, batter: 1, runs: { top: [0,0,0,0,0,0,0,0,0], bottom: [0,0,0,0,0,0,0,0,0] } });
           setPitches([]);
-          setHistory([]);
-          setAnalysisFilter({ pitcher: 'ALL', batterSide: 'ALL' });
         }
       };
 
-      // 打者交代
       const nextBatter = (outCount = 0) => {
         setGameState(prev => {
           let newOuts = prev.outs + outCount;
           let newInning = prev.inning;
           let newIsTop = prev.isTop;
           let newBatter = prev.batter === 9 ? 1 : prev.batter + 1;
-
           if (newOuts >= 3) {
             newOuts = 0;
             if (prev.isTop) newIsTop = false;
@@ -148,19 +142,16 @@
         setSelectedPosition(null);
       };
 
-      // 1球記録
       const recordPitch = (result, detailedResult = '') => {
         if (result !== '牽制' && currentPitch.course === null) {
           alert("コースを選択してください！");
           return;
         }
-
-        saveStateToHistory(); // 実行前に履歴を保存
-
-        const offTeam = gameState.isTop ? lineups.top : lineups.bottom;
+        recordAction(); 
         const defTeam = gameState.isTop ? lineups.bottom : lineups.top;
-        const currentBatterObj = offTeam[gameState.batter - 1];
         const currentPitcherObj = defTeam.find(p => p.pos === '投' || p.pos === '1' || p.pos === '①') || { name: '投手未設定', throws: '右' };
+        const offTeam = gameState.isTop ? lineups.top : lineups.bottom;
+        const currentBatterObj = offTeam[gameState.batter - 1];
 
         const newPitch = {
           ...currentPitch,
@@ -178,9 +169,7 @@
         };
 
         setPitches([...pitches, newPitch]);
-
-        if (result === '牽制') { setCurrentPitch(prev => ({ ...prev, course: null })); return; }
-
+        if (result === '牽制') { setCurrentPitch(p => ({ ...p, course: null })); return; }
         if (result === 'ストライク' || result === '空振り') {
           if (gameState.strikes === 2) nextBatter(1);
           else setGameState(prev => ({ ...prev, strikes: prev.strikes + 1 }));
@@ -192,116 +181,96 @@
         } else if (result === 'インプレー') {
           setShowInPlayResult(true);
         }
-        setCurrentPitch(prev => ({ ...prev, course: null }));
+        setCurrentPitch(p => ({ ...p, course: null }));
       };
 
-      // 打撃詳細入力
       const handleInPlayFinalResult = (typeLabel, outCount) => {
+        recordAction();
         const fullResult = `${selectedPosition}${typeLabel}`;
         setPitches(prev => {
           const newPitches = [...prev];
           newPitches[newPitches.length - 1].result = fullResult;
           return newPitches;
         });
-        if (typeLabel === '本塁打') addRun();
+        if (typeLabel === '本塁打') {
+          setGameState(prev => {
+            const team = prev.isTop ? 'top' : 'bottom';
+            const newRuns = [...prev.runs[team]];
+            newRuns[prev.inning - 1]++;
+            return { ...prev, runs: { ...prev.runs, [team]: newRuns } };
+          });
+        }
         nextBatter(outCount);
       };
 
-      const addRun = () => setGameState(prev => {
-        const team = prev.isTop ? 'top' : 'bottom';
-        const newRuns = [...prev.runs[team]];
-        const idx = prev.inning - 1;
-        if(idx < 9) newRuns[idx]++;
-        return { ...prev, runs: { ...prev.runs, [team]: newRuns } };
-      });
+      const changeScore = (team, delta) => {
+        recordAction();
+        setGameState(prev => {
+          const newRuns = [...prev.runs[team]];
+          newRuns[prev.inning - 1] = Math.max(0, newRuns[prev.inning - 1] + delta);
+          return { ...prev, runs: { ...prev.runs, [team]: newRuns } };
+        });
+      };
 
-      const minusRun = () => setGameState(prev => {
-        const team = prev.isTop ? 'top' : 'bottom';
-        const newRuns = [...prev.runs[team]];
-        const idx = prev.inning - 1;
-        if(idx < 9 && newRuns[idx] > 0) newRuns[idx]--;
-        return { ...prev, runs: { ...prev.runs, [team]: newRuns } };
-      });
-
-      // --- 4. 分析データ計算 ---
+      // --- 5. 導出データ (Memo) ---
       const analysisData = useMemo(() => {
-        const validPitches = pitches.filter(p => {
+        const valid = pitches.filter(p => {
           if (p.result === '牽制') return false;
           if (analysisFilter.pitcher !== 'ALL' && p.pitcherName !== analysisFilter.pitcher) return false;
           if (analysisFilter.batterSide !== 'ALL' && p.batterBats !== analysisFilter.batterSide) return false;
           return true;
         });
         const courseHeat = {}; let maxFreq = 0;
-        validPitches.forEach(p => {
-          if (p.course !== null) {
-            courseHeat[p.course] = (courseHeat[p.course] || 0) + 1;
-            if (courseHeat[p.course] > maxFreq) maxFreq = courseHeat[p.course];
-          }
-        });
-        const typeCount = {};
-        validPitches.forEach(p => typeCount[p.type] = (typeCount[p.type] || 0) + 1);
-        const strikeRate = validPitches.length === 0 ? 0 : Math.round((validPitches.filter(p => p.result !== 'ボール').length / validPitches.length) * 100);
-        return { courseHeat, maxFreq, typeCount, strikeRate, totalPitches: validPitches.length };
+        valid.forEach(p => { if (p.course !== null) { courseHeat[p.course] = (courseHeat[p.course] || 0) + 1; if (courseHeat[p.course] > maxFreq) maxFreq = courseHeat[p.course]; } });
+        const typeCount = {}; valid.forEach(p => typeCount[p.type] = (typeCount[p.type] || 0) + 1);
+        const strikeRate = valid.length === 0 ? 0 : Math.round((valid.filter(p => p.result !== 'ボール').length / valid.length) * 100);
+        return { courseHeat, maxFreq, typeCount, strikeRate, totalPitches: valid.length };
       }, [pitches, analysisFilter]);
 
       const uniquePitchers = useMemo(() => Array.from(new Set(pitches.map(p => p.pitcherName).filter(Boolean))), [pitches]);
-
-      // --- 5. 出力 (LINEコピー / CSV) ---
-      const exportCSV = () => {
-        const headers = ['イニング', '表/裏', '投手', '投', '打者', '打', '球目', '球種', 'コース', '結果'];
-        const rows = pitches.map(p => [p.inning, p.isTop ? '表' : '裏', p.pitcherName, p.pitcherThrows, p.batterName, p.batterBats, p.pitchNumber, p.type, p.course, p.result].join(','));
-        const csvContent = "data:text/csv;charset=utf-8,\uFEFF" + [headers.join(','), ...rows].join('\n');
-        const link = document.createElement("a");
-        link.setAttribute("href", encodeURI(csvContent));
-        link.setAttribute("download", `野球データ_${gameInfo.date}.csv`);
-        link.click();
-      };
-
-      const copyShareText = () => {
-        const topTotal = gameState.runs.top.reduce((a,b)=>a+b,0);
-        const bottomTotal = gameState.runs.bottom.reduce((a,b)=>a+b,0);
-        let text = `【試合結果】${gameInfo.date}\n${gameInfo.teamTop} ${topTotal} - ${bottomTotal} ${gameInfo.teamBottom}\n\n`;
-        text += `総投球数: ${analysisData.totalPitches}球\nストライク率: ${analysisData.strikeRate}%\n`;
-        const textarea = document.createElement('textarea');
-        textarea.value = text; document.body.appendChild(textarea); textarea.select(); document.execCommand('copy');
-        alert('結果テキストをコピーしました！'); document.body.removeChild(textarea);
-      };
-
-      // --- ヘルパー ---
-      const courses = Array.from({ length: 25 }, (_, i) => i);
-      const isStrikeZone = (i) => {
-        const row = Math.floor(i / 5);
-        const col = i % 5;
-        return row >= 1 && row <= 3 && col >= 1 && col <= 3;
-      };
-      const pitchTypes = [
-        { name: 'ストレート系', color: 'bg-red-500' },
-        { name: 'スライダー系', color: 'bg-blue-500' },
-        { name: 'カーブ系', color: 'bg-yellow-500' },
-        { name: '落ちる系', color: 'bg-purple-500' },
-        { name: 'シュート系', color: 'bg-green-500' },
-      ];
-
       const currentAtBatPitches = pitches.filter(p => p.inning === gameState.inning && p.isTop === gameState.isTop && p.batter === gameState.batter);
       const currentBatterObj = (gameState.isTop ? lineups.top : lineups.bottom)[gameState.batter - 1];
       const currentPitcherObj = (gameState.isTop ? lineups.bottom : lineups.top).find(p => p.pos === '投' || p.pos === '1' || p.pos === '①') || { name: '投手未設定' };
 
+      const courses = Array.from({ length: 25 }, (_, i) => i);
+      const isStrikeZone = (i) => { const row = Math.floor(i / 5); const col = i % 5; return row >= 1 && row <= 3 && col >= 1 && col <= 3; };
+      const pitchTypes = [
+        { name: 'ストレート系', color: 'bg-red-500' }, { name: 'スライダー系', color: 'bg-blue-500' },
+        { name: 'カーブ系', color: 'bg-yellow-500' }, { name: '落ちる系', color: 'bg-purple-500' },
+        { name: 'シュート系', color: 'bg-green-500' },
+      ];
+
+      // --- 6. 出力系 ---
+      const copyShareText = () => {
+        const topTotal = gameState.runs.top.reduce((a,b)=>a+b,0);
+        const bottomTotal = gameState.runs.bottom.reduce((a,b)=>a+b,0);
+        let text = `【結果】${gameInfo.date} ${gameInfo.teamTop} ${topTotal} - ${bottomTotal} ${gameInfo.teamBottom}\n`;
+        text += `総数:${analysisData.totalPitches}球 / ストライク率:${analysisData.strikeRate}%`;
+        const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand('copy');
+        alert('コピーしました！'); document.body.removeChild(ta);
+      };
+
+      const exportCSV = () => {
+        const rows = pitches.map(p => [p.inning, p.isTop?'表':'裏', p.pitcherName, p.pitchNumber, p.type, p.result].join(','));
+        const content = "data:text/csv;charset=utf-8,\uFEFF" + ["回,表裏,投手,球数,球種,結果", ...rows].join('\n');
+        const link = document.createElement("a"); link.setAttribute("href", encodeURI(content)); link.setAttribute("download", `data.csv`); link.click();
+      };
+
       return (
-        <div className="min-h-screen bg-slate-100 flex flex-col font-sans text-slate-800 pb-10 text-sm overflow-hidden h-screen">
+        <div className="min-h-screen bg-slate-100 flex flex-col font-sans text-slate-800 pb-10 text-sm h-screen overflow-hidden">
           
-          {/* ヘッダー */}
-          <header className="bg-white shadow-sm border-b border-slate-200 p-4 flex items-center justify-between relative z-10 shrink-0">
+          <header className="bg-white shadow-sm border-b border-slate-200 p-4 flex items-center justify-between shrink-0">
             <div className="flex items-center gap-2 text-xl font-bold text-blue-700">⚾ 配球分析</div>
             
             <div className="flex bg-slate-50 border border-slate-300 rounded-lg overflow-hidden text-sm">
               <div className="flex flex-col bg-slate-200 font-bold border-r border-slate-300 w-24">
-                <input type="text" value={gameInfo.teamTop} onChange={e=>setGameInfo({...gameInfo, teamTop: e.target.value})} className="h-8 bg-transparent text-center outline-none border-b border-slate-300" />
-                <input type="text" value={gameInfo.teamBottom} onChange={e=>setGameInfo({...gameInfo, teamBottom: e.target.value})} className="h-8 bg-transparent text-center outline-none" />
+                <input type="text" value={gameInfo.teamTop} onChange={e=>setGameInfo({...gameInfo, teamTop: e.target.value})} className="h-8 bg-transparent text-center outline-none border-b border-slate-300 px-1" />
+                <input type="text" value={gameInfo.teamBottom} onChange={e=>setGameInfo({...gameInfo, teamBottom: e.target.value})} className="h-8 bg-transparent text-center outline-none px-1" />
               </div>
               {[1,2,3,4,5,6,7,8,9].map(i => (
                 <div key={i} className={`flex flex-col border-r border-slate-300 text-center w-8 ${gameState.inning === i ? 'bg-blue-100' : ''}`}>
-                  <div className="h-8 border-b border-slate-300 flex items-center justify-center font-bold">{gameState.runs.top[i-1] > 0 ? gameState.runs.top[i-1] : (gameState.inning > i || (gameState.inning === i && !gameState.isTop) ? '0' : '')}</div>
-                  <div className="h-8 flex items-center justify-center font-bold">{gameState.runs.bottom[i-1] > 0 ? gameState.runs.bottom[i-1] : (gameState.inning > i ? '0' : '')}</div>
+                  <div className="h-8 border-b border-slate-300 flex items-center justify-center font-bold text-[10px]">{gameState.runs.top[i-1] > 0 ? gameState.runs.top[i-1] : (gameState.inning > i || (gameState.inning === i && !gameState.isTop) ? '0' : '')}</div>
+                  <div className="h-8 flex items-center justify-center font-bold text-[10px]">{gameState.runs.bottom[i-1] > 0 ? gameState.runs.bottom[i-1] : (gameState.inning > i ? '0' : '')}</div>
                 </div>
               ))}
               <div className="flex flex-col text-center w-10 font-bold bg-blue-50 text-blue-800">
@@ -312,9 +281,9 @@
 
             <div className="flex gap-4 items-center">
               <div className="flex flex-col gap-0.5 items-center px-4 border-r">
-                <div className="flex items-center gap-1"><span className="text-[10px] w-3 text-green-600">B</span>{[0,1,2].map(i=><div key={i} className={`w-3.5 h-3.5 rounded-full border border-green-600 ${i<gameState.balls?'bg-green-500':'bg-slate-100'}`}></div>)}</div>
-                <div className="flex items-center gap-1"><span className="text-[10px] w-3 text-yellow-500">S</span>{[0,1].map(i=><div key={i} className={`w-3.5 h-3.5 rounded-full border border-yellow-500 ${i<gameState.strikes?'bg-yellow-400':'bg-slate-100'}`}></div>)}</div>
-                <div className="flex items-center gap-1"><span className="text-[10px] w-3 text-red-600">O</span>{[0,1].map(i=><div key={i} className={`w-3.5 h-3.5 rounded-full border border-red-600 ${i<gameState.outs?'bg-red-500':'bg-slate-100'}`}></div>)}</div>
+                <div className="flex items-center gap-1 font-bold font-mono"><span className="text-[10px] w-3 text-green-600">B</span>{[0,1,2].map(i=><div key={i} className={`w-3.5 h-3.5 rounded-full border border-green-600 ${i<gameState.balls?'bg-green-500 shadow-inner':'bg-slate-100'}`}></div>)}</div>
+                <div className="flex items-center gap-1 font-bold font-mono"><span className="text-[10px] w-3 text-yellow-500">S</span>{[0,1].map(i=><div key={i} className={`w-3.5 h-3.5 rounded-full border border-yellow-500 ${i<gameState.strikes?'bg-yellow-400 shadow-inner':'bg-slate-100'}`}></div>)}</div>
+                <div className="flex items-center gap-1 font-bold font-mono"><span className="text-[10px] w-3 text-red-600">O</span>{[0,1].map(i=><div key={i} className={`w-3.5 h-3.5 rounded-full border border-red-600 ${i<gameState.outs?'bg-red-500 shadow-inner':'bg-slate-100'}`}></div>)}</div>
               </div>
               <div className="flex flex-col gap-1.5">
                 <button onClick={handleNewGame} className="bg-red-50 text-red-600 px-3 py-0.5 rounded text-[10px] font-bold border border-red-200">🔄 新試合</button>
@@ -327,21 +296,19 @@
           </header>
 
           <main className="flex-1 flex p-4 gap-4 max-w-7xl mx-auto w-full overflow-hidden">
-            
-            {/* 左: 入力エリア */}
             <div className="w-[55%] flex flex-col gap-4 overflow-y-auto pr-1">
               <div className="bg-white rounded-xl shadow-sm p-4 flex justify-between items-center border border-slate-200 shrink-0">
                 <div className="text-xl font-black text-slate-800">{gameState.inning}回{gameState.isTop?'表':'裏'}</div>
                 <div className="flex items-center gap-2">
                   <div className="text-[11px] font-bold bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200 flex items-center gap-2">
-                    <span className="text-red-700">投: {currentPitcherObj.name}</span>
+                    <span className="text-red-700 font-black">投: {currentPitcherObj.name}</span>
                     <span className="text-slate-300">|</span>
-                    <span className="text-blue-700">{gameState.batter}番 {currentBatterObj.name} ({currentBatterObj.bats}打)</span>
+                    <span className="text-blue-700 font-black">{gameState.batter}番 {currentBatterObj.name}</span>
                   </div>
                   <div className="flex items-center bg-blue-50 rounded-lg border border-blue-200 p-1">
-                    <button onClick={minusRun} className="p-1 text-blue-600 font-black w-6 hover:bg-blue-100 rounded">－</button>
+                    <button onClick={()=>changeScore(gameState.isTop?'top':'bottom', -1)} className="p-1 text-blue-600 font-black w-6 hover:bg-blue-100 rounded text-lg">－</button>
                     <span className="px-1 text-[10px] font-bold text-blue-800">得点</span>
-                    <button onClick={addRun} className="p-1 text-blue-600 font-black w-6 hover:bg-blue-100 rounded">＋</button>
+                    <button onClick={()=>changeScore(gameState.isTop?'top':'bottom', 1)} className="p-1 text-blue-600 font-black w-6 hover:bg-blue-100 rounded text-lg">＋</button>
                   </div>
                 </div>
               </div>
@@ -350,7 +317,7 @@
                 <div className="bg-white rounded-2xl shadow-sm p-6 border border-slate-200 flex-1 flex flex-col min-h-fit">
                   <div className="flex gap-8 flex-1">
                     <div className="flex-1 flex flex-col items-center justify-center">
-                      <div className="grid grid-cols-5 grid-rows-5 w-64 h-64 gap-1 relative bg-slate-50 p-2 rounded-lg border border-slate-200">
+                      <div className="grid grid-cols-5 grid-rows-5 w-64 h-64 gap-1 relative bg-slate-50 p-2 rounded-lg border border-slate-200 shadow-inner">
                         <div className="absolute top-[20%] left-[20%] w-[60%] h-[60%] border-4 border-slate-800 pointer-events-none rounded-sm z-10"></div>
                         {courses.map(i => (
                           <button key={i} onClick={() => setCurrentPitch({ ...currentPitch, course: i })} className={`rounded-sm relative ${isStrikeZone(i) ? 'bg-white' : 'bg-slate-100'} ${currentPitch.course === i ? 'ring-4 ring-blue-500 bg-blue-100 z-20 scale-110 shadow-lg' : 'border border-slate-200 hover:bg-white/50'}`}>
@@ -358,33 +325,35 @@
                           </button>
                         ))}
                       </div>
-                      <div className="text-[10px] font-bold text-slate-400 mt-4 tracking-widest uppercase">捕手目線</div>
+                      <div className="text-[10px] font-bold text-slate-400 mt-4 tracking-widest uppercase italic">捕手目線</div>
                     </div>
-
                     <div className="flex-1 flex flex-col justify-between py-2">
-                      <div className="space-y-6">
-                        <div className="flex flex-wrap gap-2">
+                      <div className="space-y-4">
+                        <div className="flex flex-wrap gap-1.5">
                           {pitchTypes.map(pt => (
-                            <button key={pt.name} onClick={() => setCurrentPitch({ ...currentPitch, type: pt.name })} className={`px-3 py-2 rounded-xl font-bold text-[11px] border-2 transition-all ${currentPitch.type === pt.name ? 'border-blue-600 bg-blue-50 text-blue-700 shadow-md transform scale-105' : 'border-slate-100 bg-white text-slate-500'}`}>
+                            <button key={pt.name} onClick={() => setCurrentPitch({ ...currentPitch, type: pt.name })} className={`px-2.5 py-1.5 rounded-lg font-bold text-[10px] border-2 transition-all ${currentPitch.type === pt.name ? 'border-blue-600 bg-blue-50 text-blue-700 shadow-sm scale-105' : 'border-slate-100 bg-white text-slate-500'}`}>
                               {pt.name}
                             </button>
                           ))}
                         </div>
                         <div className="grid grid-cols-2 gap-2">
-                          <button onClick={() => recordPitch('ストライク')} className="bg-slate-800 text-white py-3 rounded-xl font-bold text-xs shadow-sm">見逃しS</button>
-                          <button onClick={() => recordPitch('空振り')} className="bg-slate-600 text-white py-3 rounded-xl font-bold text-xs shadow-sm">空振りS</button>
-                          <button onClick={() => recordPitch('ボール')} className="bg-green-600 text-white py-3 rounded-xl font-bold text-xs shadow-sm">ボール</button>
-                          <button onClick={() => recordPitch('ファウル')} className="bg-yellow-500 text-white py-3 rounded-xl font-bold text-xs shadow-sm">ファウル</button>
+                          <button onClick={() => recordPitch('ストライク')} className="bg-slate-800 text-white py-3 rounded-xl font-bold text-xs active:bg-black">見逃しS</button>
+                          <button onClick={() => recordPitch('空振り')} className="bg-slate-600 text-white py-3 rounded-xl font-bold text-xs active:bg-slate-700">空振りS</button>
+                          <button onClick={() => recordPitch('ボール')} className="bg-green-600 text-white py-3 rounded-xl font-bold text-xs active:bg-green-700">ボール</button>
+                          <button onClick={() => recordPitch('ファウル')} className="bg-yellow-500 text-white py-3 rounded-xl font-bold text-xs active:bg-yellow-600">ファウル</button>
                         </div>
                         <div className="grid grid-cols-3 gap-2">
                           <button onClick={() => recordPitch('牽制')} className="bg-orange-500 text-white py-3 rounded-xl font-bold text-xs">牽制</button>
                           <button onClick={() => recordPitch('インプレー')} className="col-span-2 bg-blue-600 text-white py-3 rounded-xl font-black text-base shadow-md active:scale-95 transition-transform">打った！</button>
                         </div>
-                        
-                        <button onClick={handleUndo} disabled={history.length === 0} className={`w-full py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 border-2 transition-all ${history.length > 0 ? 'bg-white border-slate-800 text-slate-800 shadow-sm active:bg-slate-50' : 'bg-slate-50 border-slate-200 text-slate-300 cursor-not-allowed'}`}>
-                          <span>↩️ 1手戻る</span>
-                          {history.length > 0 && <span className="bg-slate-800 text-white text-[10px] px-2 py-0.5 rounded-full font-mono">{history.length}</span>}
-                        </button>
+                        <div className="grid grid-cols-2 gap-3 mt-4 border-t pt-4">
+                          <button onClick={handleUndo} disabled={undoStack.length === 0} className={`py-3 rounded-xl font-black text-xs flex items-center justify-center gap-2 border-2 transition-all ${undoStack.length > 0 ? 'bg-white border-slate-800 text-slate-800 active:bg-slate-100' : 'bg-slate-50 border-slate-200 text-slate-200 cursor-not-allowed'}`}>
+                            <span>↩️ 戻る</span>{undoStack.length > 0 && <span className="bg-slate-800 text-white text-[9px] px-1.5 rounded-full font-mono">{undoStack.length}</span>}
+                          </button>
+                          <button onClick={handleRedo} disabled={redoStack.length === 0} className={`py-3 rounded-xl font-black text-xs flex items-center justify-center gap-2 border-2 transition-all ${redoStack.length > 0 ? 'bg-white border-blue-600 text-blue-600 active:bg-blue-50' : 'bg-slate-50 border-slate-200 text-slate-200 cursor-not-allowed'}`}>
+                            <span>進む ↪️</span>{redoStack.length > 0 && <span className="bg-blue-600 text-white text-[9px] px-1.5 rounded-full font-mono">{redoStack.length}</span>}
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -393,37 +362,33 @@
                 <div className="bg-white rounded-2xl shadow-lg p-6 border border-blue-300 flex-1 flex flex-col bg-blue-50/30 min-h-[400px]">
                   <div className="flex justify-between items-center mb-6 border-b border-blue-200 pb-3">
                     <h2 className="text-lg font-black text-blue-800 flex items-center gap-2">🎯 打撃結果の入力</h2>
-                    <button onClick={() => { setShowInPlayResult(false); setSelectedPosition(null); }} className="text-xs bg-white px-4 py-2 rounded-full border border-slate-300 shadow-sm font-bold text-slate-500 hover:text-slate-800 transition-colors">↩️ キャンセル</button>
+                    <button onClick={() => handleUndo()} className="text-xs bg-white px-4 py-2 rounded-full border border-slate-300 shadow-sm font-bold text-slate-500">↩️ 取消して戻る</button>
                   </div>
                   {!selectedPosition ? (
                     <div className="flex-1 flex flex-col items-center">
-                      <p className="text-slate-500 font-bold mb-8 text-base tracking-wide">① 打球の飛んだ方向を選択してください</p>
+                      <p className="text-slate-500 font-bold mb-8 text-base">① 打球の方向を選択</p>
                       <div className="grid grid-cols-3 gap-4 w-full max-w-[360px]">
                         {['左', '中', '右', '遊', '二', '三', '投', '捕', '一'].map(pos => (
-                          <button key={pos} onClick={() => setSelectedPosition(pos)} className="bg-white border-2 border-slate-200 py-6 rounded-2xl font-black text-2xl shadow-sm hover:border-blue-400 active:scale-90 transition-all">{pos}</button>
+                          <button key={pos} onClick={() => { recordAction(); setSelectedPosition(pos); }} className="bg-white border-2 border-slate-200 py-6 rounded-2xl font-black text-2xl shadow-sm hover:border-blue-400 active:scale-90 transition-all">{pos}</button>
                         ))}
                       </div>
                     </div>
                   ) : (
-                    <div className="flex-1 flex flex-col items-center animate-in slide-in-from-right duration-150">
+                    <div className="flex-1 flex flex-col items-center animate-in slide-in-from-right duration-150 w-full">
                       <p className="text-slate-600 font-bold mb-6 text-lg">② <span className="text-blue-700 text-2xl font-black px-2">{selectedPosition}</span> への結果は？</p>
-                      <div className="w-full space-y-6">
-                        <div className="bg-white p-4 rounded-xl border border-red-100 shadow-sm">
-                          <div className="grid grid-cols-3 gap-3">
-                            <button onClick={() => handleInPlayFinalResult('ゴロ', 1)} className="bg-red-50 text-red-700 py-4 rounded-xl font-bold">ゴロ</button>
-                            <button onClick={() => handleInPlayFinalResult('飛', 1)} className="bg-orange-50 text-orange-700 py-4 rounded-xl font-bold">フライ/直</button>
-                            <button onClick={() => handleInPlayFinalResult('併殺打', 2)} className="bg-red-600 text-white py-4 rounded-xl font-bold shadow-md">併殺打</button>
-                          </div>
-                        </div>
-                        <div className="bg-white p-4 rounded-xl border border-blue-100 shadow-sm">
-                          <div className="grid grid-cols-4 gap-2 mb-2">
-                            <button onClick={() => handleInPlayFinalResult('安', 0)} className="bg-blue-50 text-blue-700 py-4 rounded-xl font-bold">単打</button>
-                            <button onClick={() => handleInPlayFinalResult('二塁打', 0)} className="bg-indigo-50 text-indigo-700 py-4 rounded-xl font-bold">二塁打</button>
-                            <button onClick={() => handleInPlayFinalResult('三塁打', 0)} className="bg-purple-50 text-purple-700 py-4 rounded-xl font-bold">三塁打</button>
-                            <button onClick={() => handleInPlayFinalResult('本塁打', 0)} className="bg-pink-100 text-pink-700 py-4 rounded-xl font-bold">本塁打</button>
-                          </div>
-                        </div>
-                        <button onClick={() => setSelectedPosition(null)} className="w-full py-3 text-slate-400 font-bold border-2 border-dashed border-slate-300 rounded-xl hover:bg-slate-50 transition-colors">← 打球方向を選び直す</button>
+                      <div className="w-full space-y-6 max-w-md">
+                        <div className="bg-white p-4 rounded-xl border border-red-100 shadow-sm"><div className="grid grid-cols-3 gap-3">
+                          <button onClick={() => handleInPlayFinalResult('ゴロ', 1)} className="bg-red-50 text-red-700 py-4 rounded-xl font-bold">ゴロ</button>
+                          <button onClick={() => handleInPlayFinalResult('飛', 1)} className="bg-orange-50 text-orange-700 py-4 rounded-xl font-bold">飛/直</button>
+                          <button onClick={() => handleInPlayFinalResult('併殺打', 2)} className="bg-red-600 text-white py-4 rounded-xl font-bold shadow-md">併殺打</button>
+                        </div></div>
+                        <div className="bg-white p-4 rounded-xl border border-blue-100 shadow-sm"><div className="grid grid-cols-4 gap-2 mb-2">
+                          <button onClick={() => handleInPlayFinalResult('安', 0)} className="bg-blue-50 text-blue-700 py-4 rounded-xl font-bold">単打</button>
+                          <button onClick={() => handleInPlayFinalResult('二塁打', 0)} className="bg-indigo-50 text-indigo-700 py-4 rounded-xl font-bold">二塁</button>
+                          <button onClick={() => handleInPlayFinalResult('三塁打', 0)} className="bg-purple-50 text-purple-700 py-4 rounded-xl font-bold">三塁</button>
+                          <button onClick={() => handleInPlayFinalResult('本塁打', 0)} className="bg-pink-100 text-pink-700 py-4 rounded-xl font-bold shadow-sm">本塁打</button>
+                        </div></div>
+                        <button onClick={() => handleUndo()} className="w-full py-3 text-slate-400 font-bold border-2 border-dashed border-slate-300 rounded-xl hover:bg-slate-50 transition-colors">← 方向を選び直す</button>
                       </div>
                     </div>
                   )}
@@ -431,18 +396,16 @@
               )}
             </div>
 
-            {/* 右: 分析・履歴エリア */}
             <div className="w-[45%] flex flex-col gap-4 overflow-hidden">
-              {/* 分析ダッシュボード */}
               <div className="bg-white rounded-2xl shadow-sm p-4 border border-slate-200 shrink-0">
                 <div className="flex justify-between items-center mb-3 border-b pb-2">
-                  <h2 className="text-[11px] font-bold flex items-center gap-1 uppercase tracking-wider text-slate-500">📊 Statistics <span className="font-normal text-slate-300 ml-2">Total {analysisData.totalPitches} Pitches</span></h2>
+                  <h2 className="text-[11px] font-bold uppercase tracking-wider text-slate-500">📊 Stats <span className="font-mono ml-2">Count:{analysisData.totalPitches}</span></h2>
                   <div className="flex gap-1.5">
-                    <select value={analysisFilter.pitcher} onChange={e => setAnalysisFilter({...analysisFilter, pitcher: e.target.value})} className="border border-slate-200 rounded text-[9px] font-bold px-1.5 py-1 outline-none bg-slate-50 shadow-sm">
+                    <select value={analysisFilter.pitcher} onChange={e => setAnalysisFilter({...analysisFilter, pitcher: e.target.value})} className="border border-slate-200 rounded text-[9px] font-bold px-1.5 py-1 bg-slate-50">
                       <option value="ALL">全投手</option>{uniquePitchers.map(p => <option key={p} value={p}>{p}</option>)}
                     </select>
-                    <select value={analysisFilter.batterSide} onChange={e => setAnalysisFilter({...analysisFilter, batterSide: e.target.value})} className="border border-slate-200 rounded text-[9px] font-bold px-1.5 py-1 outline-none bg-slate-50 shadow-sm">
-                      <option value="ALL">左右</option><option value="右">対右打者</option><option value="左">対左打者</option>
+                    <select value={analysisFilter.batterSide} onChange={e => setAnalysisFilter({...analysisFilter, batterSide: e.target.value})} className="border border-slate-200 rounded text-[9px] font-bold px-1.5 py-1 bg-slate-50">
+                      <option value="ALL">全打者</option><option value="右">右打者</option><option value="左">左打者</option>
                     </select>
                   </div>
                 </div>
@@ -456,36 +419,28 @@
                     })}
                   </div>
                   <div className="flex-1 space-y-3">
-                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
-                      <div className="text-[9px] font-bold text-slate-400 mb-0.5">STRIKE RATE</div>
-                      <div className="text-3xl font-black text-slate-800 leading-none">{analysisData.strikeRate}<span className="text-sm ml-0.5 font-bold">%</span></div>
+                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 shadow-inner">
+                      <div className="text-[9px] font-bold text-slate-400 mb-0.5 uppercase tracking-tighter">Strike Rate</div>
+                      <div className="text-3xl font-black text-slate-800 leading-none">{analysisData.strikeRate}<span className="text-sm font-bold">%</span></div>
                     </div>
                     <div className="bg-slate-50 p-2 rounded-xl border border-slate-200 overflow-hidden">
-                      <div className="text-[9px] font-bold text-slate-400 mb-2 uppercase tracking-tighter">Pitch Mix</div>
                       {Object.entries(analysisData.typeCount).sort(([,a], [,b]) => b - a).slice(0, 3).map(([type, count]) => {
-                        const pct = Math.round((count / analysisData.totalPitches) * 100);
-                        return (
-                          <div key={type} className="flex items-center gap-2 text-[9px] mb-1.5 last:mb-0">
-                            <div className="w-16 truncate font-bold">{type}</div>
-                            <div className="flex-1 bg-slate-200 h-1.5 rounded-full overflow-hidden shadow-inner"><div className="bg-blue-500 h-full transition-all duration-700" style={{ width: `${pct}%` }}></div></div>
-                            <div className="w-6 text-right font-bold text-slate-400">{pct}%</div>
-                          </div>
-                        );
+                        const pct = Math.round((count / (analysisData.totalPitches || 1)) * 100);
+                        return <div key={type} className="flex items-center gap-2 text-[9px] mb-1.5 last:mb-0"><div className="w-16 truncate font-bold">{type}</div><div className="flex-1 bg-slate-200 h-1.5 rounded-full overflow-hidden shadow-inner"><div className="bg-blue-500 h-full transition-all duration-700" style={{ width: `${pct}%` }}></div></div><div className="w-6 text-right font-bold text-slate-400 font-mono">{pct}%</div></div>;
                       })}
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* 打席履歴 */}
               <div className="bg-white rounded-2xl shadow-sm border border-slate-200 flex-1 flex flex-col overflow-hidden">
-                 <h2 className="text-xs font-bold bg-slate-100 p-3 border-b border-slate-200 text-slate-700 flex justify-between items-center">
+                 <h2 className="text-xs font-bold bg-slate-100 p-3 border-b border-slate-200 text-slate-700 flex justify-between items-center shrink-0">
                   <span>打席履歴（{currentBatterObj.name}）</span>
-                  <span className="text-[10px] bg-white border border-slate-300 px-2 py-0.5 rounded-full shadow-sm font-mono tracking-widest">{currentAtBatPitches.length} 球</span>
+                  <span className="text-[10px] bg-white border border-slate-300 px-2 py-0.5 rounded-full shadow-sm font-mono">{currentAtBatPitches.length} 球</span>
                 </h2>
                 <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-2.5 bg-slate-50/50 grid-bg">
                   {currentAtBatPitches.length === 0 ? (
-                    <div className="text-center text-slate-300 text-[10px] mt-12 italic tracking-widest uppercase">No data recorded</div>
+                    <div className="text-center text-slate-300 text-[10px] mt-12 italic uppercase tracking-widest tracking-widest">No Record</div>
                   ) : (
                     currentAtBatPitches.map((p, idx) => (
                       <div key={idx} className="bg-white p-2.5 rounded-xl shadow-sm border border-slate-200 flex items-center gap-4 animate-in fade-in slide-in-from-bottom-1 duration-200">
@@ -494,10 +449,8 @@
                           <div className="absolute top-[20%] left-[20%] w-[60%] h-[60%] border border-slate-800 z-10 pointer-events-none"></div>
                           {p.course !== null && courses.map(i => <div key={i} className={`${p.course === i ? 'bg-red-500 z-20 relative shadow-sm ring-1 ring-white/50' : isStrikeZone(i) ? 'bg-white' : 'bg-transparent'}`}></div>)}
                         </div>
-                        <div className="flex-1 truncate font-bold text-[11px] text-slate-700 tracking-tight">{p.type}</div>
-                        <div className={`text-white text-[9px] font-black px-3 py-1 rounded-full shadow-sm tracking-tighter whitespace-nowrap ${p.result.includes('ストライク')?'bg-yellow-500':p.result==='ボール'?'bg-green-600':['安','塁打','本塁打'].some(w=>p.result.includes(w))?'bg-blue-600':p.result==='牽制'?'bg-orange-500':'bg-red-500'}`}>
-                          {p.result}
-                        </div>
+                        <div className="flex-1 truncate font-bold text-[11px] text-slate-700">{p.type}</div>
+                        <div className={`text-white text-[9px] font-black px-3 py-1 rounded-full shadow-sm whitespace-nowrap ${p.result.includes('ストライク')?'bg-yellow-500':p.result==='ボール'?'bg-green-600':['安','塁打','本塁打'].some(w=>p.result.includes(w))?'bg-blue-600':p.result==='牽制'?'bg-orange-500':'bg-red-500'}`}>{p.result}</div>
                       </div>
                     ))
                   )}
@@ -506,37 +459,31 @@
             </div>
           </main>
 
-          {/* モーダル：スタメン設定 */}
+          {/* 設定モーダル */}
           {showSettings && (
             <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-md animate-in fade-in duration-200">
-              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden ring-1 ring-white/20">
+              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
                 <div className="p-5 border-b border-slate-200 flex justify-between items-center bg-slate-50/80">
-                  <h2 className="text-xl font-black text-slate-800 flex items-center gap-2">⚙️ 試合設定 & スタメン入力</h2>
-                  <button onClick={() => setShowSettings(false)} className="bg-slate-800 text-white px-8 py-2.5 rounded-2xl font-bold shadow-lg hover:bg-black active:scale-95 transition-all">完了して戻る</button>
+                  <h2 className="text-xl font-black text-slate-800 flex items-center gap-2">⚙️ 設定・スタメン</h2>
+                  <button onClick={() => setShowSettings(false)} className="bg-slate-800 text-white px-8 py-2.5 rounded-2xl font-bold shadow-lg">戻る</button>
                 </div>
                 <div className="p-8 overflow-y-auto flex-1 grid grid-cols-2 gap-10">
                   {['top', 'bottom'].map(team => (
                     <div key={team} className="border border-slate-200 rounded-2xl overflow-hidden shadow-sm flex flex-col">
                       <div className={`p-4 font-black flex items-center gap-3 ${team==='top'?'bg-blue-100 text-blue-800':'bg-red-100 text-red-800'}`}>
                         <span className="text-sm px-2 py-0.5 bg-white/50 rounded-lg">{team==='top'?'先攻':'後攻'}</span>
-                        <input type="text" value={gameInfo[team==='top'?'teamTop':'teamBottom']} onChange={e=>setGameInfo({...gameInfo, [team==='top'?'teamTop':'teamBottom']: e.target.value})} className="flex-1 rounded-xl px-3 py-1 outline-none border border-transparent focus:bg-white/80 focus:border-blue-400 transition-all font-bold" placeholder="チーム名を入力" />
+                        <input type="text" value={gameInfo[team==='top'?'teamTop':'teamBottom']} onChange={e=>setGameInfo({...gameInfo, [team==='top'?'teamTop':'teamBottom']: e.target.value})} className="flex-1 rounded-xl px-3 py-1 outline-none border border-transparent focus:bg-white/80 transition-all font-bold" />
                       </div>
-                      <table className="w-full text-[11px] text-center table-fixed">
-                        <thead className="bg-slate-50 text-slate-400 uppercase tracking-widest font-black"><tr><th className="py-2 w-8">順</th><th className="py-2 w-10">守</th><th className="py-2 text-left px-3">選手名</th><th className="w-14">投/打</th></tr></thead>
-                        <tbody className="bg-white">
-                          {lineups[team].map((p, i) => (
-                            <tr key={i} className="border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors">
-                              <td className="py-2 font-black text-slate-300">{i+1}</td>
-                              <td><input type="text" value={p.pos} onChange={e => { const newL = [...lineups[team]]; newL[i].pos = e.target.value; setLineups({...lineups, [team]: newL}); }} className="w-8 border border-slate-200 rounded-lg text-center py-1 outline-none focus:border-blue-400 font-bold" /></td>
-                              <td className="px-3"><input type="text" value={p.name} onChange={e => { const newL = [...lineups[team]]; newL[i].name = e.target.value; setLineups({...lineups, [team]: newL}); }} className="w-full border border-slate-200 rounded-lg px-2 py-1 outline-none focus:border-blue-400 font-bold" /></td>
-                              <td>
-                                <select value={`${p.throws}${p.bats}`} onChange={e => { const val = e.target.value; const newL = [...lineups[team]]; newL[i].throws = val[0]; newL[i].bats = val[1]; setLineups({...lineups, [team]: newL}); }} className="border border-slate-200 rounded-lg py-1 outline-none text-[9px] bg-slate-50 font-black w-12 text-center">
-                                  <option value="右右">右右</option><option value="右左">右左</option><option value="左右">左右</option><option value="左左">左左</option>
-                                </select>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
+                      <table className="w-full text-[11px] text-center table-fixed font-bold">
+                        <thead className="bg-slate-50 text-slate-400 uppercase tracking-widest"><tr><th className="py-2 w-8">順</th><th className="py-2 w-10">守</th><th className="py-2 text-left px-3">選手名</th><th className="w-14">投/打</th></tr></thead>
+                        <tbody>{lineups[team].map((p, i) => (
+                          <tr key={i} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
+                            <td className="py-2 text-slate-300">{i+1}</td>
+                            <td><input type="text" value={p.pos} onChange={e => { const newL = [...lineups[team]]; newL[i].pos = e.target.value; setLineups({...lineups, [team]: newL}); }} className="w-8 border border-slate-200 rounded text-center py-1 outline-none focus:border-blue-400" /></td>
+                            <td className="px-3"><input type="text" value={p.name} onChange={e => { const newL = [...lineups[team]]; newL[i].name = e.target.value; setLineups({...lineups, [team]: newL}); }} className="w-full border border-slate-200 rounded px-2 py-1 outline-none focus:border-blue-400" /></td>
+                            <td><select value={`${p.throws}${p.bats}`} onChange={e => { const val = e.target.value; const newL = [...lineups[team]]; newL[i].throws = val[0]; newL[i].bats = val[1]; setLineups({...lineups, [team]: newL}); }} className="border border-slate-200 rounded py-1 outline-none text-[9px] bg-slate-50 w-12 text-center"><option value="右右">右右</option><option value="右左">右左</option><option value="左右">左右</option><option value="左左">左左</option></select></td>
+                          </tr>
+                        ))}</tbody>
                       </table>
                     </div>
                   ))}
@@ -545,32 +492,25 @@
             </div>
           )}
 
-          {/* モーダル：共有・出力 */}
+          {/* 共有モーダル */}
           {showExport && (
             <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-md animate-in zoom-in duration-200">
               <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-md p-8 relative overflow-hidden">
-                <button onClick={() => setShowExport(false)} className="absolute top-6 right-6 text-3xl font-black text-slate-300 hover:text-slate-600 transition-colors">✕</button>
+                <button onClick={() => setShowExport(false)} className="absolute top-6 right-6 text-2xl font-black text-slate-300 hover:text-slate-600 transition-colors">✕</button>
                 <div className="flex flex-col items-center mb-8">
                   <div className="w-16 h-16 bg-blue-100 rounded-3xl flex items-center justify-center text-blue-600 text-3xl mb-4">📥</div>
-                  <h2 className="text-2xl font-black text-slate-800">共有と出力</h2>
-                  <p className="text-slate-400 text-xs font-bold mt-1 tracking-widest uppercase">Export Match Records</p>
+                  <h2 className="text-2xl font-black text-slate-800 font-sans">共有と出力</h2>
                 </div>
                 <div className="flex flex-col gap-4">
-                  <button onClick={copyShareText} className="bg-slate-800 hover:bg-black text-white py-5 rounded-2xl font-black shadow-xl flex items-center justify-center gap-3 active:scale-95 transition-all">📋 試合結果をコピー</button>
-                  <button onClick={exportCSV} className="bg-green-600 hover:bg-green-700 text-white py-5 rounded-2xl font-black shadow-xl flex items-center justify-center gap-3 active:scale-95 transition-all">📥 CSVで保存 (Excel用)</button>
-                </div>
-                <div className="mt-10 p-5 bg-slate-50 rounded-2xl border border-slate-200">
-                  <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Notice</h3>
-                  <p className="text-[11px] text-slate-500 leading-relaxed font-bold">データはiPad本体に自動保存されています。新試合を開始するまで、アプリを閉じてもデータは保持されます。</p>
+                  <button onClick={copyShareText} className="bg-slate-800 hover:bg-black text-white py-5 rounded-2xl font-black shadow-xl flex items-center justify-center gap-3 active:scale-95 transition-all">📋 結果をコピー</button>
+                  <button onClick={exportCSV} className="bg-green-600 hover:bg-green-700 text-white py-5 rounded-2xl font-black shadow-xl flex items-center justify-center gap-3 active:scale-95 transition-all">📥 CSV保存 (Excel用)</button>
                 </div>
               </div>
             </div>
           )}
-
         </div>
       );
     }
-
     const root = ReactDOM.createRoot(document.getElementById('root'));
     root.render(<BaseballAnalyzer />);
   </script>
