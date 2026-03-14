@@ -33,7 +33,7 @@
         const initial = {
           inning: 1, isTop: true, outs: 0, balls: 0, strikes: 0, 
           batterTop: 1, batterBottom: 1,
-          runners: { first: false, second: false, third: false }, // 追加：ランナー状況
+          runners: { first: false, second: false, third: false },
           runs: { top: [0,0,0,0,0,0,0,0,0], bottom: [0,0,0,0,0,0,0,0,0] }
         };
         if (!saved) return initial;
@@ -80,11 +80,17 @@
       const [showInPlayResult, setShowInPlayResult] = useState(false);
       const [showSubModal, setShowSubModal] = useState(false); 
       
+      // 進塁記録用モーダル
+      const [showAdvanceModal, setShowAdvanceModal] = useState(false);
+      const [advanceData, setAdvanceData] = useState({ runner: '', reason: '', to: '' });
+
       const [selectedPosition, setSelectedPosition] = useState(null);
       const [analysisFilter, setAnalysisFilter] = useState({ pitcher: 'ALL', batterSide: 'ALL' });
-      const [currentPitch, setCurrentPitch] = useState({ course: null, type: 'ストレート系' });
+      const [currentPitch, setCurrentPitch] = useState({ course: null, type: 'ストレート' });
       
-      const [importText, setImportText] = useState(''); // 追加：インポート用テキスト
+      const [importText, setImportText] = useState(''); 
+      const [editingPitchIndex, setEditingPitchIndex] = useState(null);
+      const [editPitchData, setEditPitchData] = useState(null);
 
       // --- 2. 永続化 ---
       useEffect(() => {
@@ -145,7 +151,6 @@
         }
       };
 
-      // 特延（タイブレーク）設定
       const handleTieBreak = () => {
         if (window.confirm("特別延長（0アウト1,2塁）をセットしますか？\nカウントはリセットされます。")) {
           recordAction();
@@ -159,7 +164,6 @@
         }
       };
 
-      // ランナーの手動切り替え
       const toggleRunner = (base) => {
         recordAction();
         setGameState(prev => ({
@@ -169,6 +173,49 @@
             [base]: !prev.runners[base]
           }
         }));
+      };
+
+      // 進塁イベントの記録
+      const handleAdvanceRecord = () => {
+        if (!advanceData.runner || !advanceData.reason || !advanceData.to) {
+          alert("全ての項目を選択してください"); return;
+        }
+        recordAction();
+        
+        const runnerName = advanceData.runner === 'first' ? '1塁走者' : advanceData.runner === 'second' ? '2塁走者' : '3塁走者';
+        const toName = advanceData.to === 'second' ? '2塁' : advanceData.to === 'third' ? '3塁' : '本塁';
+        
+        const currentBatterIndex = (gameState.isTop ? gameState.batterTop : gameState.batterBottom) - 1;
+        const defTeamKey = gameState.isTop ? 'bottom' : 'top';
+        const offTeamKey = gameState.isTop ? 'top' : 'bottom';
+        const currentPitcherObj = lineups[defTeamKey].find(p => p.pos === '投' || p.pos === '1' || p.pos === '①') || { name: '投手未設定', throws: '右' };
+        const currentBatterObj = lineups[offTeamKey][currentBatterIndex] || { name: '打者未設定', bats: '右' };
+
+        const eventPitch = {
+          course: null, type: '-', result: `${runnerName} ${advanceData.reason}で${toName}へ`,
+          inning: gameState.inning, isTop: gameState.isTop, batter: currentBatterIndex + 1,
+          pitchNumber: '-', pitcherName: currentPitcherObj.name, pitcherThrows: currentPitcherObj.throws,
+          batterName: currentBatterObj.name, batterBats: currentBatterObj.bats, isEvent: true
+        };
+        setPitches([...pitches, eventPitch]);
+
+        setGameState(prev => {
+          const newRunners = { ...prev.runners, [advanceData.runner]: false };
+          if (advanceData.to !== 'home') {
+              newRunners[advanceData.to] = true;
+          }
+          const newRuns = { ...prev.runs };
+          if (advanceData.to === 'home') {
+              const team = prev.isTop ? 'top' : 'bottom';
+              const newRunsArray = [...newRuns[team]];
+              newRunsArray[prev.inning - 1]++;
+              newRuns[team] = newRunsArray;
+          }
+          return { ...prev, runners: newRunners, runs: newRuns };
+        });
+
+        setShowAdvanceModal(false);
+        setAdvanceData({ runner: '', reason: '', to: '' });
       };
 
       const nextBatter = (outCount = 0) => {
@@ -188,7 +235,7 @@
 
           if (newOuts >= 3) {
             newOuts = 0;
-            newRunners = { first: false, second: false, third: false }; // チェンジでランナーリセット
+            newRunners = { first: false, second: false, third: false }; 
             if (prev.isTop) newIsTop = false;
             else { newIsTop = true; newInning++; }
           }
@@ -212,6 +259,8 @@
         const currentPitcherObj = lineups[defTeamKey].find(p => p.pos === '投' || p.pos === '1' || p.pos === '①') || { name: '投手未設定', throws: '右' };
         const currentBatterObj = lineups[offTeamKey][currentBatterIndex] || { name: '打者未設定', bats: '右' };
 
+        const currentBatterPitches = pitches.filter(p => p.inning === gameState.inning && p.isTop === gameState.isTop && p.batter === currentBatterIndex + 1 && !p.isEvent);
+
         const newPitch = {
           ...currentPitch,
           course: (result === '牽制' || result === '盗塁死' || result === 'その他出塁') ? null : currentPitch.course,
@@ -220,11 +269,12 @@
           inning: gameState.inning,
           isTop: gameState.isTop,
           batter: currentBatterIndex + 1,
-          pitchNumber: pitches.filter(p => p.inning === gameState.inning && p.isTop === gameState.isTop && p.batter === currentBatterIndex + 1).length + 1,
+          pitchNumber: currentBatterPitches.length + 1,
           pitcherName: currentPitcherObj.name,
           pitcherThrows: currentPitcherObj.throws,
           batterName: currentBatterObj.name,
-          batterBats: currentBatterObj.bats
+          batterBats: currentBatterObj.bats,
+          isEvent: false
         };
 
         setPitches([...pitches, newPitch]);
@@ -306,6 +356,29 @@
         setLineups(newLineups);
       };
 
+      const handleEditPitchClick = (pitch) => {
+        if (pitch.isEvent) return; // 進塁イベントは編集不可とする
+        const globalIndex = pitches.indexOf(pitch);
+        if (globalIndex !== -1) {
+          setEditingPitchIndex(globalIndex);
+          setEditPitchData({ ...pitch });
+        }
+      };
+
+      const savePitchEdit = () => {
+        recordAction();
+        const newPitches = [...pitches];
+        newPitches[editingPitchIndex] = editPitchData;
+        setPitches(newPitches);
+        setEditingPitchIndex(null);
+        setEditPitchData(null);
+      };
+
+      const cancelPitchEdit = () => {
+        setEditingPitchIndex(null);
+        setEditPitchData(null);
+      };
+
       // --- 5. 導出データ ---
       const offTeamKey = gameState.isTop ? 'top' : 'bottom';
       const defTeamKey = gameState.isTop ? 'bottom' : 'top';
@@ -316,7 +389,7 @@
 
       const analysisData = useMemo(() => {
         const valid = pitches.filter(p => {
-          if (p.result === '牽制' || p.result === '盗塁死' || p.result === 'その他出塁') return false;
+          if (p.isEvent || p.result === '牽制' || p.result === '盗塁死' || p.result === 'その他出塁') return false;
           if (analysisFilter.pitcher !== 'ALL' && p.pitcherName !== analysisFilter.pitcher) return false;
           if (analysisFilter.batterSide !== 'ALL' && p.batterBats !== analysisFilter.batterSide) return false;
           return true;
@@ -333,7 +406,13 @@
 
       const courses = Array.from({ length: 25 }, (_, i) => i);
       const isStrikeZone = (i) => { const row = Math.floor(i / 5); const col = i % 5; return row >= 1 && row <= 3 && col >= 1 && col <= 3; };
-      const pitchTypes = [{ name: 'ストレート系', color: 'bg-red-500' }, { name: 'スライダー系', color: 'bg-blue-500' }, { name: 'カーブ系', color: 'bg-yellow-500' }, { name: '落ちる系', color: 'bg-purple-500' }, { name: 'シュート系', color: 'bg-green-500' }];
+      const pitchTypes = [
+        { name: 'ストレート', icon: '↑' }, 
+        { name: 'スライダー', icon: '↰' }, 
+        { name: 'カーブ', icon: '↙' }, 
+        { name: '落ちる球', icon: '↓' }, 
+        { name: 'シュート', icon: '↱' }
+      ];
 
       const copyShareText = () => {
         const topTotal = gameState.runs.top.reduce((a,b)=>a+b,0);
@@ -347,7 +426,7 @@
         lineups.bottom.forEach((p, i) => batterStats.bottom[i+1] = { name: p.name, pos: p.pos, results: [] });
 
         pitches.forEach(p => {
-          if (p.result !== '牽制' && p.result !== '盗塁死' && p.result !== 'その他出塁' && p.pitcherName) {
+          if (!p.isEvent && p.result !== '牽制' && p.result !== '盗塁死' && p.result !== 'その他出塁' && p.pitcherName) {
             if (!pitcherStats[p.pitcherName]) pitcherStats[p.pitcherName] = { pitches: 0, k: 0, bb: 0, hits: 0 };
             pitcherStats[p.pitcherName].pitches++;
           }
@@ -362,7 +441,7 @@
           const isTop = parts[1] === 'true';
           const batter = parseInt(parts[2]);
 
-          const abPitches = pitches.filter(p => p.inning === inning && p.isTop === isTop && p.batter === batter);
+          const abPitches = pitches.filter(p => p.inning === inning && p.isTop === isTop && p.batter === batter && !p.isEvent);
           if (abPitches.length === 0) return;
 
           const lastPitch = abPitches[abPitches.length - 1];
@@ -435,7 +514,6 @@
         const link = document.createElement("a"); link.setAttribute("href", encodeURI(content)); link.setAttribute("download", `試合データ.csv`); link.click();
       };
 
-      // --- 引継ぎ機能 ---
       const exportData = () => {
         const data = { gameState, gameInfo, lineups, pitches, undoStack, redoStack };
         const text = JSON.stringify(data);
@@ -470,7 +548,7 @@
           <header className="bg-white shadow-sm border-b border-slate-300 p-4 flex items-center justify-between shrink-0">
             <div className="flex items-center gap-2 text-xl font-bold text-blue-700 tracking-tighter">⚾ 配球分析</div>
             
-            {/* 得点板（イニング表示付き） */}
+            {/* 得点板（イニングジャンプ機能付き） */}
             <div className="flex flex-col bg-white border border-slate-400 rounded-lg overflow-hidden text-sm shadow-sm">
               <div className="flex bg-slate-200 border-b border-slate-400 font-bold text-[10px] text-slate-600">
                 <div className="w-24 border-r border-slate-400 flex items-center justify-center py-0.5">TEAM</div>
@@ -487,8 +565,20 @@
                 <div className="flex">
                   {[1,2,3,4,5,6,7,8,9].map(i => (
                     <div key={i} className={`flex flex-col border-r border-slate-400 text-center w-8 ${gameState.inning === i ? 'bg-blue-50' : 'bg-white'}`}>
-                      <div className="h-7 border-b border-slate-400 flex items-center justify-center font-bold text-[11px]">{gameState.runs.top[i-1] > 0 ? gameState.runs.top[i-1] : (gameState.inning > i || (gameState.inning === i && !gameState.isTop) ? '0' : '')}</div>
-                      <div className="h-7 flex items-center justify-center font-bold text-[11px]">{gameState.runs.bottom[i-1] > 0 ? gameState.runs.bottom[i-1] : (gameState.inning > i ? '0' : '')}</div>
+                      {/* 表の得点 */}
+                      <div 
+                        onClick={() => { recordAction(); setGameState(prev => ({...prev, inning: i, isTop: true})); }}
+                        className={`h-7 border-b border-slate-400 flex items-center justify-center font-bold text-[11px] cursor-pointer hover:bg-blue-200 transition-colors ${gameState.inning === i && gameState.isTop ? 'bg-blue-200' : ''}`}
+                      >
+                        {gameState.runs.top[i-1] > 0 ? gameState.runs.top[i-1] : (gameState.inning > i || (gameState.inning === i && !gameState.isTop) ? '0' : '')}
+                      </div>
+                      {/* 裏の得点 */}
+                      <div 
+                        onClick={() => { recordAction(); setGameState(prev => ({...prev, inning: i, isTop: false})); }}
+                        className={`h-7 flex items-center justify-center font-bold text-[11px] cursor-pointer hover:bg-blue-200 transition-colors ${gameState.inning === i && !gameState.isTop ? 'bg-blue-200' : ''}`}
+                      >
+                        {gameState.runs.bottom[i-1] > 0 ? gameState.runs.bottom[i-1] : (gameState.inning > i ? '0' : '')}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -500,25 +590,25 @@
             </div>
 
             <div className="flex gap-4 items-center">
-              {/* ランナー表示＆操作 */}
+              {/* ランナー表示＆進塁ボタン */}
               <div className="flex flex-col items-center mr-2">
                 <div className="text-[9px] font-bold text-slate-500 mb-0.5 tracking-widest">ランナー</div>
-                <div className="relative w-8 h-8">
+                <div className="relative w-8 h-8 mb-1">
                   <button onClick={() => toggleRunner('second')} className={`absolute top-0 left-1/2 -translate-x-1/2 w-3.5 h-3.5 transform rotate-45 border-2 border-slate-400 ${gameState.runners.second ? 'bg-blue-600' : 'bg-white'} shadow-sm transition-colors`}></button>
                   <button onClick={() => toggleRunner('third')} className={`absolute top-1/2 left-0 -translate-y-1/2 w-3.5 h-3.5 transform rotate-45 border-2 border-slate-400 ${gameState.runners.third ? 'bg-blue-600' : 'bg-white'} shadow-sm transition-colors`}></button>
                   <button onClick={() => toggleRunner('first')} className={`absolute top-1/2 right-0 -translate-y-1/2 w-3.5 h-3.5 transform rotate-45 border-2 border-slate-400 ${gameState.runners.first ? 'bg-blue-600' : 'bg-white'} shadow-sm transition-colors`}></button>
                   <div className={`absolute bottom-0 left-1/2 -translate-x-1/2 w-3.5 h-3.5 transform rotate-45 border border-slate-400 bg-slate-200`}></div>
                 </div>
+                <button onClick={() => setShowAdvanceModal(true)} className="text-[9px] bg-blue-100 hover:bg-blue-200 text-blue-700 px-2 py-0.5 rounded font-bold shadow-sm transition-colors border border-blue-200">＋進塁</button>
               </div>
 
-              {/* カウント表示 */}
-              <div className="flex flex-col gap-0.5 items-center px-4 border-l border-r border-slate-300 font-mono">
+              {/* カウント表示（左揃え化） */}
+              <div className="flex flex-col gap-0.5 items-start px-4 border-l border-r border-slate-300 font-mono">
                 <div className="flex items-center gap-1 font-bold"><span className="text-[10px] w-3 text-green-600">B</span>{[0,1,2].map(i=><div key={i} className={`w-3.5 h-3.5 rounded-full border-2 border-green-600 ${i<gameState.balls?'bg-green-500 shadow-inner':'bg-slate-200'}`}></div>)}</div>
                 <div className="flex items-center gap-1 font-bold"><span className="text-[10px] w-3 text-yellow-500">S</span>{[0,1].map(i=><div key={i} className={`w-3.5 h-3.5 rounded-full border-2 border-yellow-500 ${i<gameState.strikes?'bg-yellow-400 shadow-inner':'bg-slate-200'}`}></div>)}</div>
                 <div className="flex items-center gap-1 font-bold"><span className="text-[10px] w-3 text-red-600">O</span>{[0,1].map(i=><div key={i} className={`w-3.5 h-3.5 rounded-full border-2 border-red-600 ${i<gameState.outs?'bg-red-500 shadow-inner':'bg-slate-200'}`}></div>)}</div>
               </div>
 
-              {/* メニューボタン群 */}
               <div className="flex flex-col gap-1.5 font-sans">
                 <div className="flex gap-1.5">
                   <button onClick={handleTieBreak} className="bg-purple-50 text-purple-700 px-2 py-0.5 rounded text-[10px] font-bold border border-purple-200 shadow-sm active:bg-purple-100 transition-colors">⚡ 特延</button>
@@ -544,7 +634,8 @@
                       <select 
                         value={gameState.isTop ? gameState.batterTop : gameState.batterBottom} 
                         onChange={(e) => manuallyChangeBatter(Number(e.target.value))}
-                        className="bg-white border border-blue-300 text-blue-700 rounded px-1 outline-none font-black cursor-pointer shadow-sm"
+                        className="bg-white border border-blue-400 text-blue-700 rounded px-1 outline-none font-black cursor-pointer shadow-sm focus:ring-2 focus:ring-blue-400"
+                        title="打順を変更して過去の打席に移動"
                       >
                         {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => <option key={n} value={n}>{n}番</option>)}
                       </select>
@@ -576,13 +667,17 @@
                     </div>
                     <div className="flex-1 flex flex-col justify-between py-2">
                       <div className="space-y-4">
-                        <div className="flex flex-wrap gap-1.5">
+                        
+                        {/* パワプロ風の球種アイコン追加 */}
+                        <div className="flex flex-wrap gap-1.5 justify-center">
                           {pitchTypes.map(pt => (
-                            <button key={pt.name} onClick={() => setCurrentPitch({ ...currentPitch, type: pt.name })} className={`px-2.5 py-1.5 rounded-lg font-bold text-[10px] border-2 transition-all ${currentPitch.type === pt.name ? 'border-blue-600 bg-blue-50 text-blue-700 shadow-sm scale-105' : 'border-slate-100 bg-white text-slate-500'}`}>
+                            <button key={pt.name} onClick={() => setCurrentPitch({ ...currentPitch, type: pt.name })} className={`px-2.5 py-1.5 rounded-lg font-bold text-[11px] border-2 transition-all flex items-center gap-1 ${currentPitch.type === pt.name ? 'border-blue-600 bg-blue-50 text-blue-700 shadow-sm scale-105' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'}`}>
+                              <span className={`text-sm ${currentPitch.type === pt.name ? 'text-blue-600' : 'text-slate-400'}`}>{pt.icon}</span>
                               {pt.name}
                             </button>
                           ))}
                         </div>
+
                         <div className="grid grid-cols-2 gap-2">
                           <button onClick={() => recordPitch('ストライク')} className="bg-slate-800 text-white py-3 rounded-xl font-bold text-xs shadow-md active:bg-black transition-colors">見逃しS</button>
                           <button onClick={() => recordPitch('空振り')} className="bg-slate-600 text-white py-3 rounded-xl font-bold text-xs shadow-md active:bg-slate-700 transition-colors">空振りS</button>
@@ -590,14 +685,14 @@
                           <button onClick={() => recordPitch('ファウル')} className="bg-yellow-500 text-white py-3 rounded-xl font-bold text-xs shadow-md active:bg-yellow-600 transition-colors">ファウル</button>
                         </div>
                         <div className="grid grid-cols-4 gap-2">
-                          <button onClick={() => recordPitch('死球')} className="bg-purple-600 text-white py-3 rounded-xl font-bold text-xs shadow-md active:bg-purple-700 transition-colors">死球</button>
-                          <button onClick={() => recordPitch('牽制')} className="bg-orange-500 text-white py-3 rounded-xl font-bold text-xs shadow-md active:bg-orange-600 transition-colors">牽制</button>
-                          <button onClick={() => recordPitch('盗塁死')} className="bg-rose-600 text-white py-3 rounded-xl font-bold text-xs shadow-md active:bg-rose-700 transition-colors">盗塁死</button>
+                          <button onClick={() => recordPitch('死球')} className="bg-purple-600 text-white py-3 rounded-xl font-bold text-[10px] shadow-md active:bg-purple-700 transition-colors tracking-tighter">死球</button>
+                          <button onClick={() => recordPitch('牽制')} className="bg-orange-500 text-white py-3 rounded-xl font-bold text-[10px] shadow-md active:bg-orange-600 transition-colors tracking-tighter">牽制</button>
+                          <button onClick={() => recordPitch('盗塁死')} className="bg-rose-600 text-white py-3 rounded-xl font-bold text-[10px] shadow-md active:bg-rose-700 transition-colors tracking-tighter">盗塁死</button>
                           <button onClick={() => recordPitch('その他出塁')} className="bg-teal-600 text-white py-3 rounded-xl font-bold text-[10px] shadow-md active:bg-teal-700 transition-colors tracking-tighter">他出塁</button>
                         </div>
                         <button onClick={() => recordPitch('インプレー')} className="w-full bg-blue-600 text-white py-3.5 rounded-xl font-black text-base shadow-lg active:scale-95 transition-transform font-bold mt-1">打った！ (インプレー)</button>
                         
-                        <div className="grid grid-cols-2 gap-3 mt-4 border-t pt-4">
+                        <div className="grid grid-cols-2 gap-3 mt-2 border-t pt-3">
                           <button onClick={handleUndo} disabled={undoStack.length === 0} className={`py-3 rounded-xl font-black text-xs flex items-center justify-center gap-2 border-2 transition-all ${undoStack.length > 0 ? 'bg-white border-slate-800 text-slate-800 active:bg-slate-100' : 'bg-slate-50 border-slate-200 text-slate-200 cursor-not-allowed'}`}>
                             <span>↩️ 戻る</span>{undoStack.length > 0 && <span className="bg-slate-800 text-white text-[9px] px-1.5 rounded-full font-mono">{undoStack.length}</span>}
                           </button>
@@ -616,12 +711,25 @@
                     <button onClick={() => handleUndo()} className="text-xs bg-white px-4 py-2 rounded-full border border-slate-400 shadow-sm font-bold text-slate-600">↩️ 取消して戻る</button>
                   </div>
                   {!selectedPosition ? (
-                    <div className="flex-1 flex flex-col items-center">
-                      <p className="text-slate-600 font-bold mb-8 text-base tracking-wide font-sans">① 打球の方向を選択</p>
-                      <div className="grid grid-cols-3 gap-4 w-full max-w-[360px]">
-                        {['左', '中', '右', '遊', '二', '三', '投', '捕', '一'].map(pos => (
-                          <button key={pos} onClick={() => { recordAction(); setSelectedPosition(pos); }} className="bg-white border-2 border-slate-400 py-6 rounded-2xl font-black text-2xl shadow-sm hover:border-blue-500 active:scale-90 transition-all font-bold text-slate-700">{pos}</button>
-                        ))}
+                    <div className="flex-1 flex flex-col items-center justify-center">
+                      <p className="text-slate-600 font-bold mb-6 text-base tracking-wide font-sans">① 打球の方向を選択</p>
+                      
+                      {/* 野球グラウンド風のポジション選択UI */}
+                      <div className="relative w-[280px] h-[280px] bg-green-50 border-2 border-slate-300 rounded-t-[140px] overflow-hidden shadow-inner mb-4">
+                        <div className="absolute bottom-[-40px] left-1/2 -translate-x-1/2 w-[180px] h-[180px] bg-amber-50 rounded-full border border-amber-200/50"></div>
+                        
+                        <button onClick={() => { recordAction(); setSelectedPosition('左'); }} className="absolute top-[25%] left-[10%] w-11 h-11 bg-white border-2 border-slate-400 rounded-full font-black text-sm shadow-md hover:border-blue-500 hover:text-blue-600 flex items-center justify-center text-slate-700 transition-all active:scale-90">左</button>
+                        <button onClick={() => { recordAction(); setSelectedPosition('中'); }} className="absolute top-[10%] left-1/2 -translate-x-1/2 w-11 h-11 bg-white border-2 border-slate-400 rounded-full font-black text-sm shadow-md hover:border-blue-500 hover:text-blue-600 flex items-center justify-center text-slate-700 transition-all active:scale-90">中</button>
+                        <button onClick={() => { recordAction(); setSelectedPosition('右'); }} className="absolute top-[25%] right-[10%] w-11 h-11 bg-white border-2 border-slate-400 rounded-full font-black text-sm shadow-md hover:border-blue-500 hover:text-blue-600 flex items-center justify-center text-slate-700 transition-all active:scale-90">右</button>
+                        
+                        <button onClick={() => { recordAction(); setSelectedPosition('遊'); }} className="absolute top-[50%] left-[25%] w-11 h-11 bg-white border-2 border-slate-400 rounded-full font-black text-sm shadow-md hover:border-blue-500 hover:text-blue-600 flex items-center justify-center text-slate-700 transition-all active:scale-90">遊</button>
+                        <button onClick={() => { recordAction(); setSelectedPosition('二'); }} className="absolute top-[50%] right-[25%] w-11 h-11 bg-white border-2 border-slate-400 rounded-full font-black text-sm shadow-md hover:border-blue-500 hover:text-blue-600 flex items-center justify-center text-slate-700 transition-all active:scale-90">二</button>
+                        
+                        <button onClick={() => { recordAction(); setSelectedPosition('三'); }} className="absolute bottom-[20%] left-[15%] w-11 h-11 bg-white border-2 border-slate-400 rounded-full font-black text-sm shadow-md hover:border-blue-500 hover:text-blue-600 flex items-center justify-center text-slate-700 transition-all active:scale-90">三</button>
+                        <button onClick={() => { recordAction(); setSelectedPosition('一'); }} className="absolute bottom-[20%] right-[15%] w-11 h-11 bg-white border-2 border-slate-400 rounded-full font-black text-sm shadow-md hover:border-blue-500 hover:text-blue-600 flex items-center justify-center text-slate-700 transition-all active:scale-90">一</button>
+                        
+                        <button onClick={() => { recordAction(); setSelectedPosition('投'); }} className="absolute bottom-[35%] left-1/2 -translate-x-1/2 w-11 h-11 bg-white border-2 border-slate-400 rounded-full font-black text-sm shadow-md hover:border-blue-500 hover:text-blue-600 flex items-center justify-center text-slate-700 transition-all active:scale-90">投</button>
+                        <button onClick={() => { recordAction(); setSelectedPosition('捕'); }} className="absolute bottom-[5%] left-1/2 -translate-x-1/2 w-11 h-11 bg-white border-2 border-slate-400 rounded-full font-black text-sm shadow-md hover:border-blue-500 hover:text-blue-600 flex items-center justify-center text-slate-700 transition-all active:scale-90">捕</button>
                       </div>
                     </div>
                   ) : (
@@ -685,25 +793,41 @@
                 </div>
               </div>
 
+              {/* 打席履歴リスト */}
               <div className="bg-white rounded-2xl shadow-sm border border-slate-300 flex-1 flex flex-col overflow-hidden">
                  <h2 className="text-xs font-bold bg-slate-200 p-3 border-b border-slate-400 text-slate-800 flex justify-between items-center shrink-0 tracking-tight font-sans">
                   <span>打席履歴（{currentBatterObj.name}）</span>
-                  <span className="text-[10px] bg-white border border-slate-400 px-2 py-0.5 rounded-full shadow-sm font-mono font-bold">{currentAtBatPitches.length} 球</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[9px] text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full font-bold">💡タップして修正</span>
+                    <span className="text-[10px] bg-white border border-slate-400 px-2 py-0.5 rounded-full shadow-sm font-mono font-bold">{currentAtBatPitches.filter(p => !p.isEvent).length} 球</span>
+                  </div>
                 </h2>
                 <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-2.5 bg-slate-50/50 grid-bg font-sans">
                   {currentAtBatPitches.length === 0 ? (
                     <div className="text-center text-slate-400 text-[10px] mt-12 italic uppercase font-bold tracking-widest tracking-widest font-sans uppercase">No Record</div>
                   ) : (
                     currentAtBatPitches.map((p, idx) => (
-                      <div key={idx} className="bg-white p-2.5 rounded-xl shadow-sm border border-slate-400 flex items-center gap-4 animate-in fade-in slide-in-from-bottom-1 duration-200">
-                        <div className="font-black text-xl text-slate-400 w-5 font-mono">{p.pitchNumber}</div>
-                        <div className="grid grid-cols-5 grid-rows-5 w-8 h-8 gap-[1px] bg-slate-300 border border-slate-400 relative shadow-inner shrink-0">
-                          <div className="absolute top-[20%] left-[20%] w-[60%] h-[60%] border border-slate-800 z-10 pointer-events-none"></div>
-                          {p.course !== null && courses.map(i => <div key={i} className={`${p.course === i ? 'bg-red-500 z-20 relative shadow-sm ring-1 ring-white/50' : isStrikeZone(i) ? 'bg-white' : 'bg-transparent'}`}></div>)}
+                      p.isEvent ? (
+                        <div key={idx} className="bg-blue-50 p-2.5 rounded-xl shadow-sm border border-blue-200 flex justify-center items-center animate-in fade-in slide-in-from-bottom-1 duration-200 text-blue-800 font-bold text-xs relative">
+                          <span className="absolute left-3 text-blue-400 font-mono text-sm">🏃</span>
+                          {p.result}
                         </div>
-                        <div className="flex-1 truncate font-bold text-[11px] text-slate-700 tracking-tighter">{p.type}</div>
-                        <div className={`text-white text-[9px] font-black px-3 py-1 rounded-full shadow-sm whitespace-nowrap ${p.result.includes('ストライク')?'bg-yellow-500':p.result==='ボール'?'bg-green-600':p.result==='死球'?'bg-purple-600':p.result==='その他出塁'?'bg-teal-600':['安','塁打','本塁打'].some(w=>p.result.includes(w))?'bg-blue-600':p.result==='牽制'?'bg-orange-500':p.result==='盗塁死'?'bg-rose-600':'bg-red-500'}`}>{p.result}</div>
-                      </div>
+                      ) : (
+                        <div 
+                          key={idx} 
+                          onClick={() => handleEditPitchClick(p)}
+                          className="bg-white p-2.5 rounded-xl shadow-sm border border-slate-400 flex items-center gap-4 animate-in fade-in slide-in-from-bottom-1 duration-200 cursor-pointer hover:bg-blue-50 hover:border-blue-400 transition-colors relative"
+                          title="タップしてこの球を修正する"
+                        >
+                          <div className="font-black text-xl text-slate-400 w-5 font-mono">{p.pitchNumber}</div>
+                          <div className="grid grid-cols-5 grid-rows-5 w-8 h-8 gap-[1px] bg-slate-300 border border-slate-400 relative shadow-inner shrink-0">
+                            <div className="absolute top-[20%] left-[20%] w-[60%] h-[60%] border border-slate-800 z-10 pointer-events-none"></div>
+                            {p.course !== null && courses.map(i => <div key={i} className={`${p.course === i ? 'bg-red-500 z-20 relative shadow-sm ring-1 ring-white/50' : isStrikeZone(i) ? 'bg-white' : 'bg-transparent'}`}></div>)}
+                          </div>
+                          <div className="flex-1 truncate font-bold text-[11px] text-slate-700 tracking-tighter">{p.type}</div>
+                          <div className={`text-white text-[9px] font-black px-3 py-1 rounded-full shadow-sm whitespace-nowrap ${p.result.includes('ストライク')?'bg-yellow-500':p.result==='ボール'?'bg-green-600':p.result==='死球'?'bg-purple-600':p.result==='その他出塁'?'bg-teal-600':['安','塁打','本塁打'].some(w=>p.result.includes(w))?'bg-blue-600':p.result==='牽制'?'bg-orange-500':p.result==='盗塁死'?'bg-rose-600':'bg-red-500'}`}>{p.result}</div>
+                        </div>
+                      )
                     ))
                   )}
                 </div>
@@ -711,7 +835,101 @@
             </div>
           </main>
 
-          {/* 設定・オーダー（選手交代）モーダル */}
+          {/* 1球の部分修正用モーダル */}
+          {editingPitchIndex !== null && editPitchData && (
+            <div className="fixed inset-0 bg-black/70 z-[110] flex items-center justify-center p-4 backdrop-blur-md animate-in fade-in zoom-in duration-200 font-sans">
+              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col border border-slate-300">
+                 <div className="p-4 border-b border-slate-300 bg-blue-50 flex justify-between items-center text-blue-800">
+                   <h2 className="font-black text-lg">第{editPitchData.pitchNumber}球のデータを修正</h2>
+                   <button onClick={cancelPitchEdit} className="text-slate-400 hover:text-black font-bold text-xl px-2">✕</button>
+                 </div>
+                 <div className="p-6 flex flex-col gap-6 bg-slate-50/50">
+                   <div className="flex flex-col items-center">
+                     <span className="text-xs font-bold text-slate-500 mb-2 tracking-widest">コース</span>
+                     <div className="grid grid-cols-5 grid-rows-5 w-40 h-40 relative bg-slate-200 p-1 rounded-lg border border-slate-400 shadow-inner">
+                       <div className="absolute top-[20%] left-[20%] w-[60%] h-[60%] border-4 border-slate-800 z-10 pointer-events-none"></div>
+                       {courses.map(i => (
+                         <button key={i} onClick={() => setEditPitchData({...editPitchData, course: i})} className={`relative ${isStrikeZone(i) ? 'bg-white' : 'bg-slate-50'} ${editPitchData.course === i ? 'ring-4 ring-blue-500 bg-blue-100 z-20 scale-110 shadow-md' : 'border border-slate-300 hover:bg-blue-50'}`}></button>
+                       ))}
+                     </div>
+                   </div>
+                   
+                   <div className="flex flex-col items-center">
+                     <span className="text-xs font-bold text-slate-500 mb-2 tracking-widest">球種</span>
+                     <div className="flex flex-wrap gap-2 justify-center">
+                       {pitchTypes.map(pt => (
+                         <button key={pt.name} onClick={() => setEditPitchData({...editPitchData, type: pt.name})} className={`px-3 py-2 rounded-lg font-bold text-xs border-2 transition-colors ${editPitchData.type === pt.name ? 'border-blue-600 bg-blue-50 text-blue-700 shadow-sm' : 'border-slate-300 bg-white hover:bg-slate-100'}`}>{pt.name}</button>
+                       ))}
+                     </div>
+                   </div>
+
+                   <div className="flex flex-col">
+                     <span className="text-xs font-bold text-slate-500 mb-2 tracking-widest text-center">結果</span>
+                     <input type="text" value={editPitchData.result} onChange={e => setEditPitchData({...editPitchData, result: e.target.value})} className="w-full border-2 border-slate-300 rounded-xl p-3 text-center font-black text-lg outline-none focus:border-blue-500 shadow-inner" placeholder="結果テキスト" />
+                   </div>
+                 </div>
+                 <div className="p-4 border-t border-slate-300 flex gap-4 bg-white">
+                   <button onClick={cancelPitchEdit} className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 py-3 rounded-xl font-bold transition-colors">キャンセル</button>
+                   <button onClick={savePitchEdit} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-black shadow-lg active:scale-95 transition-all">保存して上書き</button>
+                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* 進塁記録モーダル */}
+          {showAdvanceModal && (
+            <div className="fixed inset-0 bg-black/60 z-[110] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in zoom-in duration-200 font-sans">
+              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col border border-slate-300">
+                <div className="p-4 border-b border-slate-300 bg-blue-50 flex justify-between items-center text-blue-800">
+                  <h2 className="font-black text-lg">🏃 進塁の記録</h2>
+                  <button onClick={() => setShowAdvanceModal(false)} className="text-slate-400 hover:text-black font-bold text-xl px-2">✕</button>
+                </div>
+                <div className="p-6 flex flex-col gap-4 bg-slate-50/50">
+                  
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs font-bold text-slate-500">どの走者が？</label>
+                    <select value={advanceData.runner} onChange={e=>setAdvanceData({...advanceData, runner: e.target.value})} className="border border-slate-300 p-2 rounded outline-none font-bold text-slate-700">
+                      <option value="">選択してください</option>
+                      {gameState.runners.first && <option value="first">1塁走者</option>}
+                      {gameState.runners.second && <option value="second">2塁走者</option>}
+                      {gameState.runners.third && <option value="third">3塁走者</option>}
+                    </select>
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs font-bold text-slate-500">理由は？</label>
+                    <select value={advanceData.reason} onChange={e=>setAdvanceData({...advanceData, reason: e.target.value})} className="border border-slate-300 p-2 rounded outline-none font-bold text-slate-700">
+                      <option value="">選択してください</option>
+                      <option value="盗塁">盗塁</option>
+                      <option value="ワイルドピッチ">ワイルドピッチ(WP)</option>
+                      <option value="パスボール">パスボール(PB)</option>
+                      <option value="ボーク">ボーク</option>
+                      <option value="エラー">エラー</option>
+                      <option value="打撃妨害">打撃妨害</option>
+                      <option value="その他">その他</option>
+                    </select>
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-xs font-bold text-slate-500">どこへ進塁した？</label>
+                    <select value={advanceData.to} onChange={e=>setAdvanceData({...advanceData, to: e.target.value})} className="border border-slate-300 p-2 rounded outline-none font-bold text-slate-700">
+                      <option value="">選択してください</option>
+                      <option value="second">2塁へ</option>
+                      <option value="third">3塁へ</option>
+                      <option value="home">本塁へ (得点)</option>
+                    </select>
+                  </div>
+
+                </div>
+                <div className="p-4 border-t border-slate-300 flex gap-4 bg-white">
+                  <button onClick={() => setShowAdvanceModal(false)} className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 py-3 rounded-xl font-bold transition-colors">キャンセル</button>
+                  <button onClick={handleAdvanceRecord} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-xl font-black shadow-lg active:scale-95 transition-all">記録する</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* オーダー（選手交代）モーダル */}
           {showSettings && (
             <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-md animate-in fade-in duration-200 font-sans">
               <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden ring-1 ring-slate-400 font-sans">
