@@ -37,14 +37,19 @@
           runs: { top: [0,0,0,0,0,0,0,0,0], bottom: [0,0,0,0,0,0,0,0,0] }
         };
         if (!saved) return initial;
+        
         const parsed = JSON.parse(saved);
+        
+        // 古いデータ形式のマイグレーションと保護処理（打順バグの修正）
         if (parsed.batter && !parsed.batterTop) {
           parsed.batterTop = parsed.batter;
           parsed.batterBottom = 1;
         }
-        if (!parsed.runners) {
-          parsed.runners = { first: false, second: false, third: false };
-        }
+        parsed.batterTop = parsed.batterTop || 1;
+        parsed.batterBottom = parsed.batterBottom || 1;
+        parsed.runners = parsed.runners || { first: false, second: false, third: false };
+        parsed.runs = parsed.runs || { top: [0,0,0,0,0,0,0,0,0], bottom: [0,0,0,0,0,0,0,0,0] };
+        
         return parsed;
       });
 
@@ -85,7 +90,6 @@
       const [showOutRunnerModal, setShowOutRunnerModal] = useState(false);
       const [outRunnerData, setOutRunnerData] = useState({ runner: '', reason: '盗塁死' });
 
-      // 試合終了・分析用
       const [showPostGameAnalysis, setShowPostGameAnalysis] = useState(false);
       const [postGameTab, setPostGameTab] = useState('team');
 
@@ -97,7 +101,6 @@
       const [editingPitchIndex, setEditingPitchIndex] = useState(null);
       const [editPitchData, setEditPitchData] = useState(null);
 
-      // トーストとコンファーム
       const [toast, setToast] = useState(null);
       const [confirmDialog, setConfirmDialog] = useState(null);
 
@@ -290,11 +293,13 @@
         const currentPitcherObj = lineups[defTeamKey].find(p => p.pos === '投' || p.pos === '1' || p.pos === '①') || { name: '投手未設定', throws: '右' };
         const currentBatterObj = lineups[offTeamKey][currentBatterIndex] || { name: '打者未設定', bats: '右' };
 
+        // 記録時にランナー状況を保存
         const eventPitch = {
           course: null, type: '-', result: `${runnerName} ${advanceData.reason}で${toName}へ`,
           inning: gameState.inning, isTop: gameState.isTop, batter: currentBatterIndex + 1,
           pitchNumber: '-', pitcherName: currentPitcherObj.name, pitcherThrows: currentPitcherObj.throws,
-          batterName: currentBatterObj.name, batterBats: currentBatterObj.bats, isEvent: true
+          batterName: currentBatterObj.name, batterBats: currentBatterObj.bats, isEvent: true,
+          runners: { ...gameState.runners }, outs: gameState.outs
         };
         setPitches([...pitches, eventPitch]);
 
@@ -332,11 +337,13 @@
         const currentPitcherObj = lineups[defTeamKey].find(p => p.pos === '投' || p.pos === '1' || p.pos === '①') || { name: '投手未設定', throws: '右' };
         const currentBatterObj = lineups[offTeamKey][currentBatterIndex] || { name: '打者未設定', bats: '右' };
 
+        // 記録時にランナー状況を保存
         const eventPitch = {
           course: null, type: '-', result: `${runnerName}が${outRunnerData.reason}`,
           inning: gameState.inning, isTop: gameState.isTop, batter: currentBatterIndex + 1,
           pitchNumber: '-', pitcherName: currentPitcherObj.name, pitcherThrows: currentPitcherObj.throws,
-          batterName: currentBatterObj.name, batterBats: currentBatterObj.bats, isEvent: true
+          batterName: currentBatterObj.name, batterBats: currentBatterObj.bats, isEvent: true,
+          runners: { ...gameState.runners }, outs: gameState.outs
         };
         setPitches([...pitches, eventPitch]);
 
@@ -376,6 +383,7 @@
 
         const currentBatterPitches = pitches.filter(p => p.inning === gameState.inning && p.isTop === gameState.isTop && p.batter === currentBatterIndex + 1 && !p.isEvent);
 
+        // 記録時にランナー状況を保存
         const newPitch = {
           ...currentPitch,
           course: (result === '牽制' || result === 'その他出塁' || result === 'ウエスト') ? null : currentPitch.course,
@@ -389,7 +397,9 @@
           pitcherThrows: currentPitcherObj.throws,
           batterName: currentBatterObj.name,
           batterBats: currentBatterObj.bats,
-          isEvent: false
+          isEvent: false,
+          runners: { ...gameState.runners },
+          outs: gameState.outs
         };
 
         setPitches([...pitches, newPitch]);
@@ -462,7 +472,11 @@
         const globalIndex = pitches.indexOf(pitch);
         if (globalIndex !== -1) {
           setEditingPitchIndex(globalIndex);
-          setEditPitchData({ ...pitch });
+          // 既存のデータに runners がない場合のフォールバック
+          setEditPitchData({ 
+            ...pitch, 
+            runners: pitch.runners || { first: false, second: false, third: false } 
+          });
         }
       };
 
@@ -478,6 +492,16 @@
       const cancelPitchEdit = () => {
         setEditingPitchIndex(null);
         setEditPitchData(null);
+      };
+
+      const toggleEditRunner = (base) => {
+        setEditPitchData(prev => ({
+          ...prev,
+          runners: {
+            ...prev.runners,
+            [base]: !prev.runners[base]
+          }
+        }));
       };
 
       // --- 5. 導出データとUIコンポーネント ---
@@ -514,7 +538,6 @@
       const courses = Array.from({ length: 25 }, (_, i) => i);
       const isStrikeZone = (i) => { const row = Math.floor(i / 5); const col = i % 5; return row >= 1 && row <= 3 && col >= 1 && col <= 3; };
       
-      // 直感的なパワプロ風の矢印アイコンに変更（右投手・左投手での曲がる方向を完全修正）
       const getPitchTypes = (throwsRight) => [
         { name: 'ストレート', icon: '↑', colorClass: 'border-red-500 bg-red-100 text-red-700' }, 
         { name: 'スライダー', icon: throwsRight ? '→' : '←', colorClass: 'border-blue-500 bg-blue-100 text-blue-700' }, 
@@ -541,10 +564,8 @@
 
       const PawapuroPitchGrid = ({ isEditing = false, throwsRight = true }) => {
         const pTypes = getPitchTypes(throwsRight);
-        // 右投手なら左にシュート、右にスライダー
         const leftPitch = throwsRight ? pTypes[2] : pTypes[1]; 
         const rightPitch = throwsRight ? pTypes[1] : pTypes[2]; 
-        // 右投手なら左下にシンカー、右下にカーブ
         const bottomLeftPitch = throwsRight ? pTypes[5] : pTypes[3]; 
         const bottomRightPitch = throwsRight ? pTypes[3] : pTypes[5];
 
@@ -1041,8 +1062,9 @@
             </div>
 
             <div className="flex gap-4 items-center">
+              {/* ランナー表示＆進塁ボタン */}
               <div className="flex flex-col items-center mr-2">
-                <div className="text-[9px] font-bold text-slate-500 mb-0.5 tracking-widest">ランナー</div>
+                <div className="text-[9px] font-bold text-slate-500 mb-0.5 tracking-widest">現在のランナー</div>
                 <div className="relative w-8 h-8 mb-1">
                   <button onClick={() => toggleRunner('second')} className={`absolute top-0 left-1/2 -translate-x-1/2 w-3.5 h-3.5 transform rotate-45 border-2 border-slate-400 ${gameState.runners.second ? 'bg-blue-600' : 'bg-white'} shadow-sm transition-colors`}></button>
                   <button onClick={() => toggleRunner('third')} className={`absolute top-1/2 left-0 -translate-y-1/2 w-3.5 h-3.5 transform rotate-45 border-2 border-slate-400 ${gameState.runners.third ? 'bg-blue-600' : 'bg-white'} shadow-sm transition-colors`}></button>
@@ -1257,6 +1279,12 @@
                       p.isEvent ? (
                         <div key={idx} className="bg-blue-50 p-2.5 rounded-xl shadow-sm border border-blue-200 flex justify-center items-center animate-in fade-in slide-in-from-bottom-1 duration-200 text-blue-800 font-bold text-xs relative">
                           <span className="absolute left-3 text-blue-400 font-mono text-sm">🏃</span>
+                          {/* ランナー図追加 */}
+                          <div className="absolute right-3 w-4 h-4 shrink-0 mx-1">
+                            <div className={`absolute top-0 left-1/2 -translate-x-1/2 w-1.5 h-1.5 transform rotate-45 border border-slate-400 ${p.runners?.second ? 'bg-blue-600' : 'bg-white'}`}></div>
+                            <div className={`absolute top-1/2 left-0 -translate-y-1/2 w-1.5 h-1.5 transform rotate-45 border border-slate-400 ${p.runners?.third ? 'bg-blue-600' : 'bg-white'}`}></div>
+                            <div className={`absolute top-1/2 right-0 -translate-y-1/2 w-1.5 h-1.5 transform rotate-45 border border-slate-400 ${p.runners?.first ? 'bg-blue-600' : 'bg-white'}`}></div>
+                          </div>
                           {p.result}
                         </div>
                       ) : (
@@ -1267,6 +1295,14 @@
                           title="タップしてこの球を修正する"
                         >
                           <div className="font-black text-xl text-slate-400 w-5 font-mono">{p.pitchNumber}</div>
+                          
+                          {/* ランナー図追加 */}
+                          <div className="relative w-4 h-4 shrink-0 mx-1" title="投球時のランナー位置">
+                            <div className={`absolute top-0 left-1/2 -translate-x-1/2 w-1.5 h-1.5 transform rotate-45 border border-slate-400 ${p.runners?.second ? 'bg-blue-600' : 'bg-white'}`}></div>
+                            <div className={`absolute top-1/2 left-0 -translate-y-1/2 w-1.5 h-1.5 transform rotate-45 border border-slate-400 ${p.runners?.third ? 'bg-blue-600' : 'bg-white'}`}></div>
+                            <div className={`absolute top-1/2 right-0 -translate-y-1/2 w-1.5 h-1.5 transform rotate-45 border border-slate-400 ${p.runners?.first ? 'bg-blue-600' : 'bg-white'}`}></div>
+                          </div>
+
                           <div className="grid grid-cols-5 grid-rows-5 w-8 h-8 gap-[1px] bg-slate-300 border border-slate-400 relative shadow-inner shrink-0">
                             <div className="absolute top-[20%] left-[20%] w-[60%] h-[60%] border border-slate-800 z-10 pointer-events-none"></div>
                             {p.course !== null && courses.map(i => <div key={i} className={`${p.course === i ? 'bg-red-500 z-20 relative shadow-sm ring-1 ring-white/50' : isStrikeZone(i) ? 'bg-white' : 'bg-transparent'}`}></div>)}
@@ -1290,7 +1326,20 @@
                    <h2 className="font-black text-lg">第{editPitchData.pitchNumber}球のデータを修正</h2>
                    <button onClick={cancelPitchEdit} className="text-slate-400 hover:text-black font-bold text-xl px-2">✕</button>
                  </div>
-                 <div className="p-6 flex flex-col gap-6 bg-slate-50/50">
+                 
+                 <div className="p-6 flex flex-col gap-6 bg-slate-50/50 overflow-y-auto max-h-[70vh]">
+                   
+                   {/* ランナー状況の修正UI */}
+                   <div className="flex flex-col items-center bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
+                     <span className="text-[10px] font-bold text-slate-500 mb-2 tracking-widest">この球が投げられた時点のランナーを修正</span>
+                     <div className="flex gap-4 relative w-16 h-16">
+                       <button onClick={() => toggleEditRunner('second')} className={`absolute top-0 left-1/2 -translate-x-1/2 w-5 h-5 transform rotate-45 border-2 border-slate-400 ${editPitchData.runners?.second ? 'bg-blue-600' : 'bg-slate-100'}`}></button>
+                       <button onClick={() => toggleEditRunner('third')} className={`absolute top-1/2 left-0 -translate-y-1/2 w-5 h-5 transform rotate-45 border-2 border-slate-400 ${editPitchData.runners?.third ? 'bg-blue-600' : 'bg-slate-100'}`}></button>
+                       <button onClick={() => toggleEditRunner('first')} className={`absolute top-1/2 right-0 -translate-y-1/2 w-5 h-5 transform rotate-45 border-2 border-slate-400 ${editPitchData.runners?.first ? 'bg-blue-600' : 'bg-slate-100'}`}></button>
+                       <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-5 h-5 transform rotate-45 border border-slate-400 bg-slate-300"></div>
+                     </div>
+                   </div>
+
                    <div className="flex flex-col items-center">
                      <span className="text-xs font-bold text-slate-500 mb-2 tracking-widest">コース</span>
                      <div className="grid grid-cols-5 grid-rows-5 w-40 h-40 relative bg-slate-200 p-1 rounded-lg border border-slate-400 shadow-inner">
