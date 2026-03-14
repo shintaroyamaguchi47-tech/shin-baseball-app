@@ -201,12 +201,23 @@
         let targetBatter = isTop ? gameState.batterTop : gameState.batterBottom;
         let newRunners = { first: false, second: false, third: false };
         let newOuts = 0;
+        let newBalls = 0;
+        let newStrikes = 0;
 
-        // そのイニングの最初のデータが存在すれば、その打者とランナー状況を復元
+        // そのイニングの「最後」のデータが存在すれば、その打者とランナー状況を復元
         if (inningPitches.length > 0) {
-          targetBatter = inningPitches[0].batter;
-          newRunners = inningPitches[0].runners || newRunners;
-          newOuts = inningPitches[0].outs || 0;
+          const lastPitch = inningPitches[inningPitches.length - 1];
+          targetBatter = lastPitch.batter;
+          newRunners = lastPitch.runners || newRunners;
+          newOuts = lastPitch.outs || 0;
+
+          // その打者のB/Sカウントを復元
+          const targetPitches = inningPitches.filter(p => p.batter === targetBatter && !p.isEvent);
+          for (let p of targetPitches) {
+            if (p.result === 'ボール' || p.result === 'ウエスト') newBalls++;
+            else if (p.result === 'ストライク' || p.result === '空振り') newStrikes++;
+            else if (p.result === 'ファウル' && newStrikes < 2) newStrikes++;
+          }
         }
 
         setGameState(prev => ({
@@ -216,8 +227,8 @@
           ...(isTop ? { batterTop: targetBatter } : { batterBottom: targetBatter }),
           runners: newRunners,
           outs: newOuts,
-          balls: 0,
-          strikes: 0
+          balls: newBalls,
+          strikes: newStrikes
         }));
         setShowInPlayResult(false);
         setSelectedPosition(null);
@@ -487,13 +498,23 @@
         const targetPitches = pitches.filter(p => p.inning === gameState.inning && p.isTop === gameState.isTop && p.batter === newBatterNum);
         
         setGameState(prev => {
-          let newRunners = { ...prev.runners };
+          let newRunners = { first: false, second: false, third: false };
           let newOuts = prev.outs;
+          let newBalls = 0;
+          let newStrikes = 0;
           
-          // その打席の最初のデータが存在すれば、当時のランナーとアウトを復元
+          // その打席の「最後」のデータが存在すれば、当時のランナーとアウト、カウントを復元
           if (targetPitches.length > 0) {
-            newRunners = targetPitches[0].runners || { first: false, second: false, third: false };
-            newOuts = targetPitches[0].outs || 0;
+            const lastPitch = targetPitches[targetPitches.length - 1];
+            newRunners = lastPitch.runners || newRunners;
+            newOuts = lastPitch.outs || 0;
+
+            const nonEventPitches = targetPitches.filter(p => !p.isEvent);
+            for (let p of nonEventPitches) {
+              if (p.result === 'ボール' || p.result === 'ウエスト') newBalls++;
+              else if (p.result === 'ストライク' || p.result === '空振り') newStrikes++;
+              else if (p.result === 'ファウル' && newStrikes < 2) newStrikes++;
+            }
           }
 
           return {
@@ -501,8 +522,8 @@
             ...(prev.isTop ? { batterTop: newBatterNum } : { batterBottom: newBatterNum }),
             runners: newRunners,
             outs: newOuts,
-            balls: 0,
-            strikes: 0
+            balls: newBalls,
+            strikes: newStrikes
           };
         });
         setShowInPlayResult(false);
