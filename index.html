@@ -1272,31 +1272,80 @@
         showToast('🤖 AI分析用のデータをコピーしました！Gemini等に貼り付けてください。'); document.body.removeChild(ta);
       };
 
+      // --- 確実なクリップボードコピー用のヘルパー関数 ---
+      const fallbackCopyTextToClipboard = (text, successMessage) => {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.top = '0';
+        ta.style.left = '0';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        try {
+          document.execCommand('copy');
+          showToast(successMessage, 'success');
+        } catch (err) {
+          showToast('コピーに失敗しました。手動でコピーしてください。', 'error');
+        }
+        document.body.removeChild(ta);
+      };
+
+      // --- データ引き継ぎの大幅強化 ---
       const exportData = () => {
-        const data = { gameState, gameInfo, lineups, pitches, undoStack, redoStack };
-        const text = JSON.stringify(data);
-        const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand('copy');
-        showToast('引継ぎデータをコピーしました！別の端末に貼り付けてください。'); document.body.removeChild(ta);
+        // undo/redoの履歴を含めるとデータが重くなりすぎるため除外
+        const exportObj = { 
+          gameState, 
+          gameInfo, 
+          lineups, 
+          pitches 
+        };
+        const jsonString = JSON.stringify(exportObj);
+        
+        // LINEなどで送った際に記号や改行が壊れないよう、Base64文字列にエンコードする
+        const base64String = btoa(encodeURIComponent(jsonString));
+        
+        const successMessage = '引継ぎデータをコピーしました！別の端末に貼り付けてください。';
+        
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(base64String).then(() => {
+                showToast(successMessage, 'success');
+            }).catch(() => {
+                fallbackCopyTextToClipboard(base64String, successMessage);
+            });
+        } else {
+            fallbackCopyTextToClipboard(base64String, successMessage);
+        }
       };
 
       const importData = () => {
         try {
-          const data = JSON.parse(importText);
+          let jsonString = '';
+          try {
+             // 新しい形式（Base64エンコード）からの復元を試みる
+             jsonString = decodeURIComponent(atob(importText.trim()));
+          } catch (e) {
+             // デコードに失敗した場合は、古い形式（生JSON文字列）だと仮定する
+             jsonString = importText.trim();
+          }
+
+          const data = JSON.parse(jsonString);
           if (data.gameState && data.lineups && data.pitches) {
             setGameState(data.gameState);
             setGameInfo(data.gameInfo || { date: new Date().toISOString().split('T')[0], teamTop: '先攻チーム', teamBottom: '後攻チーム' });
             setLineups(data.lineups);
             setPitches(data.pitches);
-            setUndoStack(data.undoStack || []);
-            setRedoStack(data.redoStack || []);
-            showToast('データを復元しました！');
+            // 履歴は引き継がずリセットする
+            setUndoStack([]);
+            setRedoStack([]);
+            showToast('データを復元しました！', 'success');
             setImportText('');
             setShowExport(false);
           } else {
             showToast('無効なデータ形式です。', 'error');
           }
         } catch (e) {
-          showToast('データの読み込みに失敗しました。', 'error');
+          showToast('データの読み込みに失敗しました。コピーしたテキストが欠けていないか確認してください。', 'error');
         }
       };
 
