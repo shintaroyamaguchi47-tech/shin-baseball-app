@@ -175,7 +175,7 @@
       };
 
       // 出塁・進塁・チェンジを統合処理する関数
-      const handleAdvanceAndNextBatter = (eventType, addedOuts) => {
+      const nextBatter = (outCount = 0) => {
         setGameState(prev => {
           let newOuts = prev.outs + addedOuts;
           let newInning = prev.inning;
@@ -250,50 +250,8 @@
         setSelectedPosition(null);
       };
 
-      const handleAdvanceRecord = () => {
-        if (!advanceData.runner || !advanceData.reason || !advanceData.to) {
-          alert("全ての項目を選択してください"); return;
-        }
-        recordAction();
-        
-        const runnerName = advanceData.runner === 'first' ? '1塁走者' : advanceData.runner === 'second' ? '2塁走者' : '3塁走者';
-        const toName = advanceData.to === 'second' ? '2塁' : advanceData.to === 'third' ? '3塁' : '本塁';
-        
-        const defTeamKey = gameState.isTop ? 'bottom' : 'top';
-        const offTeamKey = gameState.isTop ? 'top' : 'bottom';
-        const currentBatterIndex = (gameState.isTop ? gameState.batterTop : gameState.batterBottom) - 1;
-        const currentPitcherObj = lineups[defTeamKey].find(p => p.pos === '投' || p.pos === '1' || p.pos === '①') || { name: '投手未設定', throws: '右' };
-        const currentBatterObj = lineups[offTeamKey][currentBatterIndex] || { name: '打者未設定', bats: '右' };
-
-        const eventPitch = {
-          course: null, type: '-', result: `${runnerName} ${advanceData.reason}で${toName}へ`,
-          inning: gameState.inning, isTop: gameState.isTop, batter: currentBatterIndex + 1,
-          pitchNumber: '-', pitcherName: currentPitcherObj.name, pitcherThrows: currentPitcherObj.throws,
-          batterName: currentBatterObj.name, batterBats: currentBatterObj.bats, isEvent: true
-        };
-        setPitches([...pitches, eventPitch]);
-
-        setGameState(prev => {
-          const newRunners = { ...prev.runners, [advanceData.runner]: false };
-          if (advanceData.to !== 'home') {
-              newRunners[advanceData.to] = true;
-          }
-          const newRuns = { ...prev.runs };
-          if (advanceData.to === 'home') {
-              const team = prev.isTop ? 'top' : 'bottom';
-              const newRunsArray = [...newRuns[team]];
-              newRunsArray[prev.inning - 1]++;
-              newRuns[team] = newRunsArray;
-          }
-          return { ...prev, runners: newRunners, runs: newRuns };
-        });
-
-        setShowAdvanceModal(false);
-        setAdvanceData({ runner: '', reason: '', to: '' });
-      };
-
       const recordPitch = (result, detailedResult = '') => {
-        if (result !== '牽制' && result !== '盗塁死' && result !== 'その他出塁' && currentPitch.course === null) {
+        if (result !== '牽制' && result !== '盗塁死' && result !== 'その他出塁' && result !== 'ウエスト' && currentPitch.course === null) {
           alert("コースを選択してください！");
           return;
         }
@@ -310,7 +268,7 @@
 
         const newPitch = {
           ...currentPitch,
-          course: (result === '牽制' || result === '盗塁死' || result === 'その他出塁') ? null : currentPitch.course,
+          course: (result === '牽制' || result === '盗塁死' || result === 'その他出塁' || result === 'ウエスト') ? null : currentPitch.course,
           type: (result === '牽制' || result === '盗塁死' || result === 'その他出塁') ? '-' : currentPitch.type,
           result: detailedResult || result,
           inning: gameState.inning,
@@ -347,11 +305,11 @@
           else setGameState(prev => ({ ...prev, strikes: prev.strikes + 1 }));
         } else if (result === 'ファウル') {
           if (gameState.strikes < 2) setGameState(prev => ({ ...prev, strikes: prev.strikes + 1 }));
-        } else if (result === 'ボール') {
+        } else if (result === 'ボール' || result === 'ウエスト') {
           if (gameState.balls === 3) handleAdvanceAndNextBatter('walk', 0);
           else setGameState(prev => ({ ...prev, balls: prev.balls + 1 }));
         } else if (result === '死球' || result === 'その他出塁') {
-          handleAdvanceAndNextBatter(result === 'その他出塁' ? 'other' : 'walk', 0);
+          nextBatter(0); 
         } else if (result === 'インプレー') {
           setShowInPlayResult(true);
         }
@@ -450,7 +408,7 @@
           typeCount[normalizedType] = (typeCount[normalizedType] || 0) + 1; 
         });
         
-        const strikeRate = valid.length === 0 ? 0 : Math.round((valid.filter(p => p.result !== 'ボール').length / valid.length) * 100);
+        const strikeRate = valid.length === 0 ? 0 : Math.round((valid.filter(p => p.result !== 'ボール' && p.result !== 'ウエスト').length / valid.length) * 100);
         return { courseHeat, maxFreq, typeCount, strikeRate, totalPitches: valid.length };
       }, [pitches, analysisFilter]);
 
@@ -549,7 +507,7 @@
           let s = 0; let b = 0; let resultStr = '';
 
           for (let p of abPitches) {
-            if (p.result === 'ボール') b++;
+            if (p.result === 'ボール' || p.result === 'ウエスト') b++;
             else if (p.result === 'ストライク' || p.result === '空振り') s++;
             else if (p.result === 'ファウル' && s < 2) s++;
           }
@@ -760,11 +718,13 @@
                         {/* パワプロ風の球種アイコンUI */}
                         <PawapuroPitchGrid throwsRight={currentPitcherObj.throws === '右' || currentPitcherObj.throws === '右右' || currentPitcherObj.throws === '右左'} />
 
-                        <div className="grid grid-cols-2 gap-2">
+                        <div className="grid grid-cols-3 gap-2">
                           <button onClick={() => recordPitch('ストライク')} className="bg-slate-800 text-white py-3 rounded-xl font-bold text-xs shadow-md active:bg-black transition-colors">見逃しS</button>
                           <button onClick={() => recordPitch('空振り')} className="bg-slate-600 text-white py-3 rounded-xl font-bold text-xs shadow-md active:bg-slate-700 transition-colors">空振りS</button>
-                          <button onClick={() => recordPitch('ボール')} className="bg-green-600 text-white py-3 rounded-xl font-bold text-xs shadow-md active:bg-green-700 transition-colors">ボール</button>
                           <button onClick={() => recordPitch('ファウル')} className="bg-yellow-500 text-white py-3 rounded-xl font-bold text-xs shadow-md active:bg-yellow-600 transition-colors">ファウル</button>
+                          
+                          <button onClick={() => recordPitch('ボール')} className="col-span-2 bg-green-600 text-white py-3 rounded-xl font-bold text-xs shadow-md active:bg-green-700 transition-colors">ボール</button>
+                          <button onClick={() => recordPitch('ウエスト')} className="bg-emerald-600 text-white py-3 rounded-xl font-bold text-xs shadow-md active:bg-emerald-700 transition-colors tracking-tighter">ウエスト</button>
                         </div>
                         <div className="grid grid-cols-4 gap-2">
                           <button onClick={() => recordPitch('死球')} className="bg-purple-600 text-white py-3 rounded-xl font-bold text-[10px] shadow-md active:bg-purple-700 transition-colors tracking-tighter">死球</button>
@@ -913,7 +873,7 @@
                             {p.course !== null && courses.map(i => <div key={i} className={`${p.course === i ? 'bg-red-500 z-20 relative shadow-sm ring-1 ring-white/50' : isStrikeZone(i) ? 'bg-white' : 'bg-transparent'}`}></div>)}
                           </div>
                           <div className="flex-1 truncate font-bold text-[11px] text-slate-700 tracking-tighter">{p.type ? p.type.replace(/系$/, '') : ''}</div>
-                          <div className={`text-white text-[9px] font-black px-3 py-1 rounded-full shadow-sm whitespace-nowrap ${p.result.includes('ストライク')?'bg-yellow-500':p.result==='ボール'?'bg-green-600':p.result==='死球'?'bg-purple-600':p.result==='その他出塁'?'bg-teal-600':['安','塁打','本塁打'].some(w=>p.result.includes(w))?'bg-blue-600':p.result==='牽制'?'bg-orange-500':p.result==='盗塁死'?'bg-rose-600':'bg-red-500'}`}>{p.result}</div>
+                          <div className={`text-white text-[9px] font-black px-3 py-1 rounded-full shadow-sm whitespace-nowrap ${p.result.includes('ストライク')?'bg-yellow-500':p.result==='ボール'?'bg-green-600':p.result==='ウエスト'?'bg-emerald-600':p.result==='死球'?'bg-purple-600':p.result==='その他出塁'?'bg-teal-600':['安','塁打','本塁打'].some(w=>p.result.includes(w))?'bg-blue-600':p.result==='牽制'?'bg-orange-500':p.result==='盗塁死'?'bg-rose-600':'bg-red-500'}`}>{p.result}</div>
                         </div>
                       )
                     ))
@@ -946,8 +906,16 @@
                      <PawapuroPitchGrid isEditing={true} throwsRight={editPitchData.pitcherThrows === '右' || editPitchData.pitcherThrows === '右右' || editPitchData.pitcherThrows === '右左'} />
                    </div>
 
+                   <div className="grid grid-cols-3 gap-2 w-full px-2">
+                     <button onClick={() => setEditPitchData({...editPitchData, result: 'ストライク'})} className="bg-slate-800 text-white py-2 rounded-lg font-bold text-[10px] shadow-sm">見逃しS</button>
+                     <button onClick={() => setEditPitchData({...editPitchData, result: '空振り'})} className="bg-slate-600 text-white py-2 rounded-lg font-bold text-[10px] shadow-sm">空振りS</button>
+                     <button onClick={() => setEditPitchData({...editPitchData, result: 'ファウル'})} className="bg-yellow-500 text-white py-2 rounded-lg font-bold text-[10px] shadow-sm">ファウル</button>
+                     <button onClick={() => setEditPitchData({...editPitchData, result: 'ボール'})} className="col-span-2 bg-green-600 text-white py-2 rounded-lg font-bold text-[10px] shadow-sm">ボール</button>
+                     <button onClick={() => setEditPitchData({...editPitchData, result: 'ウエスト'})} className="bg-emerald-600 text-white py-2 rounded-lg font-bold text-[10px] shadow-sm">ウエスト</button>
+                   </div>
+
                    <div className="flex flex-col">
-                     <span className="text-xs font-bold text-slate-500 mb-2 tracking-widest text-center">結果</span>
+                     <span className="text-xs font-bold text-slate-500 mb-2 tracking-widest text-center">結果を直接入力</span>
                      <input type="text" value={editPitchData.result} onChange={e => setEditPitchData({...editPitchData, result: e.target.value})} className="w-full border-2 border-slate-300 rounded-xl p-3 text-center font-black text-lg outline-none focus:border-blue-500 shadow-inner" placeholder="結果テキスト" />
                    </div>
                  </div>
