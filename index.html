@@ -514,13 +514,14 @@
       const courses = Array.from({ length: 25 }, (_, i) => i);
       const isStrikeZone = (i) => { const row = Math.floor(i / 5); const col = i % 5; return row >= 1 && row <= 3 && col >= 1 && col <= 3; };
       
+      // 直感的なパワプロ風の矢印アイコンに変更（右投手・左投手での曲がる方向を完全修正）
       const getPitchTypes = (throwsRight) => [
         { name: 'ストレート', icon: '↑', colorClass: 'border-red-500 bg-red-100 text-red-700' }, 
-        { name: 'スライダー', icon: throwsRight ? '↰' : '↱', colorClass: 'border-blue-500 bg-blue-100 text-blue-700' }, 
-        { name: 'シュート', icon: throwsRight ? '↱' : '↰', colorClass: 'border-green-500 bg-green-100 text-green-700' },
-        { name: 'カーブ', icon: throwsRight ? '↙' : '↘', colorClass: 'border-yellow-500 bg-yellow-100 text-yellow-700' }, 
+        { name: 'スライダー', icon: throwsRight ? '→' : '←', colorClass: 'border-blue-500 bg-blue-100 text-blue-700' }, 
+        { name: 'シュート', icon: throwsRight ? '←' : '→', colorClass: 'border-green-500 bg-green-100 text-green-700' },
+        { name: 'カーブ', icon: throwsRight ? '↘' : '↙', colorClass: 'border-yellow-500 bg-yellow-100 text-yellow-700' }, 
         { name: '落ちる球', icon: '↓', colorClass: 'border-purple-500 bg-purple-100 text-purple-700' }, 
-        { name: 'シンカー', icon: throwsRight ? '↘' : '↙', colorClass: 'border-cyan-500 bg-cyan-100 text-cyan-700' }
+        { name: 'シンカー', icon: throwsRight ? '↙' : '↘', colorClass: 'border-cyan-500 bg-cyan-100 text-cyan-700' }
       ];
 
       const PitchTypeButton = ({ pt, isEditing = false }) => {
@@ -532,7 +533,7 @@
             onClick={() => setStateObj({...stateObj, type: pt.name})} 
             className={`flex flex-col items-center justify-center py-1 border-2 rounded-xl transition-all ${isActive ? `${pt.colorClass} shadow-md scale-105` : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'}`}
           >
-            <span className="text-base font-black leading-none mt-1">{pt.icon}</span>
+            <span className="text-xl font-black leading-none mt-1">{pt.icon}</span>
             <span className="text-[9px] font-bold mt-1">{pt.name}</span>
           </button>
         );
@@ -540,10 +541,12 @@
 
       const PawapuroPitchGrid = ({ isEditing = false, throwsRight = true }) => {
         const pTypes = getPitchTypes(throwsRight);
-        const leftPitch = throwsRight ? pTypes[1] : pTypes[2]; 
-        const rightPitch = throwsRight ? pTypes[2] : pTypes[1]; 
-        const bottomLeftPitch = throwsRight ? pTypes[3] : pTypes[5]; 
-        const bottomRightPitch = throwsRight ? pTypes[5] : pTypes[3];
+        // 右投手なら左にシュート、右にスライダー
+        const leftPitch = throwsRight ? pTypes[2] : pTypes[1]; 
+        const rightPitch = throwsRight ? pTypes[1] : pTypes[2]; 
+        // 右投手なら左下にシンカー、右下にカーブ
+        const bottomLeftPitch = throwsRight ? pTypes[5] : pTypes[3]; 
+        const bottomRightPitch = throwsRight ? pTypes[3] : pTypes[5];
 
         return (
           <div className="grid grid-cols-3 grid-rows-3 gap-1.5 w-full max-w-[220px] mx-auto mb-4">
@@ -553,8 +556,8 @@
 
             <PitchTypeButton pt={leftPitch} isEditing={isEditing} />
             <div className="flex flex-col items-center justify-center text-[9px] font-bold text-slate-400 bg-slate-50 rounded-xl border border-slate-200">
-              <span className={throwsRight ? "text-red-500" : "text-blue-500"}>{throwsRight ? "右投" : "左投"}</span>
-              <span>球種</span>
+              <span className={throwsRight ? "text-red-500 text-xs" : "text-blue-500 text-xs"}>{throwsRight ? "右投" : "左投"}</span>
+              <span className="text-slate-700">捕手目線</span>
             </div>
             <PitchTypeButton pt={rightPitch} isEditing={isEditing} />
 
