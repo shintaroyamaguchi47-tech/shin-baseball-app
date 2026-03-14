@@ -80,7 +80,6 @@
       const [showInPlayResult, setShowInPlayResult] = useState(false);
       const [showSubModal, setShowSubModal] = useState(false); 
       
-      // 進塁記録用モーダル
       const [showAdvanceModal, setShowAdvanceModal] = useState(false);
       const [advanceData, setAdvanceData] = useState({ runner: '', reason: '', to: '' });
 
@@ -175,7 +174,82 @@
         }));
       };
 
-      // 進塁イベントの記録
+      // 出塁・進塁・チェンジを統合処理する関数
+      const handleAdvanceAndNextBatter = (eventType, addedOuts) => {
+        setGameState(prev => {
+          let newOuts = prev.outs + addedOuts;
+          let newInning = prev.inning;
+          let newIsTop = prev.isTop;
+          let newBatterTop = prev.batterTop;
+          let newBatterBottom = prev.batterBottom;
+          let newRunners = { ...prev.runners };
+          let newRunsArray = [...prev.runs[prev.isTop ? 'top' : 'bottom']];
+          let runScored = 0;
+
+          // 3アウト未満の場合のみ進塁・得点処理を行う（簡易化）
+          if (newOuts < 3) {
+            if (eventType === 'walk') {
+              if (newRunners.first && newRunners.second && newRunners.third) {
+                runScored = 1;
+              } else if (newRunners.first && newRunners.second) {
+                newRunners.third = true;
+              } else if (newRunners.first) {
+                newRunners.second = true;
+              }
+              newRunners.first = true;
+            } else if (['single', 'error', 'other'].includes(eventType)) {
+              if (newRunners.third) runScored++;
+              newRunners.third = newRunners.second;
+              newRunners.second = newRunners.first;
+              newRunners.first = true;
+            } else if (eventType === 'double') {
+              if (newRunners.third) runScored++;
+              if (newRunners.second) runScored++;
+              newRunners.third = newRunners.first;
+              newRunners.second = true;
+              newRunners.first = false;
+            } else if (eventType === 'triple') {
+              if (newRunners.third) runScored++;
+              if (newRunners.second) runScored++;
+              if (newRunners.first) runScored++;
+              newRunners.third = true;
+              newRunners.second = false;
+              newRunners.first = false;
+            } else if (eventType === 'homerun') {
+              if (newRunners.third) runScored++;
+              if (newRunners.second) runScored++;
+              if (newRunners.first) runScored++;
+              runScored++; // 打者生還
+              newRunners = { first: false, second: false, third: false };
+            }
+          }
+
+          if (runScored > 0) {
+            newRunsArray[newInning - 1] += runScored;
+          }
+
+          // 打順を進める
+          if (prev.isTop) {
+            newBatterTop = newBatterTop === 9 ? 1 : newBatterTop + 1;
+          } else {
+            newBatterBottom = newBatterBottom === 9 ? 1 : newBatterBottom + 1;
+          }
+
+          let nextRuns = { ...prev.runs, [prev.isTop ? 'top' : 'bottom']: newRunsArray };
+
+          // 3アウトでチェンジ
+          if (newOuts >= 3) {
+            newOuts = 0;
+            newRunners = { first: false, second: false, third: false }; 
+            if (prev.isTop) newIsTop = false;
+            else { newIsTop = true; newInning++; }
+          }
+          return { ...prev, outs: newOuts, balls: 0, strikes: 0, batterTop: newBatterTop, batterBottom: newBatterBottom, inning: newInning, isTop: newIsTop, runners: newRunners, runs: nextRuns };
+        });
+        setShowInPlayResult(false);
+        setSelectedPosition(null);
+      };
+
       const handleAdvanceRecord = () => {
         if (!advanceData.runner || !advanceData.reason || !advanceData.to) {
           alert("全ての項目を選択してください"); return;
@@ -185,9 +259,9 @@
         const runnerName = advanceData.runner === 'first' ? '1塁走者' : advanceData.runner === 'second' ? '2塁走者' : '3塁走者';
         const toName = advanceData.to === 'second' ? '2塁' : advanceData.to === 'third' ? '3塁' : '本塁';
         
-        const currentBatterIndex = (gameState.isTop ? gameState.batterTop : gameState.batterBottom) - 1;
         const defTeamKey = gameState.isTop ? 'bottom' : 'top';
         const offTeamKey = gameState.isTop ? 'top' : 'bottom';
+        const currentBatterIndex = (gameState.isTop ? gameState.batterTop : gameState.batterBottom) - 1;
         const currentPitcherObj = lineups[defTeamKey].find(p => p.pos === '投' || p.pos === '1' || p.pos === '①') || { name: '投手未設定', throws: '右' };
         const currentBatterObj = lineups[offTeamKey][currentBatterIndex] || { name: '打者未設定', bats: '右' };
 
@@ -216,33 +290,6 @@
 
         setShowAdvanceModal(false);
         setAdvanceData({ runner: '', reason: '', to: '' });
-      };
-
-      const nextBatter = (outCount = 0) => {
-        setGameState(prev => {
-          let newOuts = prev.outs + outCount;
-          let newInning = prev.inning;
-          let newIsTop = prev.isTop;
-          let newBatterTop = prev.batterTop;
-          let newBatterBottom = prev.batterBottom;
-          let newRunners = prev.runners;
-
-          if (prev.isTop) {
-            newBatterTop = newBatterTop === 9 ? 1 : newBatterTop + 1;
-          } else {
-            newBatterBottom = newBatterBottom === 9 ? 1 : newBatterBottom + 1;
-          }
-
-          if (newOuts >= 3) {
-            newOuts = 0;
-            newRunners = { first: false, second: false, third: false }; 
-            if (prev.isTop) newIsTop = false;
-            else { newIsTop = true; newInning++; }
-          }
-          return { ...prev, outs: newOuts, balls: 0, strikes: 0, batterTop: newBatterTop, batterBottom: newBatterBottom, inning: newInning, isTop: newIsTop, runners: newRunners };
-        });
-        setShowInPlayResult(false);
-        setSelectedPosition(null);
       };
 
       const recordPitch = (result, detailedResult = '') => {
@@ -296,15 +343,15 @@
         if (result === '牽制') { setCurrentPitch(p => ({ ...p, course: null })); return; }
 
         if (result === 'ストライク' || result === '空振り') {
-          if (gameState.strikes === 2) nextBatter(1);
+          if (gameState.strikes === 2) handleAdvanceAndNextBatter('out', 1);
           else setGameState(prev => ({ ...prev, strikes: prev.strikes + 1 }));
         } else if (result === 'ファウル') {
           if (gameState.strikes < 2) setGameState(prev => ({ ...prev, strikes: prev.strikes + 1 }));
         } else if (result === 'ボール') {
-          if (gameState.balls === 3) nextBatter(0);
+          if (gameState.balls === 3) handleAdvanceAndNextBatter('walk', 0);
           else setGameState(prev => ({ ...prev, balls: prev.balls + 1 }));
         } else if (result === '死球' || result === 'その他出塁') {
-          nextBatter(0); 
+          handleAdvanceAndNextBatter(result === 'その他出塁' ? 'other' : 'walk', 0);
         } else if (result === 'インプレー') {
           setShowInPlayResult(true);
         }
@@ -321,15 +368,15 @@
           }
           return newPitches;
         });
-        if (typeLabel === '本塁打') {
-          setGameState(prev => {
-            const team = prev.isTop ? 'top' : 'bottom';
-            const newRuns = [...prev.runs[team]];
-            newRuns[prev.inning - 1]++;
-            return { ...prev, runs: { ...prev.runs, [team]: newRuns } };
-          });
-        }
-        nextBatter(outCount);
+
+        let eventType = 'out';
+        if (typeLabel === '安') eventType = 'single';
+        else if (typeLabel === '二塁打') eventType = 'double';
+        else if (typeLabel === '三塁打') eventType = 'triple';
+        else if (typeLabel === '本塁打') eventType = 'homerun';
+        else if (typeLabel === 'エラー' || typeLabel === '敵失(エラー)' || typeLabel === '野手選択') eventType = 'error';
+
+        handleAdvanceAndNextBatter(eventType, outCount);
       };
 
       const changeScore = (team, delta) => {
@@ -357,7 +404,7 @@
       };
 
       const handleEditPitchClick = (pitch) => {
-        if (pitch.isEvent) return; // 進塁イベントは編集不可とする
+        if (pitch.isEvent) return;
         const globalIndex = pitches.indexOf(pitch);
         if (globalIndex !== -1) {
           setEditingPitchIndex(globalIndex);
@@ -379,7 +426,7 @@
         setEditPitchData(null);
       };
 
-      // --- 5. 導出データ ---
+      // --- 5. 導出データとUIコンポーネント ---
       const offTeamKey = gameState.isTop ? 'top' : 'bottom';
       const defTeamKey = gameState.isTop ? 'bottom' : 'top';
       const currentBatterIndex = (gameState.isTop ? gameState.batterTop : gameState.batterBottom) - 1;
@@ -396,7 +443,13 @@
         });
         const courseHeat = {}; let maxFreq = 0;
         valid.forEach(p => { if (p.course !== null) { courseHeat[p.course] = (courseHeat[p.course] || 0) + 1; if (courseHeat[p.course] > maxFreq) maxFreq = courseHeat[p.course]; } });
-        const typeCount = {}; valid.forEach(p => typeCount[p.type] = (typeCount[p.type] || 0) + 1);
+        
+        const typeCount = {}; 
+        valid.forEach(p => { 
+          const normalizedType = p.type ? p.type.replace(/系$/, '') : '不明';
+          typeCount[normalizedType] = (typeCount[normalizedType] || 0) + 1; 
+        });
+        
         const strikeRate = valid.length === 0 ? 0 : Math.round((valid.filter(p => p.result !== 'ボール').length / valid.length) * 100);
         return { courseHeat, maxFreq, typeCount, strikeRate, totalPitches: valid.length };
       }, [pitches, analysisFilter]);
@@ -406,13 +459,58 @@
 
       const courses = Array.from({ length: 25 }, (_, i) => i);
       const isStrikeZone = (i) => { const row = Math.floor(i / 5); const col = i % 5; return row >= 1 && row <= 3 && col >= 1 && col <= 3; };
-      const pitchTypes = [
-        { name: 'ストレート', icon: '↑' }, 
-        { name: 'スライダー', icon: '↰' }, 
-        { name: 'カーブ', icon: '↙' }, 
-        { name: '落ちる球', icon: '↓' }, 
-        { name: 'シュート', icon: '↱' }
+      
+      // パワプロ風 球種データ
+      const getPitchTypes = (throwsRight) => [
+        { name: 'ストレート', icon: '↑', colorClass: 'border-red-500 bg-red-100 text-red-700' }, 
+        { name: 'スライダー', icon: throwsRight ? '↰' : '↱', colorClass: 'border-blue-500 bg-blue-100 text-blue-700' }, 
+        { name: 'シュート', icon: throwsRight ? '↱' : '↰', colorClass: 'border-green-500 bg-green-100 text-green-700' },
+        { name: 'カーブ', icon: throwsRight ? '↙' : '↘', colorClass: 'border-yellow-500 bg-yellow-100 text-yellow-700' }, 
+        { name: '落ちる球', icon: '↓', colorClass: 'border-purple-500 bg-purple-100 text-purple-700' }, 
+        { name: 'シンカー', icon: throwsRight ? '↘' : '↙', colorClass: 'border-cyan-500 bg-cyan-100 text-cyan-700' }
       ];
+
+      const PitchTypeButton = ({ pt, isEditing = false }) => {
+        const stateObj = isEditing ? editPitchData : currentPitch;
+        const setStateObj = isEditing ? setEditPitchData : setCurrentPitch;
+        const isActive = stateObj.type === pt.name;
+        return (
+          <button 
+            onClick={() => setStateObj({...stateObj, type: pt.name})} 
+            className={`flex flex-col items-center justify-center py-1 border-2 rounded-xl transition-all ${isActive ? `${pt.colorClass} shadow-md scale-105` : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'}`}
+          >
+            <span className="text-base font-black leading-none mt-1">{pt.icon}</span>
+            <span className="text-[9px] font-bold mt-1">{pt.name}</span>
+          </button>
+        );
+      };
+
+      const PawapuroPitchGrid = ({ isEditing = false, throwsRight = true }) => {
+        const pTypes = getPitchTypes(throwsRight);
+        const leftPitch = throwsRight ? pTypes[1] : pTypes[2]; // 右投げ:スライダー, 左投げ:シュート
+        const rightPitch = throwsRight ? pTypes[2] : pTypes[1]; 
+        const bottomLeftPitch = throwsRight ? pTypes[3] : pTypes[5]; // 右投げ:カーブ, 左投げ:シンカー
+        const bottomRightPitch = throwsRight ? pTypes[5] : pTypes[3];
+
+        return (
+          <div className="grid grid-cols-3 grid-rows-3 gap-1.5 w-full max-w-[220px] mx-auto mb-4">
+            <div></div>
+            <PitchTypeButton pt={pTypes[0]} isEditing={isEditing} />
+            <div></div>
+
+            <PitchTypeButton pt={leftPitch} isEditing={isEditing} />
+            <div className="flex flex-col items-center justify-center text-[9px] font-bold text-slate-400 bg-slate-50 rounded-xl border border-slate-200">
+              <span className={throwsRight ? "text-red-500" : "text-blue-500"}>{throwsRight ? "右投" : "左投"}</span>
+              <span>球種</span>
+            </div>
+            <PitchTypeButton pt={rightPitch} isEditing={isEditing} />
+
+            <PitchTypeButton pt={bottomLeftPitch} isEditing={isEditing} />
+            <PitchTypeButton pt={pTypes[4]} isEditing={isEditing} />
+            <PitchTypeButton pt={bottomRightPitch} isEditing={isEditing} />
+          </div>
+        );
+      }
 
       const copyShareText = () => {
         const topTotal = gameState.runs.top.reduce((a,b)=>a+b,0);
@@ -548,7 +646,6 @@
           <header className="bg-white shadow-sm border-b border-slate-300 p-4 flex items-center justify-between shrink-0">
             <div className="flex items-center gap-2 text-xl font-bold text-blue-700 tracking-tighter">⚾ 配球分析</div>
             
-            {/* 得点板（イニングジャンプ機能付き） */}
             <div className="flex flex-col bg-white border border-slate-400 rounded-lg overflow-hidden text-sm shadow-sm">
               <div className="flex bg-slate-200 border-b border-slate-400 font-bold text-[10px] text-slate-600">
                 <div className="w-24 border-r border-slate-400 flex items-center justify-center py-0.5">TEAM</div>
@@ -565,18 +662,10 @@
                 <div className="flex">
                   {[1,2,3,4,5,6,7,8,9].map(i => (
                     <div key={i} className={`flex flex-col border-r border-slate-400 text-center w-8 ${gameState.inning === i ? 'bg-blue-50' : 'bg-white'}`}>
-                      {/* 表の得点 */}
-                      <div 
-                        onClick={() => { recordAction(); setGameState(prev => ({...prev, inning: i, isTop: true})); }}
-                        className={`h-7 border-b border-slate-400 flex items-center justify-center font-bold text-[11px] cursor-pointer hover:bg-blue-200 transition-colors ${gameState.inning === i && gameState.isTop ? 'bg-blue-200' : ''}`}
-                      >
+                      <div onClick={() => { recordAction(); setGameState(prev => ({...prev, inning: i, isTop: true})); }} className={`h-7 border-b border-slate-400 flex items-center justify-center font-bold text-[11px] cursor-pointer hover:bg-blue-200 transition-colors ${gameState.inning === i && gameState.isTop ? 'bg-blue-200' : ''}`}>
                         {gameState.runs.top[i-1] > 0 ? gameState.runs.top[i-1] : (gameState.inning > i || (gameState.inning === i && !gameState.isTop) ? '0' : '')}
                       </div>
-                      {/* 裏の得点 */}
-                      <div 
-                        onClick={() => { recordAction(); setGameState(prev => ({...prev, inning: i, isTop: false})); }}
-                        className={`h-7 flex items-center justify-center font-bold text-[11px] cursor-pointer hover:bg-blue-200 transition-colors ${gameState.inning === i && !gameState.isTop ? 'bg-blue-200' : ''}`}
-                      >
+                      <div onClick={() => { recordAction(); setGameState(prev => ({...prev, inning: i, isTop: false})); }} className={`h-7 flex items-center justify-center font-bold text-[11px] cursor-pointer hover:bg-blue-200 transition-colors ${gameState.inning === i && !gameState.isTop ? 'bg-blue-200' : ''}`}>
                         {gameState.runs.bottom[i-1] > 0 ? gameState.runs.bottom[i-1] : (gameState.inning > i ? '0' : '')}
                       </div>
                     </div>
@@ -603,10 +692,10 @@
               </div>
 
               {/* カウント表示（左揃え化） */}
-              <div className="flex flex-col gap-0.5 items-start px-4 border-l border-r border-slate-300 font-mono">
-                <div className="flex items-center gap-1 font-bold"><span className="text-[10px] w-3 text-green-600">B</span>{[0,1,2].map(i=><div key={i} className={`w-3.5 h-3.5 rounded-full border-2 border-green-600 ${i<gameState.balls?'bg-green-500 shadow-inner':'bg-slate-200'}`}></div>)}</div>
-                <div className="flex items-center gap-1 font-bold"><span className="text-[10px] w-3 text-yellow-500">S</span>{[0,1].map(i=><div key={i} className={`w-3.5 h-3.5 rounded-full border-2 border-yellow-500 ${i<gameState.strikes?'bg-yellow-400 shadow-inner':'bg-slate-200'}`}></div>)}</div>
-                <div className="flex items-center gap-1 font-bold"><span className="text-[10px] w-3 text-red-600">O</span>{[0,1].map(i=><div key={i} className={`w-3.5 h-3.5 rounded-full border-2 border-red-600 ${i<gameState.outs?'bg-red-500 shadow-inner':'bg-slate-200'}`}></div>)}</div>
+              <div className="flex flex-col gap-0.5 items-start px-4 border-l border-r border-slate-300 font-mono w-28">
+                <div className="flex items-center gap-1 font-bold w-full"><span className="text-[12px] w-3 text-green-600 text-left">B</span>{[0,1,2].map(i=><div key={i} className={`w-3.5 h-3.5 rounded-full border-2 border-green-600 ${i<gameState.balls?'bg-green-500 shadow-inner':'bg-slate-200'}`}></div>)}</div>
+                <div className="flex items-center gap-1 font-bold w-full"><span className="text-[12px] w-3 text-yellow-500 text-left">S</span>{[0,1].map(i=><div key={i} className={`w-3.5 h-3.5 rounded-full border-2 border-yellow-500 ${i<gameState.strikes?'bg-yellow-400 shadow-inner':'bg-slate-200'}`}></div>)}</div>
+                <div className="flex items-center gap-1 font-bold w-full"><span className="text-[12px] w-3 text-red-600 text-left">O</span>{[0,1].map(i=><div key={i} className={`w-3.5 h-3.5 rounded-full border-2 border-red-600 ${i<gameState.outs?'bg-red-500 shadow-inner':'bg-slate-200'}`}></div>)}</div>
               </div>
 
               <div className="flex flex-col gap-1.5 font-sans">
@@ -668,15 +757,8 @@
                     <div className="flex-1 flex flex-col justify-between py-2">
                       <div className="space-y-4">
                         
-                        {/* パワプロ風の球種アイコン追加 */}
-                        <div className="flex flex-wrap gap-1.5 justify-center">
-                          {pitchTypes.map(pt => (
-                            <button key={pt.name} onClick={() => setCurrentPitch({ ...currentPitch, type: pt.name })} className={`px-2.5 py-1.5 rounded-lg font-bold text-[11px] border-2 transition-all flex items-center gap-1 ${currentPitch.type === pt.name ? 'border-blue-600 bg-blue-50 text-blue-700 shadow-sm scale-105' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'}`}>
-                              <span className={`text-sm ${currentPitch.type === pt.name ? 'text-blue-600' : 'text-slate-400'}`}>{pt.icon}</span>
-                              {pt.name}
-                            </button>
-                          ))}
-                        </div>
+                        {/* パワプロ風の球種アイコンUI */}
+                        <PawapuroPitchGrid throwsRight={currentPitcherObj.throws === '右' || currentPitcherObj.throws === '右右' || currentPitcherObj.throws === '右左'} />
 
                         <div className="grid grid-cols-2 gap-2">
                           <button onClick={() => recordPitch('ストライク')} className="bg-slate-800 text-white py-3 rounded-xl font-bold text-xs shadow-md active:bg-black transition-colors">見逃しS</button>
@@ -735,7 +817,7 @@
                   ) : (
                     <div className="flex-1 flex flex-col items-center animate-in slide-in-from-right duration-150 w-full">
                       <p className="text-slate-600 font-bold mb-6 text-lg">② <span className="text-blue-700 text-2xl font-black px-2">{selectedPosition}</span> への結果は？</p>
-                      <div className="w-full space-y-6 max-w-md">
+                      <div className="w-full space-y-4 max-w-md">
                         <div className="bg-white p-4 rounded-xl border border-red-100 shadow-sm"><div className="grid grid-cols-3 gap-3">
                           <button onClick={() => handleInPlayFinalResult('ゴロ', 1)} className="bg-red-50 text-red-700 py-4 rounded-xl font-bold active:bg-red-100 transition-colors">ゴロ</button>
                           <button onClick={() => handleInPlayFinalResult('飛', 1)} className="bg-orange-50 text-orange-700 py-4 rounded-xl font-bold active:bg-orange-100 transition-colors">飛/直</button>
@@ -746,6 +828,12 @@
                           <button onClick={() => handleInPlayFinalResult('二塁打', 0)} className="bg-indigo-50 text-indigo-700 py-4 rounded-xl font-bold active:bg-indigo-100 transition-colors">二塁</button>
                           <button onClick={() => handleInPlayFinalResult('三塁打', 0)} className="bg-purple-50 text-purple-700 py-4 rounded-xl font-bold active:bg-purple-100 transition-colors">三塁</button>
                           <button onClick={() => handleInPlayFinalResult('本塁打', 0)} className="bg-pink-100 text-pink-700 py-4 rounded-xl font-bold shadow-sm active:bg-pink-200 transition-colors">本塁打</button>
+                        </div></div>
+                        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm"><div className="grid grid-cols-4 gap-2">
+                          <button onClick={() => handleInPlayFinalResult('エラー', 0)} className="bg-slate-100 text-slate-700 py-3 rounded-xl font-bold text-xs hover:bg-slate-200 transition-colors">エラー</button>
+                          <button onClick={() => handleInPlayFinalResult('野手選択', 0)} className="bg-slate-100 text-slate-700 py-3 rounded-xl font-bold text-xs hover:bg-slate-200 transition-colors">野手選択</button>
+                          <button onClick={() => handleInPlayFinalResult('犠打', 1)} className="bg-slate-100 text-slate-700 py-3 rounded-xl font-bold text-xs hover:bg-slate-200 transition-colors">犠打</button>
+                          <button onClick={() => handleInPlayFinalResult('犠飛', 1)} className="bg-slate-100 text-slate-700 py-3 rounded-xl font-bold text-xs hover:bg-slate-200 transition-colors">犠飛</button>
                         </div></div>
                         <button onClick={() => setSelectedPosition(null)} className="w-full py-3 text-slate-500 font-bold border-2 border-dashed border-slate-400 rounded-xl hover:bg-slate-50 transition-colors font-sans">← 方向を選び直す</button>
                       </div>
@@ -824,7 +912,7 @@
                             <div className="absolute top-[20%] left-[20%] w-[60%] h-[60%] border border-slate-800 z-10 pointer-events-none"></div>
                             {p.course !== null && courses.map(i => <div key={i} className={`${p.course === i ? 'bg-red-500 z-20 relative shadow-sm ring-1 ring-white/50' : isStrikeZone(i) ? 'bg-white' : 'bg-transparent'}`}></div>)}
                           </div>
-                          <div className="flex-1 truncate font-bold text-[11px] text-slate-700 tracking-tighter">{p.type}</div>
+                          <div className="flex-1 truncate font-bold text-[11px] text-slate-700 tracking-tighter">{p.type ? p.type.replace(/系$/, '') : ''}</div>
                           <div className={`text-white text-[9px] font-black px-3 py-1 rounded-full shadow-sm whitespace-nowrap ${p.result.includes('ストライク')?'bg-yellow-500':p.result==='ボール'?'bg-green-600':p.result==='死球'?'bg-purple-600':p.result==='その他出塁'?'bg-teal-600':['安','塁打','本塁打'].some(w=>p.result.includes(w))?'bg-blue-600':p.result==='牽制'?'bg-orange-500':p.result==='盗塁死'?'bg-rose-600':'bg-red-500'}`}>{p.result}</div>
                         </div>
                       )
@@ -854,13 +942,8 @@
                      </div>
                    </div>
                    
-                   <div className="flex flex-col items-center">
-                     <span className="text-xs font-bold text-slate-500 mb-2 tracking-widest">球種</span>
-                     <div className="flex flex-wrap gap-2 justify-center">
-                       {pitchTypes.map(pt => (
-                         <button key={pt.name} onClick={() => setEditPitchData({...editPitchData, type: pt.name})} className={`px-3 py-2 rounded-lg font-bold text-xs border-2 transition-colors ${editPitchData.type === pt.name ? 'border-blue-600 bg-blue-50 text-blue-700 shadow-sm' : 'border-slate-300 bg-white hover:bg-slate-100'}`}>{pt.name}</button>
-                       ))}
-                     </div>
+                   <div className="flex flex-col items-center w-full">
+                     <PawapuroPitchGrid isEditing={true} throwsRight={editPitchData.pitcherThrows === '右' || editPitchData.pitcherThrows === '右右' || editPitchData.pitcherThrows === '右左'} />
                    </div>
 
                    <div className="flex flex-col">
