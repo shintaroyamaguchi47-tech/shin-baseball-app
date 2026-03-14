@@ -144,9 +144,11 @@
 
       // --- 4. 試合進行ロジック ---
       const handleNewGame = () => {
-        if (window.confirm("データを全消去して新試合を開始しますか？")) {
-          localStorage.clear();
-          window.location.reload();
+        if (window.confirm("【警告】現在の試合データをすべて消去して、新しい試合を開始しますか？")) {
+          if (window.confirm("本当に消去してもよろしいですか？（この操作は取り消せません）")) {
+            localStorage.clear();
+            window.location.reload();
+          }
         }
       };
 
@@ -308,8 +310,10 @@
         } else if (result === 'ボール' || result === 'ウエスト') {
           if (gameState.balls === 3) handleAdvanceAndNextBatter('walk', 0);
           else setGameState(prev => ({ ...prev, balls: prev.balls + 1 }));
-        } else if (result === '死球' || result === 'その他出塁') {
-          nextBatter(0); 
+        } else if (result === '死球') {
+          handleAdvanceAndNextBatter('walk', 0); 
+        } else if (result === 'その他出塁') {
+          handleAdvanceAndNextBatter('other', 0); 
         } else if (result === 'インプレー') {
           setShowInPlayResult(true);
         }
@@ -910,8 +914,9 @@
                      <button onClick={() => setEditPitchData({...editPitchData, result: 'ストライク'})} className="bg-slate-800 text-white py-2 rounded-lg font-bold text-[10px] shadow-sm">見逃しS</button>
                      <button onClick={() => setEditPitchData({...editPitchData, result: '空振り'})} className="bg-slate-600 text-white py-2 rounded-lg font-bold text-[10px] shadow-sm">空振りS</button>
                      <button onClick={() => setEditPitchData({...editPitchData, result: 'ファウル'})} className="bg-yellow-500 text-white py-2 rounded-lg font-bold text-[10px] shadow-sm">ファウル</button>
-                     <button onClick={() => setEditPitchData({...editPitchData, result: 'ボール'})} className="col-span-2 bg-green-600 text-white py-2 rounded-lg font-bold text-[10px] shadow-sm">ボール</button>
+                     <button onClick={() => setEditPitchData({...editPitchData, result: 'ボール'})} className="bg-green-600 text-white py-2 rounded-lg font-bold text-[10px] shadow-sm">ボール</button>
                      <button onClick={() => setEditPitchData({...editPitchData, result: 'ウエスト'})} className="bg-emerald-600 text-white py-2 rounded-lg font-bold text-[10px] shadow-sm">ウエスト</button>
+                     <button onClick={() => setEditPitchData({...editPitchData, result: '死球'})} className="bg-purple-600 text-white py-2 rounded-lg font-bold text-[10px] shadow-sm">死球</button>
                    </div>
 
                    <div className="flex flex-col">
