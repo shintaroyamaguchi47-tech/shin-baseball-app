@@ -176,8 +176,8 @@
         }));
       };
 
-      // 出塁・進塁・チェンジを統合処理する関数
-      const nextBatter = (outCount = 0) => {
+      // 出塁・進塁・チェンジを統合処理する関数（不具合修正）
+      const handleAdvanceAndNextBatter = (eventType, addedOuts = 0) => {
         setGameState(prev => {
           let newOuts = prev.outs + addedOuts;
           let newInning = prev.inning;
@@ -188,9 +188,9 @@
           let newRunsArray = [...prev.runs[prev.isTop ? 'top' : 'bottom']];
           let runScored = 0;
 
-          // 3アウト未満の場合のみ進塁・得点処理を行う（簡易化）
+          // 3アウト未満の場合のみ進塁・得点処理を行う
           if (newOuts < 3) {
-            if (eventType === 'walk') {
+            if (eventType === 'walk' || eventType === 'other') {
               if (newRunners.first && newRunners.second && newRunners.third) {
                 runScored = 1;
               } else if (newRunners.first && newRunners.second) {
@@ -199,7 +199,7 @@
                 newRunners.second = true;
               }
               newRunners.first = true;
-            } else if (['single', 'error', 'other'].includes(eventType)) {
+            } else if (['single', 'error'].includes(eventType)) {
               if (newRunners.third) runScored++;
               newRunners.third = newRunners.second;
               newRunners.second = newRunners.first;
@@ -252,7 +252,7 @@
         setSelectedPosition(null);
       };
 
-      const recordPitch = (result, detailedResult = '') => {
+      const handleAdvanceRecord = () => {
         if (result !== '牽制' && result !== '盗塁死' && result !== 'その他出塁' && result !== 'ウエスト' && currentPitch.course === null) {
           alert("コースを選択してください！");
           return;
@@ -310,9 +310,7 @@
         } else if (result === 'ボール' || result === 'ウエスト') {
           if (gameState.balls === 3) handleAdvanceAndNextBatter('walk', 0);
           else setGameState(prev => ({ ...prev, balls: prev.balls + 1 }));
-        } else if (result === '死球') {
-          handleAdvanceAndNextBatter('walk', 0); 
-        } else if (result === 'その他出塁') {
+        } else if (result === '死球' || result === 'その他出塁') {
           handleAdvanceAndNextBatter('other', 0); 
         } else if (result === 'インプレー') {
           setShowInPlayResult(true);
