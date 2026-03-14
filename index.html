@@ -1291,9 +1291,8 @@
         document.body.removeChild(ta);
       };
 
-      // --- データ引き継ぎの大幅強化 ---
+      // --- データ引き継ぎ（ファイル方式に変更） ---
       const exportData = () => {
-        // undo/redoの履歴を含めるとデータが重くなりすぎるため除外
         const exportObj = { 
           gameState, 
           gameInfo, 
@@ -1302,51 +1301,46 @@
         };
         const jsonString = JSON.stringify(exportObj);
         
-        // LINEなどで送った際に記号や改行が壊れないよう、Base64文字列にエンコードする
-        const base64String = btoa(encodeURIComponent(jsonString));
+        // ファイルとしてダウンロードさせる
+        const blob = new Blob([jsonString], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `配球データ_${gameInfo.date}.json`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
         
-        const successMessage = '引継ぎデータをコピーしました！別の端末に貼り付けてください。';
-        
-        if (navigator.clipboard && window.isSecureContext) {
-            navigator.clipboard.writeText(base64String).then(() => {
-                showToast(successMessage, 'success');
-            }).catch(() => {
-                fallbackCopyTextToClipboard(base64String, successMessage);
-            });
-        } else {
-            fallbackCopyTextToClipboard(base64String, successMessage);
-        }
+        showToast('引継ぎ用ファイルを保存しました！AirDrop等で別の端末に送れます。', 'success');
       };
 
-      const importData = () => {
-        try {
-          let jsonString = '';
-          try {
-             // 新しい形式（Base64エンコード）からの復元を試みる
-             jsonString = decodeURIComponent(atob(importText.trim()));
-          } catch (e) {
-             // デコードに失敗した場合は、古い形式（生JSON文字列）だと仮定する
-             jsonString = importText.trim();
-          }
+      const importData = (event) => {
+        const file = event.target.files[0];
+        if (!file) return;
 
-          const data = JSON.parse(jsonString);
-          if (data.gameState && data.lineups && data.pitches) {
-            setGameState(data.gameState);
-            setGameInfo(data.gameInfo || { date: new Date().toISOString().split('T')[0], teamTop: '先攻チーム', teamBottom: '後攻チーム' });
-            setLineups(data.lineups);
-            setPitches(data.pitches);
-            // 履歴は引き継がずリセットする
-            setUndoStack([]);
-            setRedoStack([]);
-            showToast('データを復元しました！', 'success');
-            setImportText('');
-            setShowExport(false);
-          } else {
-            showToast('無効なデータ形式です。', 'error');
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          try {
+            const data = JSON.parse(e.target.result);
+            if (data.gameState && data.lineups && data.pitches) {
+              setGameState(data.gameState);
+              setGameInfo(data.gameInfo || { date: new Date().toISOString().split('T')[0], teamTop: '先攻チーム', teamBottom: '後攻チーム' });
+              setLineups(data.lineups);
+              setPitches(data.pitches);
+              // 履歴は引き継がずリセットする
+              setUndoStack([]);
+              setRedoStack([]);
+              showToast('データを完全に復元しました！', 'success');
+              setShowExport(false);
+            } else {
+              showToast('無効なデータ形式です。', 'error');
+            }
+          } catch (error) {
+            showToast('ファイルの読み込みに失敗しました。', 'error');
           }
-        } catch (e) {
-          showToast('データの読み込みに失敗しました。コピーしたテキストが欠けていないか確認してください。', 'error');
-        }
+        };
+        reader.readAsText(file);
       };
 
       return (
@@ -1908,17 +1902,22 @@
                   </div>
                   <div className="pt-2">
                     <h3 className="text-sm text-slate-500 mb-3">端末間のデータ引継ぎ</h3>
-                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 shadow-inner flex flex-col gap-3">
+                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 shadow-inner flex flex-col gap-4">
                       <button onClick={exportData} className="bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-black shadow-sm flex items-center justify-center gap-2 active:scale-95 transition-all text-sm w-full">
-                        📤 現在のデータを引継ぎ用にコピー
+                        📤 引継ぎ用ファイルを保存
                       </button>
-                      <div className="mt-2">
-                        <div className="text-xs text-slate-500 mb-1">引継ぎデータを貼り付けて復元:</div>
-                        <div className="flex gap-2">
-                          <input type="text" value={importText} onChange={(e) => setImportText(e.target.value)} placeholder="ここに貼り付け..." className="flex-1 border border-slate-300 rounded-lg px-3 py-2 outline-none focus:border-blue-500 text-xs font-normal" />
-                          <button onClick={importData} disabled={!importText} className={`px-4 py-2 rounded-lg font-bold text-xs transition-all ${importText ? 'bg-slate-800 text-white hover:bg-black shadow-sm' : 'bg-slate-200 text-slate-400 cursor-not-allowed'}`}>復元</button>
-                        </div>
+                      <div className="flex flex-col gap-2">
+                        <div className="text-xs text-slate-500 font-bold">📥 保存したファイルから復元:</div>
+                        <input 
+                          type="file" 
+                          accept=".json"
+                          onChange={importData} 
+                          className="text-xs text-slate-600 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 w-full"
+                        />
                       </div>
+                      <p className="text-[10px] text-slate-500 leading-relaxed">
+                        ※保存された「.json」ファイルをAirDrop、メール等で別の端末に送り、ここで選択すると一瞬でデータが復元されます。
+                      </p>
                     </div>
                   </div>
                 </div>
