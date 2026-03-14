@@ -194,6 +194,35 @@
         });
       };
 
+      // 過去のイニングにジャンプした際に、当時の状況を復元する機能を追加
+      const jumpToInning = (inning, isTop) => {
+        recordAction();
+        const inningPitches = pitches.filter(p => p.inning === inning && p.isTop === isTop);
+        let targetBatter = isTop ? gameState.batterTop : gameState.batterBottom;
+        let newRunners = { first: false, second: false, third: false };
+        let newOuts = 0;
+
+        // そのイニングの最初のデータが存在すれば、その打者とランナー状況を復元
+        if (inningPitches.length > 0) {
+          targetBatter = inningPitches[0].batter;
+          newRunners = inningPitches[0].runners || newRunners;
+          newOuts = inningPitches[0].outs || 0;
+        }
+
+        setGameState(prev => ({
+          ...prev,
+          inning,
+          isTop,
+          ...(isTop ? { batterTop: targetBatter } : { batterBottom: targetBatter }),
+          runners: newRunners,
+          outs: newOuts,
+          balls: 0,
+          strikes: 0
+        }));
+        setShowInPlayResult(false);
+        setSelectedPosition(null);
+      };
+
       const toggleRunner = (base) => {
         recordAction();
         setGameState(prev => ({
@@ -452,12 +481,32 @@
         });
       };
 
+      // 過去の打者に切り替えた際に、当時の状況を復元するように修正
       const manuallyChangeBatter = (newBatterNum) => {
         recordAction();
-        setGameState(prev => ({
-          ...prev,
-          ...(prev.isTop ? { batterTop: newBatterNum } : { batterBottom: newBatterNum })
-        }));
+        const targetPitches = pitches.filter(p => p.inning === gameState.inning && p.isTop === gameState.isTop && p.batter === newBatterNum);
+        
+        setGameState(prev => {
+          let newRunners = { ...prev.runners };
+          let newOuts = prev.outs;
+          
+          // その打席の最初のデータが存在すれば、当時のランナーとアウトを復元
+          if (targetPitches.length > 0) {
+            newRunners = targetPitches[0].runners || { first: false, second: false, third: false };
+            newOuts = targetPitches[0].outs || 0;
+          }
+
+          return {
+            ...prev,
+            ...(prev.isTop ? { batterTop: newBatterNum } : { batterBottom: newBatterNum }),
+            runners: newRunners,
+            outs: newOuts,
+            balls: 0,
+            strikes: 0
+          };
+        });
+        setShowInPlayResult(false);
+        setSelectedPosition(null);
       };
 
       const updatePlayerInfo = (team, index, field, value) => {
@@ -1045,10 +1094,10 @@
                 <div className="flex">
                   {[1,2,3,4,5,6,7,8,9].map(i => (
                     <div key={i} className={`flex flex-col border-r border-slate-400 text-center w-8 ${gameState.inning === i ? 'bg-blue-50' : 'bg-white'}`}>
-                      <div onClick={() => { recordAction(); setGameState(prev => ({...prev, inning: i, isTop: true})); }} className={`h-7 border-b border-slate-400 flex items-center justify-center font-bold text-[11px] cursor-pointer hover:bg-blue-200 transition-colors ${gameState.inning === i && gameState.isTop ? 'bg-blue-200' : ''}`}>
+                      <div onClick={() => jumpToInning(i, true)} className={`h-7 border-b border-slate-400 flex items-center justify-center font-bold text-[11px] cursor-pointer hover:bg-blue-200 transition-colors ${gameState.inning === i && gameState.isTop ? 'bg-blue-200' : ''}`}>
                         {gameState.runs.top[i-1] > 0 ? gameState.runs.top[i-1] : (gameState.inning > i || (gameState.inning === i && !gameState.isTop) ? '0' : '')}
                       </div>
-                      <div onClick={() => { recordAction(); setGameState(prev => ({...prev, inning: i, isTop: false})); }} className={`h-7 flex items-center justify-center font-bold text-[11px] cursor-pointer hover:bg-blue-200 transition-colors ${gameState.inning === i && !gameState.isTop ? 'bg-blue-200' : ''}`}>
+                      <div onClick={() => jumpToInning(i, false)} className={`h-7 flex items-center justify-center font-bold text-[11px] cursor-pointer hover:bg-blue-200 transition-colors ${gameState.inning === i && !gameState.isTop ? 'bg-blue-200' : ''}`}>
                         {gameState.runs.bottom[i-1] > 0 ? gameState.runs.bottom[i-1] : (gameState.inning > i ? '0' : '')}
                       </div>
                     </div>
