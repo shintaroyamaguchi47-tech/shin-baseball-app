@@ -597,6 +597,44 @@
         }));
       };
 
+      // --- 追加：過去のデータにオーダーを一括適用する機能 ---
+      const applyLineupToPast = () => {
+        if(!window.confirm(`現在表示している【${gameState.inning}回${gameState.isTop?'表':'裏'}】以降のすべての投球・イベント記録の「投手名」と「打者名」を、いま画面に入力されている名前に書き換えますか？\n（※過去の入力忘れを修正する場合に使います）`)) return;
+        
+        recordAction();
+        const newPitches = pitches.map(p => {
+          // 現在のイニング・表裏以降かどうかを判定
+          let isAfter = false;
+          if (p.inning > gameState.inning) {
+            isAfter = true;
+          } else if (p.inning === gameState.inning) {
+            if (gameState.isTop) isAfter = true; // 表示中が表なら、そのイニングの表も裏も対象
+            else if (!gameState.isTop && !p.isTop) isAfter = true; // 表示中が裏なら、そのイニングの裏のみ対象
+          }
+
+          if (isAfter) {
+            const offTeamLineup = p.isTop ? lineups.top : lineups.bottom;
+            const defTeamLineup = p.isTop ? lineups.bottom : lineups.top;
+            
+            const batterObj = offTeamLineup[p.batter - 1] || { name: '打者未設定', bats: '右' };
+            const pitcherObj = defTeamLineup.find(pl => pl.pos === '投' || pl.pos === '1' || pl.pos === '①') || { name: '投手未設定', throws: '右' };
+            
+            return {
+              ...p,
+              batterName: batterObj.name,
+              batterBats: batterObj.bats,
+              pitcherName: pitcherObj.name,
+              pitcherThrows: pitcherObj.throws
+            };
+          }
+          return p;
+        });
+        
+        setPitches(newPitches);
+        showToast(`記録を上書きしました！`, "success");
+        setShowSettings(false);
+      };
+
       // --- 導出データとUIコンポーネント ---
       const offTeamKey = gameState.isTop ? 'top' : 'bottom';
       const defTeamKey = gameState.isTop ? 'bottom' : 'top';
@@ -1615,6 +1653,17 @@
                   </div>
                   <button onClick={() => setShowSettings(false)} className="bg-slate-800 text-white px-8 py-3 rounded-2xl font-bold shadow-lg hover:bg-black active:scale-95 transition-all">完了して戻る</button>
                 </div>
+                
+                {/* --- 追加：過去の記録の一括修正エリア --- */}
+                <div className="bg-yellow-50 border-b border-yellow-200 px-6 py-3 flex justify-between items-center shrink-0">
+                  <div className="text-sm font-bold text-yellow-800 flex items-center gap-2">
+                    <span>💡 交代の入力忘れ等で、過去の記録の選手名を修正したい場合</span>
+                  </div>
+                  <button onClick={applyLineupToPast} className="bg-yellow-500 hover:bg-yellow-600 text-white text-xs font-black px-4 py-2.5 rounded-xl shadow-sm transition-transform active:scale-95">
+                    表示中の【{gameState.inning}回{gameState.isTop?'表':'裏'}】以降の全記録に一括反映
+                  </button>
+                </div>
+
                 <div className="p-8 overflow-y-auto flex-1 grid grid-cols-2 gap-10 bg-slate-50/30">
                   {['top', 'bottom'].map(team => (
                     <div key={team} className="border-2 border-slate-300 rounded-2xl overflow-hidden shadow-sm flex flex-col font-bold bg-white">
