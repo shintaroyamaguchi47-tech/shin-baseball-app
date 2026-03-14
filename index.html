@@ -126,7 +126,8 @@
       const [showPostGameAnalysis, setShowPostGameAnalysis] = useState(false);
       const [postGameTab, setPostGameTab] = useState('tendency');
 
-      // 投手成績アコーディオン用
+      // 追加：ヒートマップ切り替え用
+      const [heatmapTab, setHeatmapTab] = useState('all'); 
       const [expandedPitcher, setExpandedPitcher] = useState(null);
 
       const [selectedPosition, setSelectedPosition] = useState(null);
@@ -686,8 +687,27 @@
           if (analysisFilter.batterSide !== 'ALL' && p.batterBats !== analysisFilter.batterSide) return false;
           return true;
         });
+        
         const courseHeat = {}; let maxFreq = 0;
-        valid.forEach(p => { if (p.course !== null) { courseHeat[p.course] = (courseHeat[p.course] || 0) + 1; if (courseHeat[p.course] > maxFreq) maxFreq = courseHeat[p.course]; } });
+        const courseHeatFastball = {}; let maxFreqFast = 0;
+        const courseHeatBreaking = {}; let maxFreqBreak = 0;
+
+        valid.forEach(p => { 
+          if (p.course !== null) { 
+            courseHeat[p.course] = (courseHeat[p.course] || 0) + 1; 
+            if (courseHeat[p.course] > maxFreq) maxFreq = courseHeat[p.course]; 
+            
+            // 直球・変化球の判定
+            const isFast = p.type && (p.type.includes('ストレート') || p.type.includes('シュート'));
+            if (isFast) {
+              courseHeatFastball[p.course] = (courseHeatFastball[p.course] || 0) + 1;
+              if (courseHeatFastball[p.course] > maxFreqFast) maxFreqFast = courseHeatFastball[p.course];
+            } else {
+              courseHeatBreaking[p.course] = (courseHeatBreaking[p.course] || 0) + 1;
+              if (courseHeatBreaking[p.course] > maxFreqBreak) maxFreqBreak = courseHeatBreaking[p.course];
+            }
+          } 
+        });
         
         const typeCount = {}; 
         valid.forEach(p => { 
@@ -696,7 +716,7 @@
         });
         
         const strikeRate = valid.length === 0 ? 0 : Math.round((valid.filter(p => p.result !== 'ボール' && p.result !== 'ウエスト').length / valid.length) * 100);
-        return { courseHeat, maxFreq, typeCount, strikeRate, totalPitches: valid.length };
+        return { courseHeat, courseHeatFastball, courseHeatBreaking, maxFreq, maxFreqFast, maxFreqBreak, typeCount, strikeRate, totalPitches: valid.length };
       }, [pitches, analysisFilter]);
 
       const uniquePitchers = useMemo(() => Array.from(new Set(pitches.map(p => p.pitcherName).filter(Boolean))), [pitches]);
@@ -1021,6 +1041,25 @@
                 st.K++;
               }
             }
+          });
+
+          // 追加：各投手の直球・変化球別ヒートマップ集計
+          validPitches.forEach(p => {
+             const pName = p.pitcherName || '不明';
+             const st = pStats[pName];
+             if (st) {
+               if (!st.heatmaps) st.heatmaps = { fastball: {}, breaking: {}, maxFast: 0, maxBreak: 0 };
+               if (p.course !== null) {
+                 const isFast = p.type && (p.type.includes('ストレート') || p.type.includes('シュート'));
+                 if (isFast) {
+                   st.heatmaps.fastball[p.course] = (st.heatmaps.fastball[p.course] || 0) + 1;
+                   if (st.heatmaps.fastball[p.course] > st.heatmaps.maxFast) st.heatmaps.maxFast = st.heatmaps.fastball[p.course];
+                 } else {
+                   st.heatmaps.breaking[p.course] = (st.heatmaps.breaking[p.course] || 0) + 1;
+                   if (st.heatmaps.breaking[p.course] > st.heatmaps.maxBreak) st.heatmaps.maxBreak = st.heatmaps.breaking[p.course];
+                 }
+               }
+             }
           });
 
           const calcCSW = (c, w, t) => t > 0 ? Math.round(((c + w) / t) * 100) : 0;
@@ -1463,14 +1502,32 @@
                   </div>
                 </div>
                 <div className="flex gap-6 items-center">
-                  <div className="grid grid-cols-5 grid-rows-5 w-32 h-32 gap-0.5 relative bg-slate-200 p-1 rounded border border-slate-400 shadow-inner shrink-0">
-                    <div className="absolute top-[20%] left-[20%] w-[60%] h-[60%] border-2 border-slate-800 pointer-events-none rounded-sm z-10"></div>
-                    {courses.map(i => {
-                      const count = analysisData.courseHeat[i] || 0;
-                      const opacity = analysisData.maxFreq === 0 ? 0 : count / analysisData.maxFreq;
-                      return <div key={`heat-${i}`} className="bg-white relative flex items-center justify-center text-[8px] font-bold text-slate-700">{count > 0 && <div className="absolute inset-0 bg-red-500 opacity-60" style={{ opacity: opacity * 0.8 }}></div>}<span className="relative z-10">{count > 0 ? count : ''}</span></div>;
-                    })}
+                  
+                  {/* 直球・変化球切り替え機能付きヒートマップ */}
+                  <div className="flex flex-col items-center w-36 shrink-0">
+                    <div className="flex bg-slate-200 rounded-md p-0.5 mb-2 w-full">
+                      <button onClick={() => setHeatmapTab('all')} className={`flex-1 text-[9px] font-bold py-1 rounded-sm ${heatmapTab === 'all' ? 'bg-white shadow-sm' : 'text-slate-500'}`}>全体</button>
+                      <button onClick={() => setHeatmapTab('fastball')} className={`flex-1 text-[9px] font-bold py-1 rounded-sm ${heatmapTab === 'fastball' ? 'bg-white shadow-sm text-red-600' : 'text-slate-500'}`}>直球</button>
+                      <button onClick={() => setHeatmapTab('breaking')} className={`flex-1 text-[9px] font-bold py-1 rounded-sm ${heatmapTab === 'breaking' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500'}`}>変化</button>
+                    </div>
+                    <div className="grid grid-cols-5 grid-rows-5 w-full aspect-square gap-0.5 relative bg-slate-100 p-1 rounded border border-slate-200">
+                      <div className="absolute top-[20%] left-[20%] w-[60%] h-[60%] border-2 border-slate-800 pointer-events-none rounded-sm z-10"></div>
+                      {courses.map(i => {
+                        const hData = heatmapTab === 'all' ? analysisData.courseHeat : (heatmapTab === 'fastball' ? analysisData.courseHeatFastball : analysisData.courseHeatBreaking);
+                        const hMax = heatmapTab === 'all' ? analysisData.maxFreq : (heatmapTab === 'fastball' ? analysisData.maxFreqFast : analysisData.maxFreqBreak);
+                        const colorClass = heatmapTab === 'breaking' ? 'bg-blue-500' : 'bg-red-500';
+                        const count = hData[i] || 0;
+                        const opacity = hMax === 0 ? 0 : count / hMax;
+                        return (
+                          <div key={`heat-${i}`} className="bg-white relative flex items-center justify-center text-[8px] font-bold text-slate-700">
+                            {count > 0 && <div className={`absolute inset-0 ${colorClass} transition-opacity duration-300`} style={{ opacity: opacity * 0.7 }}></div>}
+                            <span className="relative z-20">{count > 0 ? count : ''}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
+
                   <div className="flex-1 space-y-3">
                     <div className="bg-slate-50 p-3 rounded-xl border border-slate-300 shadow-inner font-bold">
                       <div className="text-[9px] text-slate-500 mb-0.5 uppercase tracking-widest">Strike Rate</div>
@@ -2099,11 +2156,43 @@
                                 {expandedPitcher === p.name && (
                                   <tr className="animate-in fade-in slide-in-from-top-2 duration-200">
                                     <td colSpan="10" className="p-6 bg-slate-900 border-b-2 border-blue-500/50 shadow-inner">
-                                      <div className="flex gap-6 max-w-5xl mx-auto">
-                                        {/* 対右打者 */}
-                                        {renderCountStats(p.counts.vsRight, '🆚 対 右打者の配球傾向')}
-                                        {/* 対左打者 */}
-                                        {renderCountStats(p.counts.vsLeft, '🆚 対 左打者の配球傾向')}
+                                      <div className="flex flex-col gap-4 max-w-5xl mx-auto">
+                                        <div className="flex gap-6">
+                                          {/* 対右打者 */}
+                                          {renderCountStats(p.counts.vsRight, '🆚 対 右打者の配球割合')}
+                                          {/* 対左打者 */}
+                                          {renderCountStats(p.counts.vsLeft, '🆚 対 左打者の配球割合')}
+                                        </div>
+                                        
+                                        {/* 直球・変化球別コースヒートマップ */}
+                                        <div className="flex gap-6 bg-slate-800 p-4 rounded-lg border border-slate-700 items-center justify-center mt-2 shadow-md">
+                                           <div className="text-slate-300 font-bold text-xs flex items-center gap-2">🎯 コース別<br/>配球パターン</div>
+                                           <div className="w-px h-16 bg-slate-600 mx-4"></div>
+                                           <div className="flex gap-12">
+                                             <div className="flex flex-col items-center">
+                                               <div className="text-[10px] font-bold text-red-400 mb-2 tracking-widest">直球系 (ｽﾄﾚｰﾄ・ｼｭｰﾄ)</div>
+                                               <div className="grid grid-cols-5 grid-rows-5 w-28 h-28 gap-px relative bg-slate-700 p-1 rounded border border-slate-600">
+                                                 <div className="absolute top-[20%] left-[20%] w-[60%] h-[60%] border-2 border-white/40 pointer-events-none z-10"></div>
+                                                 {courses.map(i => {
+                                                   const c = p.heatmaps?.fastball[i] || 0;
+                                                   const op = p.heatmaps?.maxFast === 0 ? 0 : c / p.heatmaps.maxFast;
+                                                   return <div key={`fh-${i}`} className="bg-slate-800 relative flex items-center justify-center text-[9px] text-white font-mono">{c > 0 && <div className="absolute inset-0 bg-red-500 transition-opacity" style={{opacity: op*0.8}}></div>}<span className="relative z-20">{c>0?c:''}</span></div>
+                                                 })}
+                                               </div>
+                                             </div>
+                                             <div className="flex flex-col items-center">
+                                               <div className="text-[10px] font-bold text-blue-400 mb-2 tracking-widest">変化球系 (ｽﾗｲﾀﾞｰ・ｶｰﾌﾞ等)</div>
+                                               <div className="grid grid-cols-5 grid-rows-5 w-28 h-28 gap-px relative bg-slate-700 p-1 rounded border border-slate-600">
+                                                 <div className="absolute top-[20%] left-[20%] w-[60%] h-[60%] border-2 border-white/40 pointer-events-none z-10"></div>
+                                                 {courses.map(i => {
+                                                   const c = p.heatmaps?.breaking[i] || 0;
+                                                   const op = p.heatmaps?.maxBreak === 0 ? 0 : c / p.heatmaps.maxBreak;
+                                                   return <div key={`bh-${i}`} className="bg-slate-800 relative flex items-center justify-center text-[9px] text-white font-mono">{c > 0 && <div className="absolute inset-0 bg-blue-500 transition-opacity" style={{opacity: op*0.8}}></div>}<span className="relative z-20">{c>0?c:''}</span></div>
+                                                 })}
+                                               </div>
+                                             </div>
+                                           </div>
+                                        </div>
                                       </div>
                                     </td>
                                   </tr>
