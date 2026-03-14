@@ -27,14 +27,21 @@
   <script type="text/babel">
     const { useState, useMemo, useEffect } = React;
 
-    // カウント・左右別球種割合を描画するコンポーネント
+    // カウント・左右別球種割合とストライク率を描画するコンポーネント
     const CountColumn = ({ title, data }) => {
-      const total = Object.values(data).reduce((a,b) => a+b, 0);
+      const total = data.total || 0;
+      const strikes = data.strikes || 0;
+      const strikePct = total > 0 ? Math.round((strikes / total) * 100) : 0;
+      const typeData = data.types || {};
+      
       return (
         <div className="flex flex-col gap-1.5">
-          <div className="text-[10px] text-slate-400 text-center font-bold mb-1">{title}</div>
+          <div className="text-[10px] text-slate-400 text-center font-bold mb-1 flex flex-col">
+            <span>{title}</span>
+            {total > 0 ? <span className="text-blue-300 mt-0.5">S率: {strikePct}%</span> : <span className="text-slate-600 mt-0.5">-</span>}
+          </div>
           {total === 0 ? <div className="text-center text-xs text-slate-600 mt-2">-</div> : 
-            Object.entries(data).sort((a,b)=>b[1]-a[1]).map(([type, count]) => {
+            Object.entries(typeData).sort((a,b)=>b[1]-a[1]).map(([type, count]) => {
               const pct = Math.round((count/total)*100);
               return (
                 <div key={type} className="flex items-center gap-1.5 text-[10px]">
@@ -811,7 +818,7 @@
           
           const teamStats = { 
             PA: 0, AB: 0, H: 0, TB: 0, BB_HBP: 0, K: 0, SAC: 0, SB: 0,
-            firstPitches: 0, firstPitchSwings: 0, // 初球スイング追加
+            firstPitches: 0, firstPitchSwings: 0, 
             directions: { left: 0, center: 0, right: 0 },
             fastball: { AB: 0, H: 0 }, breaking: { AB: 0, H: 0 }
           };
@@ -824,7 +831,7 @@
             playerStats[key] = { 
               order: i + 1, name: p.name, pos: p.pos, bats: p.bats,
               PA: 0, AB: 0, H: 0, TB: 0, BB_HBP: 0, K: 0, SAC: 0, SB: 0, results: [],
-              firstPitches: 0, firstPitchSwings: 0, // 初球スイング追加
+              firstPitches: 0, firstPitchSwings: 0, 
               directions: { left: 0, center: 0, right: 0 }
             };
           });
@@ -854,7 +861,6 @@
             teamStats.PA++;
             pStat.PA++;
             
-            // 初球スイング判定
             if (ab.length > 0) {
               const firstPitch = ab[0];
               pStat.firstPitches++;
@@ -949,14 +955,13 @@
         const topBatting = calcBatting(true);
         const bottomBatting = calcBatting(false);
 
-        // 投手成績の計算 (チームごとに分離)
+        // 投手成績の計算 (チームごとに分離し、球種別・カウント別のストライク率を計算)
         const calcTeamPitching = (isTopQuery) => {
-          // isTopQuery = true なら先攻の攻撃。それを抑えるのは「後攻の投手」
           const validPitches = pitches.filter(p => p.isTop === isTopQuery && !p.isEvent && p.result !== '牽制' && p.result !== '盗塁死' && p.result !== 'その他出塁');
           
           const pStats = {};
-          let total = 0, calledStrikes = 0, whiffs = 0, swings = 0, inZone = 0;
-          let firstPitches = 0, firstStrikes = 0;
+          let totalOverall = 0, calledStrikesOverall = 0, whiffsOverall = 0, swingsOverall = 0, inZoneOverall = 0;
+          let firstPitchesOverall = 0, firstStrikesOverall = 0;
 
           const allPitchesByAb = [];
           let currentAb = [];
@@ -973,54 +978,68 @@
             let b = 0;
             let s = 0;
             ab.forEach(p => {
-              total++;
+              totalOverall++;
               const pName = p.pitcherName || '不明';
               if (!pStats[pName]) {
                 pStats[pName] = { 
-                  name: pName, total: 0, calledStrikes: 0, whiffs: 0, swings: 0, inZone: 0,
+                  name: pName, total: 0, calledStrikes: 0, whiffs: 0, swings: 0, inZone: 0, strikes: 0,
                   firstPitches: 0, firstStrikes: 0,
                   H: 0, K: 0, BB: 0, PA: 0, throws: p.pitcherThrows || '右',
                   counts: {
-                    vsRight: { ahead: {}, even: {}, behind: {} },
-                    vsLeft: { ahead: {}, even: {}, behind: {} }
-                  }
+                    vsRight: { ahead: { total: 0, strikes: 0, types: {} }, even: { total: 0, strikes: 0, types: {} }, behind: { total: 0, strikes: 0, types: {} } },
+                    vsLeft: { ahead: { total: 0, strikes: 0, types: {} }, even: { total: 0, strikes: 0, types: {} }, behind: { total: 0, strikes: 0, types: {} } }
+                  },
+                  typeStats: {} 
                 };
               }
               const st = pStats[pName];
               st.total++;
 
-              // カウント別・左右別の集計
-              let countState = 'even';
-              if (s > b) countState = 'ahead'; // 投手有利
-              else if (b > s) countState = 'behind'; // 打者有利
-
               const batterSide = p.batterBats === '左' ? 'vsLeft' : 'vsRight';
               const type = p.type ? p.type.replace(/系$/, '') : '不明';
+
+              if (!st.typeStats[type]) {
+                st.typeStats[type] = { total: 0, calledStrikes: 0, whiffs: 0, swings: 0, inZone: 0, strikes: 0 };
+              }
+              const tSt = st.typeStats[type];
+              tSt.total++;
+
+              let countState = 'even';
+              if (s > b) countState = 'ahead'; 
+              else if (b > s) countState = 'behind'; 
               
-              if (!st.counts[batterSide][countState][type]) st.counts[batterSide][countState][type] = 0;
-              st.counts[batterSide][countState][type]++;
+              const targetCountObj = st.counts[batterSide][countState];
+              targetCountObj.total++;
+              if (!targetCountObj.types[type]) targetCountObj.types[type] = 0;
+              targetCountObj.types[type]++;
+
+              const isStrikeForRate = p.result !== 'ボール' && p.result !== 'ウエスト' && p.result !== '死球';
+              if (isStrikeForRate) {
+                st.strikes++;
+                tSt.strikes++;
+                targetCountObj.strikes++;
+              }
 
               let isSwing = false;
               let isStrike = false;
 
               if (p.result.includes('見逃し') || p.result === 'ストライク') {
-                calledStrikes++; st.calledStrikes++; isStrike = true;
+                st.calledStrikes++; tSt.calledStrikes++; calledStrikesOverall++; isStrike = true;
               } else if (p.result.includes('空振り')) {
-                whiffs++; st.whiffs++;
+                st.whiffs++; tSt.whiffs++; whiffsOverall++;
                 isSwing = true; isStrike = true;
-              } else if (p.result === 'ファウル' || p.result === 'インプレー' || ['ゴロ', '飛', '安', '塁打', 'エラー', '犠'].some(w => p.result.includes(w))) {
+              } else if (p.result === 'ファウル' || p.result === 'インプレー' || ['ゴロ', '飛', '安', '塁打', 'エラー', '犠', '直'].some(w => p.result.includes(w))) {
                 isSwing = true; isStrike = true;
               }
 
-              if (isSwing) { swings++; st.swings++; }
-              if (p.course !== null && isStrikeZone(p.course)) { inZone++; st.inZone++; }
+              if (isSwing) { st.swings++; tSt.swings++; swingsOverall++; }
+              if (p.course !== null && isStrikeZone(p.course)) { st.inZone++; tSt.inZone++; inZoneOverall++; }
 
               if (p.pitchNumber === 1) {
-                firstPitches++; st.firstPitches++;
-                if (isStrike) { firstStrikes++; st.firstStrikes++; }
+                st.firstPitches++; firstPitchesOverall++;
+                if (isStrike) { st.firstStrikes++; firstStrikesOverall++; }
               }
 
-              // 次の球へのカウント更新
               if (p.result === 'ボール' || p.result === 'ウエスト') b++;
               else if (p.result === 'ストライク' || p.result === '空振り') s++;
               else if (p.result === 'ファウル' && s < 2) s++;
@@ -1043,7 +1062,6 @@
             }
           });
 
-          // 追加：各投手の直球・変化球別ヒートマップ集計
           validPitches.forEach(p => {
              const pName = p.pitcherName || '不明';
              const st = pStats[pName];
@@ -1065,31 +1083,44 @@
           const calcCSW = (c, w, t) => t > 0 ? Math.round(((c + w) / t) * 100) : 0;
           const calcWhiff = (w, sw) => sw > 0 ? Math.round((w / sw) * 100) : 0;
           const calcZone = (z, t) => t > 0 ? Math.round((z / t) * 100) : 0;
+          const calcStrikeRate = (s, t) => t > 0 ? Math.round((s / t) * 100) : 0;
 
-          const pitchersArray = Object.values(pStats).map(st => ({
-            ...st,
-            csw: calcCSW(st.calledStrikes, st.whiffs, st.total),
-            whiff: calcWhiff(st.whiffs, st.swings),
-            zone: calcZone(st.inZone, st.total),
-            fStrikePct: st.firstPitches > 0 ? Math.round((st.firstStrikes / st.firstPitches) * 100) : 0,
-            pPa: st.PA > 0 ? (st.total / st.PA).toFixed(1) : '0.0'
-          })).sort((a, b) => b.total - a.total);
+          const pitchersArray = Object.values(pStats).map(st => {
+            const typesArray = Object.entries(st.typeStats).map(([type, tSt]) => ({
+              type,
+              total: tSt.total,
+              csw: calcCSW(tSt.calledStrikes, tSt.whiffs, tSt.total),
+              whiff: calcWhiff(tSt.whiffs, tSt.swings),
+              zone: calcZone(tSt.inZone, tSt.total),
+              strikeRate: calcStrikeRate(tSt.strikes, tSt.total)
+            })).sort((a, b) => b.total - a.total);
+
+            return {
+              ...st,
+              csw: calcCSW(st.calledStrikes, st.whiffs, st.total),
+              whiff: calcWhiff(st.whiffs, st.swings),
+              zone: calcZone(st.inZone, st.total),
+              fStrikePct: st.firstPitches > 0 ? Math.round((st.firstStrikes / st.firstPitches) * 100) : 0,
+              pPa: st.PA > 0 ? (st.total / st.PA).toFixed(1) : '0.0',
+              types: typesArray 
+            };
+          }).sort((a, b) => b.total - a.total);
 
           return {
             overall: {
-              total,
-              csw: calcCSW(calledStrikes, whiffs, total),
-              whiff: calcWhiff(whiffs, swings),
-              zone: calcZone(inZone, total),
-              fStrikePct: firstPitches > 0 ? Math.round((firstStrikes / firstPitches) * 100) : 0,
-              pPa: allPitchesByAb.length > 0 ? (total / allPitchesByAb.length).toFixed(1) : 0
+              total: totalOverall,
+              csw: calcCSW(calledStrikesOverall, whiffsOverall, totalOverall),
+              whiff: calcWhiff(whiffsOverall, swingsOverall),
+              zone: calcZone(inZoneOverall, totalOverall),
+              fStrikePct: firstPitchesOverall > 0 ? Math.round((firstStrikesOverall / firstPitchesOverall) * 100) : 0,
+              pPa: allPitchesByAb.length > 0 ? (totalOverall / allPitchesByAb.length).toFixed(1) : 0
             },
             pitchers: pitchersArray
           };
         };
 
-        const pitchingTop = calcTeamPitching(false); // 後攻の攻撃に対する投球＝先攻の投手
-        const pitchingBottom = calcTeamPitching(true); // 先攻の攻撃に対する投球＝後攻の投手
+        const pitchingTop = calcTeamPitching(false); 
+        const pitchingBottom = calcTeamPitching(true); 
 
         return { topBatting, bottomBatting, pitchingTop, pitchingBottom };
       }, [pitches, showPostGameAnalysis, lineups]);
@@ -2156,7 +2187,40 @@
                                 {expandedPitcher === p.name && (
                                   <tr className="animate-in fade-in slide-in-from-top-2 duration-200">
                                     <td colSpan="10" className="p-6 bg-slate-900 border-b-2 border-blue-500/50 shadow-inner">
-                                      <div className="flex flex-col gap-4 max-w-5xl mx-auto">
+                                      <div className="flex flex-col gap-6 max-w-5xl mx-auto">
+                                        
+                                        {/* 新設：球種別の詳細パフォーマンス表 */}
+                                        <div className="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden shadow-md">
+                                          <h4 className="text-sm font-bold text-slate-300 p-3 border-b border-slate-700 bg-slate-800/80">⚾ 球種別パフォーマンス</h4>
+                                          <table className="w-full text-left text-xs">
+                                            <thead className="bg-slate-900/50 text-slate-400">
+                                              <tr>
+                                                <th className="p-2 font-bold w-1/4 pl-4">球種</th>
+                                                <th className="p-2 font-bold text-right">投球数</th>
+                                                <th className="p-2 font-bold text-right">割合</th>
+                                                <th className="p-2 font-bold text-right text-blue-300">Strike% <span className="text-[9px] text-slate-500 font-normal">ｽﾄﾗｲｸ率</span></th>
+                                                <th className="p-2 font-bold text-right text-yellow-400">CSW% <span className="text-[9px] text-slate-500 font-normal">見逃し+空振り</span></th>
+                                                <th className="p-2 font-bold text-right text-red-300">Whiff% <span className="text-[9px] text-slate-500 font-normal">空振り/ｽｲﾝｸﾞ</span></th>
+                                                <th className="p-2 font-bold text-right text-green-300">Zone% <span className="text-[9px] text-slate-500 font-normal">ｿﾞｰﾝ内率</span></th>
+                                              </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-700/50">
+                                              {p.types.map(pt => (
+                                                <tr key={pt.type} className="hover:bg-slate-700/30 transition-colors">
+                                                  <td className="p-2 font-bold text-white pl-4">{pt.type}</td>
+                                                  <td className="p-2 text-right font-mono text-slate-300">{pt.total}</td>
+                                                  <td className="p-2 text-right font-mono text-slate-400">{Math.round((pt.total / p.total) * 100)}%</td>
+                                                  <td className="p-2 text-right font-mono font-bold text-blue-300">{pt.strikeRate}%</td>
+                                                  <td className="p-2 text-right font-mono font-bold text-yellow-400">{pt.csw}%</td>
+                                                  <td className="p-2 text-right font-mono font-bold text-red-300">{pt.whiff}%</td>
+                                                  <td className="p-2 text-right font-mono font-bold text-green-300">{pt.zone}%</td>
+                                                </tr>
+                                              ))}
+                                            </tbody>
+                                          </table>
+                                        </div>
+
+                                        {/* カウント・左右別の配球傾向 */}
                                         <div className="flex gap-6">
                                           {/* 対右打者 */}
                                           {renderCountStats(p.counts.vsRight, '🆚 対 右打者の配球割合')}
@@ -2165,9 +2229,13 @@
                                         </div>
                                         
                                         {/* 直球・変化球別コースヒートマップ */}
-                                        <div className="flex gap-6 bg-slate-800 p-4 rounded-lg border border-slate-700 items-center justify-center mt-2 shadow-md">
-                                           <div className="text-slate-300 font-bold text-xs flex items-center gap-2">🎯 コース別<br/>配球パターン</div>
-                                           <div className="w-px h-16 bg-slate-600 mx-4"></div>
+                                        <div className="flex gap-6 bg-slate-800 p-4 rounded-lg border border-slate-700 items-center justify-center shadow-md">
+                                           <div className="text-slate-300 font-bold text-xs flex flex-col items-center gap-2">
+                                             <span>🎯 コース別</span>
+                                             <span>配球パターン</span>
+                                             <span className="text-[9px] text-slate-500">(捕手目線)</span>
+                                           </div>
+                                           <div className="w-px h-20 bg-slate-600 mx-4"></div>
                                            <div className="flex gap-12">
                                              <div className="flex flex-col items-center">
                                                <div className="text-[10px] font-bold text-red-400 mb-2 tracking-widest">直球系 (ｽﾄﾚｰﾄ・ｼｭｰﾄ)</div>
