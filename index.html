@@ -120,6 +120,13 @@
         return saved ? JSON.parse(saved) : [];
       });
 
+      // --- アーカイブ機能用のステート ---
+      const [savedGames, setSavedGames] = useState(() => {
+        const saved = localStorage.getItem('baseball_savedGames');
+        return saved ? JSON.parse(saved) : [];
+      });
+      const [showArchiveModal, setShowArchiveModal] = useState(false);
+
       const [showSettings, setShowSettings] = useState(false);
       const [showExport, setShowExport] = useState(false);
       const [showInPlayResult, setShowInPlayResult] = useState(false);
@@ -133,7 +140,6 @@
       const [showPostGameAnalysis, setShowPostGameAnalysis] = useState(false);
       const [postGameTab, setPostGameTab] = useState('tendency');
 
-      // 追加：ヒートマップ切り替え用
       const [heatmapTab, setHeatmapTab] = useState('all'); 
       const [expandedPitcher, setExpandedPitcher] = useState(null);
 
@@ -141,7 +147,6 @@
       const [analysisFilter, setAnalysisFilter] = useState({ pitcher: 'ALL', batterSide: 'ALL' });
       const [currentPitch, setCurrentPitch] = useState({ course: null, type: 'ストレート' });
       
-      const [importText, setImportText] = useState(''); 
       const [editingPitchIndex, setEditingPitchIndex] = useState(null);
       const [editPitchData, setEditPitchData] = useState(null);
 
@@ -161,7 +166,8 @@
         localStorage.setItem('baseball_pitches', JSON.stringify(pitches));
         localStorage.setItem('baseball_undoStack', JSON.stringify(undoStack));
         localStorage.setItem('baseball_redoStack', JSON.stringify(redoStack));
-      }, [gameState, gameInfo, lineups, pitches, undoStack, redoStack]);
+        localStorage.setItem('baseball_savedGames', JSON.stringify(savedGames));
+      }, [gameState, gameInfo, lineups, pitches, undoStack, redoStack, savedGames]);
 
       // --- 履歴管理ロジック ---
       const createSnapshot = () => ({
@@ -204,6 +210,43 @@
         setRedoStack(prev => prev.slice(0, -1));
       };
 
+      // --- 試合保存・読み込みロジック (アーカイブ機能) ---
+      const saveCurrentGame = () => {
+        if (!window.confirm('現在の試合状態をアーカイブに保存しますか？')) return;
+        const newGame = {
+          id: Date.now().toString(),
+          date: gameInfo.date,
+          teamTop: gameInfo.teamTop,
+          teamBottom: gameInfo.teamBottom,
+          scoreTop: gameState.runs.top.reduce((a,b)=>a+b,0),
+          scoreBottom: gameState.runs.bottom.reduce((a,b)=>a+b,0),
+          pitchesCount: pitches.length,
+          data: { gameState, gameInfo, lineups, pitches }
+        };
+        setSavedGames([newGame, ...savedGames]);
+        showToast('試合を保存しました！', 'success');
+      };
+
+      const loadGame = (gameId) => {
+        if (!window.confirm('現在の作業中データは上書きされます。\n※必要であれば、先に今の状態を保存してください。\n\n本当に読み込みますか？')) return;
+        const target = savedGames.find(g => g.id === gameId);
+        if (target) {
+          setGameState(target.data.gameState);
+          setGameInfo(target.data.gameInfo);
+          setLineups(target.data.lineups);
+          setPitches(target.data.pitches);
+          setUndoStack([]);
+          setRedoStack([]);
+          setShowArchiveModal(false);
+          showToast('試合データを読み込みました', 'success');
+        }
+      };
+
+      const deleteGame = (gameId) => {
+        if (!window.confirm('この保存データを完全に削除しますか？\n（この操作は取り消せません）')) return;
+        setSavedGames(savedGames.filter(g => g.id !== gameId));
+      };
+
       // --- 試合進行ロジック ---
       const handleNewGame = () => {
         setConfirmDialog({
@@ -212,8 +255,16 @@
           subMessage: '※この操作は取り消せません',
           isDanger: true,
           onConfirm: () => {
-            localStorage.clear();
-            window.location.reload();
+            setGameState({
+              inning: 1, isTop: true, outs: 0, balls: 0, strikes: 0, batterTop: 1, batterBottom: 1,
+              runners: { first: false, second: false, third: false },
+              runs: { top: [0,0,0,0,0,0,0,0,0], bottom: [0,0,0,0,0,0,0,0,0] }
+            });
+            setPitches([]);
+            setUndoStack([]);
+            setRedoStack([]);
+            setConfirmDialog(null);
+            showToast('新しい試合を開始しました');
           }
         });
       };
@@ -227,10 +278,7 @@
           onConfirm: () => {
             recordAction();
             setGameState(prev => ({
-              ...prev,
-              outs: 0,
-              balls: 0,
-              strikes: 0,
+              ...prev, outs: 0, balls: 0, strikes: 0,
               runners: { first: true, second: true, third: false }
             }));
             setConfirmDialog(null);
@@ -263,13 +311,9 @@
 
         setGameState(prev => ({
           ...prev,
-          inning,
-          isTop,
+          inning, isTop,
           ...(isTop ? { batterTop: targetBatter } : { batterBottom: targetBatter }),
-          runners: newRunners,
-          outs: newOuts,
-          balls: newBalls,
-          strikes: newStrikes
+          runners: newRunners, outs: newOuts, balls: newBalls, strikes: newStrikes
         }));
         setShowInPlayResult(false);
         setSelectedPosition(null);
@@ -279,10 +323,7 @@
         recordAction();
         setGameState(prev => ({
           ...prev,
-          runners: {
-            ...prev.runners,
-            [base]: !prev.runners[base]
-          }
+          runners: { ...prev.runners, [base]: !prev.runners[base] }
         }));
       };
 
@@ -299,13 +340,9 @@
 
           if (newOuts < 3) {
             if (eventType === 'walk' || eventType === 'other') {
-              if (newRunners.first && newRunners.second && newRunners.third) {
-                runScored = 1;
-              } else if (newRunners.first && newRunners.second) {
-                newRunners.third = true;
-              } else if (newRunners.first) {
-                newRunners.second = true;
-              }
+              if (newRunners.first && newRunners.second && newRunners.third) runScored = 1;
+              else if (newRunners.first && newRunners.second) newRunners.third = true;
+              else if (newRunners.first) newRunners.second = true;
               newRunners.first = true;
             } else if (['single', 'error'].includes(eventType)) {
               if (newRunners.third) runScored++;
@@ -334,15 +371,10 @@
             }
           }
 
-          if (runScored > 0) {
-            newRunsArray[newInning - 1] += runScored;
-          }
+          if (runScored > 0) newRunsArray[newInning - 1] += runScored;
 
-          if (prev.isTop) {
-            newBatterTop = newBatterTop === 9 ? 1 : newBatterTop + 1;
-          } else {
-            newBatterBottom = newBatterBottom === 9 ? 1 : newBatterBottom + 1;
-          }
+          if (prev.isTop) newBatterTop = newBatterTop === 9 ? 1 : newBatterTop + 1;
+          else newBatterBottom = newBatterBottom === 9 ? 1 : newBatterBottom + 1;
 
           let nextRuns = { ...prev.runs, [prev.isTop ? 'top' : 'bottom']: newRunsArray };
 
@@ -385,9 +417,7 @@
 
         setGameState(prev => {
           const newRunners = { ...prev.runners, [advanceData.runner]: false };
-          if (advanceData.to !== 'home') {
-              newRunners[advanceData.to] = true;
-          }
+          if (advanceData.to !== 'home') newRunners[advanceData.to] = true;
           const newRuns = { ...prev.runs };
           if (advanceData.to === 'home') {
               const team = prev.isTop ? 'top' : 'bottom';
@@ -505,9 +535,7 @@
         const fullResult = `${selectedPosition}${typeLabel}`;
         setPitches(prev => {
           const newPitches = [...prev];
-          if (newPitches.length > 0) {
-            newPitches[newPitches.length - 1].result = fullResult;
-          }
+          if (newPitches.length > 0) newPitches[newPitches.length - 1].result = fullResult;
           return newPitches;
         });
 
@@ -636,10 +664,7 @@
       const toggleEditRunner = (base) => {
         setEditPitchData(prev => ({
           ...prev,
-          runners: {
-            ...prev.runners,
-            [base]: !prev.runners[base]
-          }
+          runners: { ...prev.runners, [base]: !prev.runners[base] }
         }));
       };
 
@@ -649,9 +674,8 @@
         recordAction();
         const newPitches = pitches.map(p => {
           let isAfter = false;
-          if (p.inning > gameState.inning) {
-            isAfter = true;
-          } else if (p.inning === gameState.inning) {
+          if (p.inning > gameState.inning) isAfter = true;
+          else if (p.inning === gameState.inning) {
             if (gameState.isTop) isAfter = true; 
             else if (!gameState.isTop && !p.isTop) isAfter = true; 
           }
@@ -704,7 +728,6 @@
             courseHeat[p.course] = (courseHeat[p.course] || 0) + 1; 
             if (courseHeat[p.course] > maxFreq) maxFreq = courseHeat[p.course]; 
             
-            // 直球・変化球の判定
             const isFast = p.type && (p.type.includes('ストレート') || p.type.includes('シュート'));
             if (isFast) {
               courseHeatFastball[p.course] = (courseHeatFastball[p.course] || 0) + 1;
@@ -812,7 +835,6 @@
             return abs;
         };
 
-        // 打者・チーム成績
         const calcBatting = (isTopQuery) => {
           const abs = getAtBats(isTopQuery);
           
@@ -955,7 +977,6 @@
         const topBatting = calcBatting(true);
         const bottomBatting = calcBatting(false);
 
-        // 投手成績の計算 (チームごとに分離し、球種別・カウント別のストライク率を計算)
         const calcTeamPitching = (isTopQuery) => {
           const validPitches = pitches.filter(p => p.isTop === isTopQuery && !p.isEvent && p.result !== '牽制' && p.result !== '盗塁死' && p.result !== 'その他出塁');
           
@@ -1272,36 +1293,9 @@
         showToast('🤖 AI分析用のデータをコピーしました！Gemini等に貼り付けてください。'); document.body.removeChild(ta);
       };
 
-      // --- 確実なクリップボードコピー用のヘルパー関数 ---
-      const fallbackCopyTextToClipboard = (text, successMessage) => {
-        const ta = document.createElement('textarea');
-        ta.value = text;
-        ta.style.position = 'fixed';
-        ta.style.top = '0';
-        ta.style.left = '0';
-        ta.style.opacity = '0';
-        document.body.appendChild(ta);
-        ta.select();
-        try {
-          document.execCommand('copy');
-          showToast(successMessage, 'success');
-        } catch (err) {
-          showToast('コピーに失敗しました。手動でコピーしてください。', 'error');
-        }
-        document.body.removeChild(ta);
-      };
-
-      // --- データ引き継ぎ（ファイル方式に変更） ---
       const exportData = () => {
-        const exportObj = { 
-          gameState, 
-          gameInfo, 
-          lineups, 
-          pitches 
-        };
+        const exportObj = { gameState, gameInfo, lineups, pitches };
         const jsonString = JSON.stringify(exportObj);
-        
-        // ファイルとしてダウンロードさせる
         const blob = new Blob([jsonString], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
@@ -1311,14 +1305,12 @@
         link.click();
         document.body.removeChild(link);
         URL.revokeObjectURL(url);
-        
         showToast('引継ぎ用ファイルを保存しました！AirDrop等で別の端末に送れます。', 'success');
       };
 
       const importData = (event) => {
         const file = event.target.files[0];
         if (!file) return;
-
         const reader = new FileReader();
         reader.onload = (e) => {
           try {
@@ -1328,7 +1320,6 @@
               setGameInfo(data.gameInfo || { date: new Date().toISOString().split('T')[0], teamTop: '先攻チーム', teamBottom: '後攻チーム' });
               setLineups(data.lineups);
               setPitches(data.pitches);
-              // 履歴は引き継がずリセットする
               setUndoStack([]);
               setRedoStack([]);
               showToast('データを完全に復元しました！', 'success');
@@ -1406,7 +1397,6 @@
             </div>
 
             <div className="flex gap-4 items-center">
-              {/* ランナー表示＆進塁ボタン */}
               <div className="flex flex-col items-center mr-2">
                 <div className="text-[9px] font-bold text-slate-500 mb-0.5 tracking-widest">現在のランナー</div>
                 <div className="relative w-8 h-8 mb-1">
@@ -1432,7 +1422,8 @@
                 </div>
                 <div className="flex gap-1.5">
                   <button onClick={()=>setShowSettings(true)} className="bg-slate-200 px-2 py-0.5 rounded text-[10px] font-bold border border-slate-300 shadow-sm">⚙️ オーダー</button>
-                  <button onClick={()=>setShowExport(true)} className="bg-blue-600 text-white px-2 py-0.5 rounded text-[10px] font-bold shadow-sm">📥 共有</button>
+                  <button onClick={()=>setShowArchiveModal(true)} className="bg-emerald-600 text-white px-2 py-0.5 rounded text-[10px] font-bold shadow-sm">📂 保存/読込</button>
+                  <button onClick={()=>setShowExport(true)} className="bg-blue-600 text-white px-2 py-0.5 rounded text-[10px] font-bold shadow-sm">📤 出力</button>
                 </div>
               </div>
             </div>
@@ -1674,7 +1665,6 @@
           {editingPitchIndex !== null && editPitchData && (
             <div className="fixed inset-0 bg-black/70 z-[110] flex items-center justify-center p-4 backdrop-blur-md animate-in fade-in zoom-in duration-200 font-sans">
               <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col border border-slate-300">
-                 
                  {editPitchData.isEvent ? (
                    <>
                      <div className="p-4 border-b border-slate-300 bg-rose-50 flex justify-between items-center text-rose-800">
@@ -1698,7 +1688,6 @@
                        <h2 className="font-black text-lg">第{editPitchData.pitchNumber}球のデータを修正</h2>
                        <button onClick={cancelPitchEdit} className="text-slate-400 hover:text-black font-bold text-xl px-2">✕</button>
                      </div>
-                     
                      <div className="p-6 flex flex-col gap-6 bg-slate-50/50 overflow-y-auto max-h-[70vh]">
                        <div className="flex flex-col items-center bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
                          <span className="text-[10px] font-bold text-slate-500 mb-2 tracking-widest">この球が投げられた時点のランナーを修正</span>
@@ -1878,13 +1867,81 @@
             </div>
           )}
 
+          {/* 試合データ保存・読込用モーダル */}
+          {showArchiveModal && (
+            <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200 font-sans">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col overflow-hidden ring-1 ring-slate-400">
+                <div className="p-4 border-b border-slate-200 flex justify-between items-center bg-emerald-50">
+                  <h2 className="text-lg font-bold flex items-center gap-2 text-emerald-800">📂 試合データの保存・読み込み</h2>
+                  <button onClick={() => setShowArchiveModal(false)} className="text-slate-400 hover:text-black font-bold text-xl px-2">✕</button>
+                </div>
+                
+                <div className="p-6 overflow-y-auto flex-1 bg-slate-50 flex flex-col gap-6">
+                  
+                  {/* 現在の試合を保存 */}
+                  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
+                    <div>
+                      <h3 className="font-bold text-slate-800 mb-1">現在の試合をアーカイブに保存</h3>
+                      <p className="text-xs text-slate-500">入力中のデータを「保存済み一覧」にバックアップとして残します。</p>
+                    </div>
+                    <button onClick={saveCurrentGame} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-xl font-bold shadow-md transition-transform active:scale-95">
+                      💾 今の試合を保存
+                    </button>
+                  </div>
+
+                  {/* 保存済み試合一覧 */}
+                  <div>
+                    <h3 className="font-bold text-slate-700 mb-3 flex items-center gap-2">
+                      <span className="bg-slate-200 px-2 py-0.5 rounded text-xs">保存済み</span>
+                      試合データ一覧 ({savedGames.length}件)
+                    </h3>
+                    
+                    {savedGames.length === 0 ? (
+                      <div className="bg-white p-8 rounded-xl border border-slate-200 text-center text-slate-400 text-sm border-dashed">
+                        保存された試合データはありません
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-3">
+                        {savedGames.map(game => (
+                          <div key={game.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between hover:border-emerald-300 transition-colors">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-3 mb-2">
+                                <span className="bg-slate-100 text-slate-600 font-mono text-xs px-2 py-1 rounded border border-slate-200">{game.date}</span>
+                                <span className="text-xs font-bold text-slate-400">{game.pitchesCount}球記録</span>
+                              </div>
+                              <div className="flex items-center gap-4 text-base font-black text-slate-800">
+                                <div className="w-32 truncate text-right">{game.teamTop}</div>
+                                <div className="bg-slate-100 px-4 py-1 rounded-lg border border-slate-200 flex items-center justify-center min-w-[80px]">
+                                  {game.scoreTop} <span className="text-slate-400 font-normal mx-2">-</span> {game.scoreBottom}
+                                </div>
+                                <div className="w-32 truncate text-left">{game.teamBottom}</div>
+                              </div>
+                            </div>
+                            <div className="flex gap-2 ml-4">
+                              <button onClick={() => loadGame(game.id)} className="bg-white border-2 border-emerald-600 text-emerald-700 hover:bg-emerald-50 px-4 py-2 rounded-lg font-bold text-sm shadow-sm transition-colors">
+                                読み込む
+                              </button>
+                              <button onClick={() => deleteGame(game.id)} className="bg-white border border-red-200 text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors" title="削除">
+                                🗑️
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {showExport && (
             <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-md animate-in zoom-in duration-200 font-sans">
               <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-md p-8 relative overflow-hidden font-sans max-h-[90vh] flex flex-col">
                 <button onClick={() => setShowExport(false)} className="absolute top-6 right-6 text-2xl font-black text-slate-400 hover:text-slate-600 transition-colors font-bold font-sans z-10">✕</button>
                 <div className="flex flex-col items-center mb-6 shrink-0">
-                  <div className="w-16 h-16 bg-blue-100 rounded-3xl flex items-center justify-center text-blue-600 text-3xl mb-4 shadow-inner tracking-tighter font-sans uppercase">📥</div>
-                  <h2 className="text-2xl font-black text-slate-800 font-sans font-bold">共有と出力</h2>
+                  <div className="w-16 h-16 bg-blue-100 rounded-3xl flex items-center justify-center text-blue-600 text-3xl mb-4 shadow-inner tracking-tighter font-sans uppercase">📤</div>
+                  <h2 className="text-2xl font-black text-slate-800 font-sans font-bold">出力と引継ぎ</h2>
                 </div>
                 
                 <div className="flex flex-col gap-4 font-bold overflow-y-auto pr-2 pb-2">
