@@ -27,7 +27,6 @@
   <script type="text/babel">
     const { useState, useMemo, useEffect } = React;
 
-    // カウント・左右別球種割合とストライク率を描画するコンポーネント
     const CountColumn = ({ title, data }) => {
       const total = data.total || 0;
       const strikes = data.strikes || 0;
@@ -70,7 +69,7 @@
     );
 
     function App() {
-      // --- 1. ステート管理 ---
+      // --- ステート管理 ---
       const [gameState, setGameState] = useState(() => {
         const saved = localStorage.getItem('baseball_gameState');
         const initial = {
@@ -120,7 +119,6 @@
         return saved ? JSON.parse(saved) : [];
       });
 
-      // --- アーカイブ機能用のステート ---
       const [savedGames, setSavedGames] = useState(() => {
         const saved = localStorage.getItem('baseball_savedGames');
         return saved ? JSON.parse(saved) : [];
@@ -141,8 +139,11 @@
       const [postGameTab, setPostGameTab] = useState('tendency');
 
       const [heatmapTab, setHeatmapTab] = useState('all'); 
+      const [heatmapCountTab, setHeatmapCountTab] = useState('all'); 
+      const [pitcherHeatmapCountTab, setPitcherHeatmapCountTab] = useState('all'); 
       const [expandedPitcher, setExpandedPitcher] = useState(null);
 
+      const [selectedFielder, setSelectedFielder] = useState(null); // ← 追加：野手選択用のステート
       const [selectedPosition, setSelectedPosition] = useState(null);
       const [analysisFilter, setAnalysisFilter] = useState({ pitcher: 'ALL', batterSide: 'ALL' });
       const [currentPitch, setCurrentPitch] = useState({ course: null, type: 'ストレート' });
@@ -169,7 +170,7 @@
         localStorage.setItem('baseball_savedGames', JSON.stringify(savedGames));
       }, [gameState, gameInfo, lineups, pitches, undoStack, redoStack, savedGames]);
 
-      // --- 履歴管理ロジック ---
+      // --- 履歴管理 ---
       const createSnapshot = () => ({
         gameState: JSON.parse(JSON.stringify(gameState)),
         lineups: JSON.parse(JSON.stringify(lineups)),
@@ -210,7 +211,7 @@
         setRedoStack(prev => prev.slice(0, -1));
       };
 
-      // --- 試合保存・読み込みロジック (アーカイブ機能) ---
+      // --- アーカイブ機能 ---
       const saveCurrentGame = () => {
         if (!window.confirm('現在の試合状態をアーカイブに保存しますか？')) return;
         const newGame = {
@@ -388,6 +389,7 @@
         });
         setShowInPlayResult(false);
         setSelectedPosition(null);
+        setSelectedFielder(null); // ← 追加：打者交代時にリセット
       };
 
       const handleAdvanceRecord = () => {
@@ -592,6 +594,7 @@
         });
         setShowInPlayResult(false);
         setSelectedPosition(null);
+        setSelectedFielder(null); // ← 追加：打者変更時にリセット
       };
 
       const updatePlayerInfo = (team, index, field, value) => {
@@ -703,6 +706,38 @@
         setShowSettings(false);
       };
 
+      // 投球ごとのカウント状態 (ahead, even, behind) を事前計算する
+      const pitchesWithCountState = useMemo(() => {
+         const result = [];
+         let currentAbKey = null;
+         let b = 0, s = 0;
+         pitches.forEach(p => {
+             if (p.isEvent || p.result === '牽制' || p.result === '盗塁死' || p.result === 'その他出塁') {
+                 result.push({...p, countState: 'even'});
+                 return;
+             }
+             
+             const key = `${p.inning}-${p.isTop}-${p.batter}`;
+             if (currentAbKey !== key) {
+                 currentAbKey = key;
+                 b = 0;
+                 s = 0;
+             }
+             
+             let countState = 'even';
+             if (s > b) countState = 'ahead'; // 投手有利
+             else if (b > s) countState = 'behind'; // 打者有利
+             
+             result.push({...p, countState});
+             
+             // 次の球のためにカウントを更新
+             if (p.result === 'ボール' || p.result === 'ウエスト') b++;
+             else if (p.result === 'ストライク' || p.result === '空振り') s++;
+             else if (p.result === 'ファウル' && s < 2) s++;
+         });
+         return result;
+      }, [pitches]);
+
       // --- 導出データとUIコンポーネント ---
       const offTeamKey = gameState.isTop ? 'top' : 'bottom';
       const defTeamKey = gameState.isTop ? 'bottom' : 'top';
@@ -711,31 +746,59 @@
       const currentPitcherIdx = lineups[defTeamKey].findIndex(p => p.pos === '投' || p.pos === '1' || p.pos === '①');
       const currentPitcherObj = currentPitcherIdx !== -1 ? lineups[defTeamKey][currentPitcherIdx] : { name: '投手未設定', throws: '右' };
 
+      // 16分割の打球方向データ
+      const fieldPositions = [
+        { label: '左翼線', arrow: '⇖', top: '32%', left: '2%' },
+        { label: 'レフト', arrow: '↖', top: '15%', left: '10%' },
+        { label: '左中間', arrow: '↖', top: '4%', left: '25%' },
+        { label: 'センター', arrow: '⬆', top: '1%', left: '50%', center: true },
+        { label: '右中間', arrow: '↗', top: '4%', right: '25%' },
+        { label: 'ライト', arrow: '↗', top: '15%', right: '10%' },
+        { label: '右翼線', arrow: '⇗', top: '32%', right: '2%' },
+        
+        { label: '三遊間', arrow: '⬅', top: '48%', left: '14%' },
+        { label: 'ショート', arrow: '↖', top: '40%', left: '28%' },
+        { label: '二遊間', arrow: '⬆', top: '36%', left: '50%', center: true },
+        { label: 'セカンド', arrow: '↗', top: '40%', right: '28%' },
+        { label: '一二間', arrow: '➡', top: '48%', right: '14%' },
+
+        { label: 'サード', arrow: '↙', top: '65%', left: '20%' },
+        { label: 'ピッチャー', arrow: '⬇', top: '56%', left: '50%', center: true },
+        { label: 'ファースト', arrow: '↘', top: '65%', right: '20%' },
+        
+        { label: 'キャッチャー', arrow: '⬇', top: '85%', left: '50%', center: true },
+      ];
+
       const analysisData = useMemo(() => {
-        const valid = pitches.filter(p => {
+        const valid = pitchesWithCountState.filter(p => {
           if (p.isEvent || p.result === '牽制' || p.result === '盗塁死' || p.result === 'その他出塁') return false;
           if (analysisFilter.pitcher !== 'ALL' && p.pitcherName !== analysisFilter.pitcher) return false;
           if (analysisFilter.batterSide !== 'ALL' && p.batterBats !== analysisFilter.batterSide) return false;
           return true;
         });
         
-        const courseHeat = {}; let maxFreq = 0;
-        const courseHeatFastball = {}; let maxFreqFast = 0;
-        const courseHeatBreaking = {}; let maxFreqBreak = 0;
+        const heatmaps = {
+            all: { all: {}, ahead: {}, even: {}, behind: {}, max: {all:0, ahead:0, even:0, behind:0} },
+            fastball: { all: {}, ahead: {}, even: {}, behind: {}, max: {all:0, ahead:0, even:0, behind:0} },
+            breaking: { all: {}, ahead: {}, even: {}, behind: {}, max: {all:0, ahead:0, even:0, behind:0} }
+        };
 
         valid.forEach(p => { 
           if (p.course !== null) { 
-            courseHeat[p.course] = (courseHeat[p.course] || 0) + 1; 
-            if (courseHeat[p.course] > maxFreq) maxFreq = courseHeat[p.course]; 
-            
+            const c = p.course;
+            const cs = p.countState;
             const isFast = p.type && (p.type.includes('ストレート') || p.type.includes('シュート'));
-            if (isFast) {
-              courseHeatFastball[p.course] = (courseHeatFastball[p.course] || 0) + 1;
-              if (courseHeatFastball[p.course] > maxFreqFast) maxFreqFast = courseHeatFastball[p.course];
-            } else {
-              courseHeatBreaking[p.course] = (courseHeatBreaking[p.course] || 0) + 1;
-              if (courseHeatBreaking[p.course] > maxFreqBreak) maxFreqBreak = courseHeatBreaking[p.course];
-            }
+            const typeKey = isFast ? 'fastball' : 'breaking';
+
+            heatmaps.all.all[c] = (heatmaps.all.all[c] || 0) + 1;
+            if (heatmaps.all.all[c] > heatmaps.all.max.all) heatmaps.all.max.all = heatmaps.all.all[c];
+            heatmaps.all[cs][c] = (heatmaps.all[cs][c] || 0) + 1;
+            if (heatmaps.all[cs][c] > heatmaps.all.max[cs]) heatmaps.all.max[cs] = heatmaps.all[cs][c];
+
+            heatmaps[typeKey].all[c] = (heatmaps[typeKey].all[c] || 0) + 1;
+            if (heatmaps[typeKey].all[c] > heatmaps[typeKey].max.all) heatmaps[typeKey].max.all = heatmaps[typeKey].all[c];
+            heatmaps[typeKey][cs][c] = (heatmaps[typeKey][cs][c] || 0) + 1;
+            if (heatmaps[typeKey][cs][c] > heatmaps[typeKey].max[cs]) heatmaps[typeKey].max[cs] = heatmaps[typeKey][cs][c];
           } 
         });
         
@@ -746,8 +809,8 @@
         });
         
         const strikeRate = valid.length === 0 ? 0 : Math.round((valid.filter(p => p.result !== 'ボール' && p.result !== 'ウエスト').length / valid.length) * 100);
-        return { courseHeat, courseHeatFastball, courseHeatBreaking, maxFreq, maxFreqFast, maxFreqBreak, typeCount, strikeRate, totalPitches: valid.length };
-      }, [pitches, analysisFilter]);
+        return { heatmaps, typeCount, strikeRate, totalPitches: valid.length };
+      }, [pitchesWithCountState, analysisFilter]);
 
       const uniquePitchers = useMemo(() => Array.from(new Set(pitches.map(p => p.pitcherName).filter(Boolean))), [pitches]);
       const currentAtBatPitches = pitches.filter(p => p.inning === gameState.inning && p.isTop === gameState.isTop && p.batter === currentBatterIndex + 1);
@@ -810,10 +873,16 @@
       const advancedStats = useMemo(() => {
         if (!showPostGameAnalysis) return null;
         
+        // 記録文字列から大まかな方向を判別するロジック（新方式対応）
         const getHitDirection = (res) => {
+          if (res.includes('レフト') || res.includes('サード') || res.includes('ショート')) return 'left';
+          if (res.includes('ライト') || res.includes('ファースト') || res.includes('セカンド')) return 'right';
+          if (res.includes('センター') || res.includes('ピッチャー') || res.includes('キャッチャー')) return 'center';
+          
+          // 過去データのフォールバック用
           if (res.match(/[左三遊]/)) return 'left';
-          if (res.match(/[中投二]/)) return 'center';
-          if (res.match(/[右一]/)) return 'right';
+          if (res.match(/[右一二]/)) return 'right';
+          if (res.match(/[中投捕]/)) return 'center';
           return null;
         };
 
@@ -822,7 +891,7 @@
         const getAtBats = (isTopQuery) => {
             const abs = [];
             let currentAb = [];
-            const teamPitches = pitches.filter(p => p.isTop === isTopQuery && !p.isEvent && p.result !== '牽制' && p.result !== '盗塁死' && p.result !== 'その他出塁');
+            const teamPitches = pitchesWithCountState.filter(p => p.isTop === isTopQuery && !p.isEvent && p.result !== '牽制' && p.result !== '盗塁死' && p.result !== 'その他出塁');
             
             teamPitches.forEach(p => {
                 if (p.pitchNumber === 1 && currentAb.length > 0) {
@@ -978,11 +1047,31 @@
         const bottomBatting = calcBatting(false);
 
         const calcTeamPitching = (isTopQuery) => {
-          const validPitches = pitches.filter(p => p.isTop === isTopQuery && !p.isEvent && p.result !== '牽制' && p.result !== '盗塁死' && p.result !== 'その他出塁');
+          const validPitches = pitchesWithCountState.filter(p => p.isTop === isTopQuery && !p.isEvent && p.result !== '牽制' && p.result !== '盗塁死' && p.result !== 'その他出塁');
           
           const pStats = {};
           let totalOverall = 0, calledStrikesOverall = 0, whiffsOverall = 0, swingsOverall = 0, inZoneOverall = 0;
           let firstPitchesOverall = 0, firstStrikesOverall = 0;
+
+          validPitches.forEach(p => {
+              const pName = p.pitcherName || '不明';
+              if (!pStats[pName]) {
+                pStats[pName] = { 
+                  name: pName, total: 0, calledStrikes: 0, whiffs: 0, swings: 0, inZone: 0, strikes: 0,
+                  firstPitches: 0, firstStrikes: 0,
+                  H: 0, K: 0, BB: 0, PA: 0, throws: p.pitcherThrows || '右',
+                  counts: {
+                    vsRight: { ahead: { total: 0, strikes: 0, types: {} }, even: { total: 0, strikes: 0, types: {} }, behind: { total: 0, strikes: 0, types: {} } },
+                    vsLeft: { ahead: { total: 0, strikes: 0, types: {} }, even: { total: 0, strikes: 0, types: {} }, behind: { total: 0, strikes: 0, types: {} } }
+                  },
+                  typeStats: {},
+                  heatmaps: {
+                      fastball: { all: {}, ahead: {}, even: {}, behind: {}, max: {all:0, ahead:0, even:0, behind:0} },
+                      breaking: { all: {}, ahead: {}, even: {}, behind: {}, max: {all:0, ahead:0, even:0, behind:0} }
+                  }
+                };
+              }
+          });
 
           const allPitchesByAb = [];
           let currentAb = [];
@@ -1001,18 +1090,6 @@
             ab.forEach(p => {
               totalOverall++;
               const pName = p.pitcherName || '不明';
-              if (!pStats[pName]) {
-                pStats[pName] = { 
-                  name: pName, total: 0, calledStrikes: 0, whiffs: 0, swings: 0, inZone: 0, strikes: 0,
-                  firstPitches: 0, firstStrikes: 0,
-                  H: 0, K: 0, BB: 0, PA: 0, throws: p.pitcherThrows || '右',
-                  counts: {
-                    vsRight: { ahead: { total: 0, strikes: 0, types: {} }, even: { total: 0, strikes: 0, types: {} }, behind: { total: 0, strikes: 0, types: {} } },
-                    vsLeft: { ahead: { total: 0, strikes: 0, types: {} }, even: { total: 0, strikes: 0, types: {} }, behind: { total: 0, strikes: 0, types: {} } }
-                  },
-                  typeStats: {} 
-                };
-              }
               const st = pStats[pName];
               st.total++;
 
@@ -1025,9 +1102,7 @@
               const tSt = st.typeStats[type];
               tSt.total++;
 
-              let countState = 'even';
-              if (s > b) countState = 'ahead'; 
-              else if (b > s) countState = 'behind'; 
+              const countState = p.countState || 'even'; 
               
               const targetCountObj = st.counts[batterSide][countState];
               targetCountObj.total++;
@@ -1061,6 +1136,17 @@
                 if (isStrike) { st.firstStrikes++; firstStrikesOverall++; }
               }
 
+              if (p.course !== null) {
+                 const isFast = p.type && (p.type.includes('ストレート') || p.type.includes('シュート'));
+                 const typeKey = isFast ? 'fastball' : 'breaking';
+                 
+                 st.heatmaps[typeKey].all[p.course] = (st.heatmaps[typeKey].all[p.course] || 0) + 1;
+                 if (st.heatmaps[typeKey].all[p.course] > st.heatmaps[typeKey].max.all) st.heatmaps[typeKey].max.all = st.heatmaps[typeKey].all[p.course];
+
+                 st.heatmaps[typeKey][countState][p.course] = (st.heatmaps[typeKey][countState][p.course] || 0) + 1;
+                 if (st.heatmaps[typeKey][countState][p.course] > st.heatmaps[typeKey].max[countState]) st.heatmaps[typeKey].max[countState] = st.heatmaps[typeKey][countState][p.course];
+              }
+
               if (p.result === 'ボール' || p.result === 'ウエスト') b++;
               else if (p.result === 'ストライク' || p.result === '空振り') s++;
               else if (p.result === 'ファウル' && s < 2) s++;
@@ -1073,32 +1159,21 @@
             if (st) {
               st.PA++;
               const res = lastPitch.result;
+              let finalB = 0, finalS = 0;
+              ab.forEach(p => {
+                if (p.result === 'ボール' || p.result === 'ウエスト') finalB++;
+                else if (p.result === 'ストライク' || p.result === '空振り') finalS++;
+                else if (p.result === 'ファウル' && finalS < 2) finalS++;
+              });
+              
               if (['安', '塁打', '本塁打'].some(w => res.includes(w))) {
                 st.H++;
-              } else if (res === '死球' || res === '四球' || res === 'ウエスト' || b >= 4) {
+              } else if (res === '死球' || res === '四球' || res === 'ウエスト' || finalB >= 4) {
                 st.BB++;
-              } else if (res === '三振' || s >= 3) {
+              } else if (res === '三振' || finalS >= 3) {
                 st.K++;
               }
             }
-          });
-
-          validPitches.forEach(p => {
-             const pName = p.pitcherName || '不明';
-             const st = pStats[pName];
-             if (st) {
-               if (!st.heatmaps) st.heatmaps = { fastball: {}, breaking: {}, maxFast: 0, maxBreak: 0 };
-               if (p.course !== null) {
-                 const isFast = p.type && (p.type.includes('ストレート') || p.type.includes('シュート'));
-                 if (isFast) {
-                   st.heatmaps.fastball[p.course] = (st.heatmaps.fastball[p.course] || 0) + 1;
-                   if (st.heatmaps.fastball[p.course] > st.heatmaps.maxFast) st.heatmaps.maxFast = st.heatmaps.fastball[p.course];
-                 } else {
-                   st.heatmaps.breaking[p.course] = (st.heatmaps.breaking[p.course] || 0) + 1;
-                   if (st.heatmaps.breaking[p.course] > st.heatmaps.maxBreak) st.heatmaps.maxBreak = st.heatmaps.breaking[p.course];
-                 }
-               }
-             }
           });
 
           const calcCSW = (c, w, t) => t > 0 ? Math.round(((c + w) / t) * 100) : 0;
@@ -1144,7 +1219,7 @@
         const pitchingBottom = calcTeamPitching(true); 
 
         return { topBatting, bottomBatting, pitchingTop, pitchingBottom };
-      }, [pitches, showPostGameAnalysis, lineups]);
+      }, [pitchesWithCountState, showPostGameAnalysis, lineups]);
 
 
       // --- PDF/クリップボード用 ---
@@ -1323,6 +1398,7 @@
               setUndoStack([]);
               setRedoStack([]);
               showToast('データを完全に復元しました！', 'success');
+              setShowArchiveModal(false);
               setShowExport(false);
             } else {
               showToast('無効なデータ形式です。', 'error');
@@ -1506,27 +1582,109 @@
                 <div className="bg-white rounded-2xl shadow-lg p-6 border border-blue-400 flex-1 flex flex-col bg-blue-50/30 min-h-[400px]">
                   <div className="flex justify-between items-center mb-6 border-b border-blue-300 pb-3">
                     <h2 className="text-lg font-black text-blue-800 flex items-center gap-2 tracking-tight font-sans font-bold">🎯 打撃結果の入力</h2>
-                    <button onClick={() => handleUndo()} className="text-xs bg-white px-4 py-2 rounded-full border border-slate-400 shadow-sm font-bold text-slate-600">↩️ 取消して戻る</button>
+                    <button onClick={() => { handleUndo(); setSelectedFielder(null); }} className="text-xs bg-white px-4 py-2 rounded-full border border-slate-400 shadow-sm font-bold text-slate-600">↩️ 取消して戻る</button>
                   </div>
                   {!selectedPosition ? (
-                    <div className="flex-1 flex flex-col items-center justify-center">
-                      <p className="text-slate-600 font-bold mb-6 text-base tracking-wide font-sans">① 打球の方向を選択</p>
-                      <div className="relative w-[280px] h-[280px] bg-green-50 border-2 border-slate-300 rounded-t-[140px] overflow-hidden shadow-inner mb-4">
-                        <div className="absolute bottom-[-40px] left-1/2 -translate-x-1/2 w-[180px] h-[180px] bg-amber-50 rounded-full border border-amber-200/50"></div>
-                        <button onClick={() => { recordAction(); setSelectedPosition('左'); }} className="absolute top-[25%] left-[10%] w-11 h-11 bg-white border-2 border-slate-400 rounded-full font-black text-sm shadow-md hover:border-blue-500 hover:text-blue-600 flex items-center justify-center text-slate-700 transition-all active:scale-90">左</button>
-                        <button onClick={() => { recordAction(); setSelectedPosition('中'); }} className="absolute top-[10%] left-1/2 -translate-x-1/2 w-11 h-11 bg-white border-2 border-slate-400 rounded-full font-black text-sm shadow-md hover:border-blue-500 hover:text-blue-600 flex items-center justify-center text-slate-700 transition-all active:scale-90">中</button>
-                        <button onClick={() => { recordAction(); setSelectedPosition('右'); }} className="absolute top-[25%] right-[10%] w-11 h-11 bg-white border-2 border-slate-400 rounded-full font-black text-sm shadow-md hover:border-blue-500 hover:text-blue-600 flex items-center justify-center text-slate-700 transition-all active:scale-90">右</button>
-                        <button onClick={() => { recordAction(); setSelectedPosition('遊'); }} className="absolute top-[50%] left-[25%] w-11 h-11 bg-white border-2 border-slate-400 rounded-full font-black text-sm shadow-md hover:border-blue-500 hover:text-blue-600 flex items-center justify-center text-slate-700 transition-all active:scale-90">遊</button>
-                        <button onClick={() => { recordAction(); setSelectedPosition('二'); }} className="absolute top-[50%] right-[25%] w-11 h-11 bg-white border-2 border-slate-400 rounded-full font-black text-sm shadow-md hover:border-blue-500 hover:text-blue-600 flex items-center justify-center text-slate-700 transition-all active:scale-90">二</button>
-                        <button onClick={() => { recordAction(); setSelectedPosition('三'); }} className="absolute bottom-[20%] left-[15%] w-11 h-11 bg-white border-2 border-slate-400 rounded-full font-black text-sm shadow-md hover:border-blue-500 hover:text-blue-600 flex items-center justify-center text-slate-700 transition-all active:scale-90">三</button>
-                        <button onClick={() => { recordAction(); setSelectedPosition('一'); }} className="absolute bottom-[20%] right-[15%] w-11 h-11 bg-white border-2 border-slate-400 rounded-full font-black text-sm shadow-md hover:border-blue-500 hover:text-blue-600 flex items-center justify-center text-slate-700 transition-all active:scale-90">一</button>
-                        <button onClick={() => { recordAction(); setSelectedPosition('投'); }} className="absolute bottom-[35%] left-1/2 -translate-x-1/2 w-11 h-11 bg-white border-2 border-slate-400 rounded-full font-black text-sm shadow-md hover:border-blue-500 hover:text-blue-600 flex items-center justify-center text-slate-700 transition-all active:scale-90">投</button>
-                        <button onClick={() => { recordAction(); setSelectedPosition('捕'); }} className="absolute bottom-[5%] left-1/2 -translate-x-1/2 w-11 h-11 bg-white border-2 border-slate-400 rounded-full font-black text-sm shadow-md hover:border-blue-500 hover:text-blue-600 flex items-center justify-center text-slate-700 transition-all active:scale-90">捕</button>
+                    <div className="flex-1 flex flex-col items-center justify-center w-full">
+                      <div className="flex justify-between w-full max-w-[340px] mb-4 items-end">
+                        <p className="text-slate-600 font-bold text-base tracking-wide font-sans">
+                          ① 打球の方向を選択
+                        </p>
+                        {selectedFielder && (
+                          <button onClick={() => setSelectedFielder(null)} className="text-[10px] text-slate-500 font-bold bg-slate-200 px-2 py-1 rounded shadow-sm hover:bg-slate-300 transition-colors">
+                            選び直す
+                          </button>
+                        )}
+                      </div>
+                      
+                      <div className="relative w-[320px] h-[320px] mb-4 mx-auto">
+                        {/* グラウンド背景 */}
+                        <div className="absolute inset-0 bg-green-50 border-2 border-slate-300 rounded-t-[160px] overflow-hidden shadow-inner pointer-events-none">
+                          <div className="absolute bottom-[-50px] left-1/2 -translate-x-1/2 w-[180px] h-[180px] bg-amber-50 rounded-full border border-amber-200/50"></div>
+                        </div>
+
+                        {/* 野手アイコンと展開ボタン */}
+                        <div className="absolute inset-0">
+                          {[
+                            { id: '左', name: 'レフト', top: '22%', left: '20%' },
+                            { id: '中', name: 'センター', top: '15%', left: '50%' },
+                            { id: '右', name: 'ライト', top: '22%', left: '80%' },
+                            { id: '遊', name: 'ショート', top: '48%', left: '32%' },
+                            { id: '二', name: 'セカンド', top: '48%', left: '68%' },
+                            { id: '三', name: 'サード', top: '68%', left: '22%' },
+                            { id: '一', name: 'ファースト', top: '68%', left: '78%' },
+                            { id: '投', name: 'ピッチャー', top: '62%', left: '50%' },
+                            { id: '捕', name: 'キャッチャー', top: '90%', left: '50%' },
+                          ].map(pos => {
+                            const isSelected = selectedFielder?.id === pos.id;
+                            const isDimmed = selectedFielder && !isSelected;
+
+                            return (
+                              <div 
+                                key={pos.id} 
+                                className={`absolute w-12 h-12 -translate-x-1/2 -translate-y-1/2 transition-all duration-300 ${isDimmed ? 'opacity-20 pointer-events-none' : 'opacity-100 z-20'}`} 
+                                style={{ top: pos.top, left: pos.left }}
+                              >
+                                {/* 野手のメインボタン */}
+                                <button 
+                                  onClick={() => {
+                                    if (isSelected) {
+                                      recordAction();
+                                      setSelectedPosition(`${pos.name}`); // 真正面の場合は矢印なし
+                                      setSelectedFielder(null);
+                                    } else {
+                                      setSelectedFielder(pos);
+                                    }
+                                  }}
+                                  className={`w-full h-full rounded-full font-black shadow-md flex flex-col items-center justify-center transition-all ${isSelected ? 'bg-blue-600 text-white scale-110 ring-4 ring-blue-300' : 'bg-white border-2 border-slate-400 text-slate-700 hover:border-blue-500 hover:text-blue-600'}`}
+                                >
+                                  <span className="text-sm">{pos.id}</span>
+                                  {isSelected && <span className="text-[8px] font-normal leading-none mt-0.5">正面</span>}
+                                </button>
+
+                                {/* 選択時に周囲に展開される8方向の矢印ボタン */}
+                                {isSelected && (
+                                  <div className="absolute top-1/2 left-1/2 w-0 h-0 z-[-1]">
+                                    {[
+                                      { label: '↖', angle: -Math.PI * 0.75 },
+                                      { label: '⬆', angle: -Math.PI * 0.5 },
+                                      { label: '↗', angle: -Math.PI * 0.25 },
+                                      { label: '⬅', angle: Math.PI },
+                                      { label: '➡', angle: 0 },
+                                      { label: '↙', angle: Math.PI * 0.75 },
+                                      { label: '⬇', angle: Math.PI * 0.5 },
+                                      { label: '↘', angle: Math.PI * 0.25 },
+                                    ].map(arr => {
+                                      const radius = 58;
+                                      const top = Math.sin(arr.angle) * radius;
+                                      const left = Math.cos(arr.angle) * radius;
+                                      return (
+                                        <button
+                                          key={arr.label}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            recordAction();
+                                            setSelectedPosition(`${pos.name}${arr.label}`); // 矢印付きで記録
+                                            setSelectedFielder(null);
+                                          }}
+                                          className="absolute w-10 h-10 bg-white rounded-full border-[2px] border-blue-400 shadow-xl text-blue-600 font-black text-lg flex items-center justify-center hover:bg-blue-50 hover:scale-110 transition-transform -translate-x-1/2 -translate-y-1/2 animate-in zoom-in duration-200"
+                                          style={{ marginTop: top, marginLeft: left }}
+                                        >
+                                          {arr.label}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
                     </div>
                   ) : (
                     <div className="flex-1 flex flex-col items-center animate-in slide-in-from-right duration-150 w-full">
-                      <p className="text-slate-600 font-bold mb-6 text-lg">② <span className="text-blue-700 text-2xl font-black px-2">{selectedPosition}</span> への結果は？</p>
+                      <p className="text-slate-600 font-bold mb-6 text-lg">② <span className="text-blue-700 text-2xl font-black px-2">{selectedPosition}</span> の結果は？</p>
                       <div className="w-full space-y-4 max-w-md">
                         <div className="bg-white p-4 rounded-xl border border-red-100 shadow-sm"><div className="grid grid-cols-3 gap-3">
                           <button onClick={() => handleInPlayFinalResult('ゴロ', 1)} className="bg-red-50 text-red-700 py-4 rounded-xl font-bold active:bg-red-100 transition-colors">ゴロ</button>
@@ -1545,7 +1703,7 @@
                           <button onClick={() => handleInPlayFinalResult('犠打', 1)} className="bg-slate-100 text-slate-700 py-3 rounded-xl font-bold text-xs hover:bg-slate-200 transition-colors">犠打</button>
                           <button onClick={() => handleInPlayFinalResult('犠飛', 1)} className="bg-slate-100 text-slate-700 py-3 rounded-xl font-bold text-xs hover:bg-slate-200 transition-colors">犠飛</button>
                         </div></div>
-                        <button onClick={() => setSelectedPosition(null)} className="w-full py-3 text-slate-500 font-bold border-2 border-dashed border-slate-400 rounded-xl hover:bg-slate-50 transition-colors font-sans">← 方向を選び直す</button>
+                        <button onClick={() => { setSelectedPosition(null); setSelectedFielder(null); }} className="w-full py-3 text-slate-500 font-bold border-2 border-dashed border-slate-400 rounded-xl hover:bg-slate-50 transition-colors font-sans">← 方向を選び直す</button>
                       </div>
                     </div>
                   )}
@@ -1568,18 +1726,24 @@
                 </div>
                 <div className="flex gap-6 items-center">
                   
-                  {/* 直球・変化球切り替え機能付きヒートマップ */}
+                  {/* 直球・変化球・カウント切り替え機能付きヒートマップ */}
                   <div className="flex flex-col items-center w-36 shrink-0">
-                    <div className="flex bg-slate-200 rounded-md p-0.5 mb-2 w-full">
+                    <div className="flex bg-slate-200 rounded-md p-0.5 mb-1 w-full gap-0.5">
                       <button onClick={() => setHeatmapTab('all')} className={`flex-1 text-[9px] font-bold py-1 rounded-sm ${heatmapTab === 'all' ? 'bg-white shadow-sm' : 'text-slate-500'}`}>全体</button>
                       <button onClick={() => setHeatmapTab('fastball')} className={`flex-1 text-[9px] font-bold py-1 rounded-sm ${heatmapTab === 'fastball' ? 'bg-white shadow-sm text-red-600' : 'text-slate-500'}`}>直球</button>
                       <button onClick={() => setHeatmapTab('breaking')} className={`flex-1 text-[9px] font-bold py-1 rounded-sm ${heatmapTab === 'breaking' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500'}`}>変化</button>
                     </div>
+                    <div className="flex bg-slate-200 rounded-md p-0.5 mb-2 w-full gap-0.5">
+                      <button onClick={() => setHeatmapCountTab('all')} className={`flex-1 text-[8px] font-bold py-1 rounded-sm ${heatmapCountTab === 'all' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500'}`}>全ｶｳﾝﾄ</button>
+                      <button onClick={() => setHeatmapCountTab('ahead')} className={`flex-1 text-[8px] font-bold py-1 rounded-sm ${heatmapCountTab === 'ahead' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500'}`}>有利</button>
+                      <button onClick={() => setHeatmapCountTab('even')} className={`flex-1 text-[8px] font-bold py-1 rounded-sm ${heatmapCountTab === 'even' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500'}`}>平行</button>
+                      <button onClick={() => setHeatmapCountTab('behind')} className={`flex-1 text-[8px] font-bold py-1 rounded-sm ${heatmapCountTab === 'behind' ? 'bg-white shadow-sm text-red-600' : 'text-slate-500'}`}>不利</button>
+                    </div>
                     <div className="grid grid-cols-5 grid-rows-5 w-full aspect-square gap-0.5 relative bg-slate-100 p-1 rounded border border-slate-200">
                       <div className="absolute top-[20%] left-[20%] w-[60%] h-[60%] border-2 border-slate-800 pointer-events-none rounded-sm z-10"></div>
                       {courses.map(i => {
-                        const hData = heatmapTab === 'all' ? analysisData.courseHeat : (heatmapTab === 'fastball' ? analysisData.courseHeatFastball : analysisData.courseHeatBreaking);
-                        const hMax = heatmapTab === 'all' ? analysisData.maxFreq : (heatmapTab === 'fastball' ? analysisData.maxFreqFast : analysisData.maxFreqBreak);
+                        const hData = analysisData.heatmaps[heatmapTab][heatmapCountTab];
+                        const hMax = analysisData.heatmaps[heatmapTab].max[heatmapCountTab];
                         const colorClass = heatmapTab === 'breaking' ? 'bg-blue-500' : 'bg-red-500';
                         const count = hData[i] || 0;
                         const opacity = hMax === 0 ? 0 : count / hMax;
@@ -1867,7 +2031,7 @@
             </div>
           )}
 
-          {/* 試合データ保存・読込用モーダル */}
+          {/* 試合データ保存・読込用アーカイブモーダル */}
           {showArchiveModal && (
             <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200 font-sans">
               <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col overflow-hidden ring-1 ring-slate-400">
@@ -2294,7 +2458,7 @@
                                     <td colSpan="10" className="p-6 bg-slate-900 border-b-2 border-blue-500/50 shadow-inner">
                                       <div className="flex flex-col gap-6 max-w-5xl mx-auto">
                                         
-                                        {/* 新設：球種別の詳細パフォーマンス表 */}
+                                        {/* 球種別の詳細パフォーマンス表 */}
                                         <div className="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden shadow-md">
                                           <h4 className="text-sm font-bold text-slate-300 p-3 border-b border-slate-700 bg-slate-800/80">⚾ 球種別パフォーマンス</h4>
                                           <table className="w-full text-left text-xs">
@@ -2334,21 +2498,30 @@
                                         </div>
                                         
                                         {/* 直球・変化球別コースヒートマップ */}
-                                        <div className="flex gap-6 bg-slate-800 p-4 rounded-lg border border-slate-700 items-center justify-center shadow-md">
-                                           <div className="text-slate-300 font-bold text-xs flex flex-col items-center gap-2">
-                                             <span>🎯 コース別</span>
-                                             <span>配球パターン</span>
-                                             <span className="text-[9px] text-slate-500">(捕手目線)</span>
+                                        <div className="flex flex-col gap-2 bg-slate-800 p-4 rounded-lg border border-slate-700 items-center justify-center shadow-md">
+                                           <div className="flex items-center gap-4 w-full px-4">
+                                              <div className="text-slate-300 font-bold text-xs flex flex-col gap-1">
+                                                <span>🎯 コース別配球パターン</span>
+                                                <span className="text-[9px] text-slate-500">(捕手目線)</span>
+                                              </div>
+                                              
+                                              <div className="flex bg-slate-700 rounded-md p-1 ml-auto">
+                                                <button onClick={() => setPitcherHeatmapCountTab('all')} className={`px-3 py-1 text-[10px] font-bold rounded-sm transition-colors ${pitcherHeatmapCountTab === 'all' ? 'bg-slate-200 text-slate-800 shadow-sm' : 'text-slate-400 hover:text-white'}`}>全ｶｳﾝﾄ</button>
+                                                <button onClick={() => setPitcherHeatmapCountTab('ahead')} className={`px-3 py-1 text-[10px] font-bold rounded-sm transition-colors ${pitcherHeatmapCountTab === 'ahead' ? 'bg-slate-200 text-blue-700 shadow-sm' : 'text-slate-400 hover:text-white'}`}>有利(S先行)</button>
+                                                <button onClick={() => setPitcherHeatmapCountTab('even')} className={`px-3 py-1 text-[10px] font-bold rounded-sm transition-colors ${pitcherHeatmapCountTab === 'even' ? 'bg-slate-200 text-slate-800 shadow-sm' : 'text-slate-400 hover:text-white'}`}>平行(S=B)</button>
+                                                <button onClick={() => setPitcherHeatmapCountTab('behind')} className={`px-3 py-1 text-[10px] font-bold rounded-sm transition-colors ${pitcherHeatmapCountTab === 'behind' ? 'bg-slate-200 text-red-700 shadow-sm' : 'text-slate-400 hover:text-white'}`}>不利(B先行)</button>
+                                              </div>
                                            </div>
-                                           <div className="w-px h-20 bg-slate-600 mx-4"></div>
-                                           <div className="flex gap-12">
+                                           
+                                           <div className="flex gap-12 mt-2">
                                              <div className="flex flex-col items-center">
                                                <div className="text-[10px] font-bold text-red-400 mb-2 tracking-widest">直球系 (ｽﾄﾚｰﾄ・ｼｭｰﾄ)</div>
                                                <div className="grid grid-cols-5 grid-rows-5 w-28 h-28 gap-px relative bg-slate-700 p-1 rounded border border-slate-600">
                                                  <div className="absolute top-[20%] left-[20%] w-[60%] h-[60%] border-2 border-white/40 pointer-events-none z-10"></div>
                                                  {courses.map(i => {
-                                                   const c = p.heatmaps?.fastball[i] || 0;
-                                                   const op = p.heatmaps?.maxFast === 0 ? 0 : c / p.heatmaps.maxFast;
+                                                   const c = p.heatmaps?.fastball[pitcherHeatmapCountTab][i] || 0;
+                                                   const max = p.heatmaps?.fastball.max[pitcherHeatmapCountTab] || 0;
+                                                   const op = max === 0 ? 0 : c / max;
                                                    return <div key={`fh-${i}`} className="bg-slate-800 relative flex items-center justify-center text-[9px] text-white font-mono">{c > 0 && <div className="absolute inset-0 bg-red-500 transition-opacity" style={{opacity: op*0.8}}></div>}<span className="relative z-20">{c>0?c:''}</span></div>
                                                  })}
                                                </div>
@@ -2358,8 +2531,9 @@
                                                <div className="grid grid-cols-5 grid-rows-5 w-28 h-28 gap-px relative bg-slate-700 p-1 rounded border border-slate-600">
                                                  <div className="absolute top-[20%] left-[20%] w-[60%] h-[60%] border-2 border-white/40 pointer-events-none z-10"></div>
                                                  {courses.map(i => {
-                                                   const c = p.heatmaps?.breaking[i] || 0;
-                                                   const op = p.heatmaps?.maxBreak === 0 ? 0 : c / p.heatmaps.maxBreak;
+                                                   const c = p.heatmaps?.breaking[pitcherHeatmapCountTab][i] || 0;
+                                                   const max = p.heatmaps?.breaking.max[pitcherHeatmapCountTab] || 0;
+                                                   const op = max === 0 ? 0 : c / max;
                                                    return <div key={`bh-${i}`} className="bg-slate-800 relative flex items-center justify-center text-[9px] text-white font-mono">{c > 0 && <div className="absolute inset-0 bg-blue-500 transition-opacity" style={{opacity: op*0.8}}></div>}<span className="relative z-20">{c>0?c:''}</span></div>
                                                  })}
                                                </div>
