@@ -99,9 +99,19 @@
 
       const [lineups, setLineups] = useState(() => {
         const saved = localStorage.getItem('baseball_lineups');
-        return saved ? JSON.parse(saved) : {
-          top: Array.from({length: 9}, (_,i)=>({ order: i+1, name: `先攻${i+1}番`, pos: i===0?'投':'未', throws: '右', bats: '右' })),
-          bottom: Array.from({length: 9}, (_,i)=>({ order: i+1, name: `後攻${i+1}番`, pos: i===0?'投':'未', throws: '右', bats: '右' }))
+        if (saved) {
+            let parsed = JSON.parse(saved);
+            if (parsed.top.length === 9) {
+                parsed.top.push({ order: '投', name: '', pos: '投', throws: '右', bats: '右' });
+            }
+            if (parsed.bottom.length === 9) {
+                parsed.bottom.push({ order: '投', name: '', pos: '投', throws: '右', bats: '右' });
+            }
+            return parsed;
+        }
+        return {
+          top: Array.from({length: 10}, (_,i)=>({ order: i<9 ? i+1 : '投', name: i<9 ? `先攻${i+1}番` : `先発投手`, pos: i===9?'投':'未', throws: '右', bats: '右' })),
+          bottom: Array.from({length: 10}, (_,i)=>({ order: i<9 ? i+1 : '投', name: i<9 ? `後攻${i+1}番` : `先発投手`, pos: i===9?'投':'未', throws: '右', bats: '右' }))
         };
       });
 
@@ -143,7 +153,7 @@
       const [pitcherHeatmapCountTab, setPitcherHeatmapCountTab] = useState('all'); 
       const [expandedPitcher, setExpandedPitcher] = useState(null);
 
-      const [selectedFielder, setSelectedFielder] = useState(null); // ← 追加：野手選択用のステート
+      const [selectedFielder, setSelectedFielder] = useState(null);
       const [selectedPosition, setSelectedPosition] = useState(null);
       const [analysisFilter, setAnalysisFilter] = useState({ pitcher: 'ALL', batterSide: 'ALL' });
       const [currentPitch, setCurrentPitch] = useState({ course: null, type: 'ストレート' });
@@ -211,44 +221,7 @@
         setRedoStack(prev => prev.slice(0, -1));
       };
 
-      // --- アーカイブ機能 ---
-      const saveCurrentGame = () => {
-        if (!window.confirm('現在の試合状態をアーカイブに保存しますか？')) return;
-        const newGame = {
-          id: Date.now().toString(),
-          date: gameInfo.date,
-          teamTop: gameInfo.teamTop,
-          teamBottom: gameInfo.teamBottom,
-          scoreTop: gameState.runs.top.reduce((a,b)=>a+b,0),
-          scoreBottom: gameState.runs.bottom.reduce((a,b)=>a+b,0),
-          pitchesCount: pitches.length,
-          data: { gameState, gameInfo, lineups, pitches }
-        };
-        setSavedGames([newGame, ...savedGames]);
-        showToast('試合を保存しました！', 'success');
-      };
-
-      const loadGame = (gameId) => {
-        if (!window.confirm('現在の作業中データは上書きされます。\n※必要であれば、先に今の状態を保存してください。\n\n本当に読み込みますか？')) return;
-        const target = savedGames.find(g => g.id === gameId);
-        if (target) {
-          setGameState(target.data.gameState);
-          setGameInfo(target.data.gameInfo);
-          setLineups(target.data.lineups);
-          setPitches(target.data.pitches);
-          setUndoStack([]);
-          setRedoStack([]);
-          setShowArchiveModal(false);
-          showToast('試合データを読み込みました', 'success');
-        }
-      };
-
-      const deleteGame = (gameId) => {
-        if (!window.confirm('この保存データを完全に削除しますか？\n（この操作は取り消せません）')) return;
-        setSavedGames(savedGames.filter(g => g.id !== gameId));
-      };
-
-      // --- 試合進行ロジック ---
+      // --- カスタム確認ダイアログを利用した各種アクション ---
       const handleNewGame = () => {
         setConfirmDialog({
           title: '🔄 新試合の開始',
@@ -261,11 +234,16 @@
               runners: { first: false, second: false, third: false },
               runs: { top: [0,0,0,0,0,0,0,0,0], bottom: [0,0,0,0,0,0,0,0,0] }
             });
+            setGameInfo({ date: new Date().toISOString().split('T')[0], teamTop: '先攻チーム', teamBottom: '後攻チーム' });
+            setLineups({
+              top: Array.from({length: 10}, (_,i)=>({ order: i<9 ? i+1 : '投', name: i<9 ? `先攻${i+1}番` : `先発投手`, pos: i===9?'投':'未', throws: '右', bats: '右' })),
+              bottom: Array.from({length: 10}, (_,i)=>({ order: i<9 ? i+1 : '投', name: i<9 ? `後攻${i+1}番` : `先発投手`, pos: i===9?'投':'未', throws: '右', bats: '右' }))
+            });
             setPitches([]);
             setUndoStack([]);
             setRedoStack([]);
             setConfirmDialog(null);
-            showToast('新しい試合を開始しました');
+            showToast('新しい試合を開始し、オーダーをリセットしました');
           }
         });
       };
@@ -287,6 +265,174 @@
         });
       };
 
+      const saveCurrentGame = () => {
+        setConfirmDialog({
+          title: '💾 アーカイブに保存',
+          message: '現在の試合状態をアーカイブに保存しますか？',
+          isDanger: false,
+          onConfirm: () => {
+            const newGame = {
+              id: Date.now().toString(),
+              date: gameInfo.date,
+              teamTop: gameInfo.teamTop,
+              teamBottom: gameInfo.teamBottom,
+              scoreTop: gameState.runs.top.reduce((a,b)=>a+b,0),
+              scoreBottom: gameState.runs.bottom.reduce((a,b)=>a+b,0),
+              pitchesCount: pitches.length,
+              data: { gameState, gameInfo, lineups, pitches }
+            };
+            setSavedGames([newGame, ...savedGames]);
+            setConfirmDialog(null);
+            showToast('試合を保存しました！', 'success');
+          }
+        });
+      };
+
+      const loadGame = (gameId) => {
+        setConfirmDialog({
+          title: '📂 データの読み込み',
+          message: '現在の作業中データは上書きされます。本当に読み込みますか？',
+          subMessage: '※必要であれば、先に今の状態を保存してください。',
+          isDanger: true,
+          onConfirm: () => {
+            const target = savedGames.find(g => g.id === gameId);
+            if (target) {
+              setGameState(target.data.gameState);
+              setGameInfo(target.data.gameInfo);
+              setLineups(target.data.lineups);
+              setPitches(target.data.pitches);
+              setUndoStack([]);
+              setRedoStack([]);
+              setShowArchiveModal(false);
+              setConfirmDialog(null);
+              showToast('試合データを読み込みました', 'success');
+            }
+          }
+        });
+      };
+
+      const deleteGame = (gameId) => {
+        setConfirmDialog({
+          title: '🗑️ アーカイブの削除',
+          message: 'この保存データを完全に削除しますか？',
+          subMessage: '（この操作は取り消せません）',
+          isDanger: true,
+          onConfirm: () => {
+            setSavedGames(savedGames.filter(g => g.id !== gameId));
+            setConfirmDialog(null);
+          }
+        });
+      };
+
+      const deletePitchRecord = () => {
+        setConfirmDialog({
+          title: '🗑️ 記録の削除',
+          message: 'この記録を削除しますか？',
+          subMessage: '※ランナーやアウト数は自動で戻りません。必要に応じて手動で直してください。',
+          isDanger: true,
+          onConfirm: () => {
+            recordAction();
+            const newPitches = [...pitches];
+            const deletedPitch = newPitches.splice(editingPitchIndex, 1)[0];
+            
+            if (!deletedPitch.isEvent) {
+               let currentNum = 1;
+               newPitches.forEach(p => {
+                 if (p.inning === deletedPitch.inning && p.isTop === deletedPitch.isTop && p.batter === deletedPitch.batter && !p.isEvent) {
+                   p.pitchNumber = currentNum++;
+                 }
+               });
+            }
+
+            setPitches(newPitches);
+            setEditingPitchIndex(null);
+            setEditPitchData(null);
+            setConfirmDialog(null);
+            showToast("記録を削除しました", "success");
+            
+            if (gameState.inning === deletedPitch.inning && gameState.isTop === deletedPitch.isTop && gameState.batter === deletedPitch.batter) {
+                const targetPitches = newPitches.filter(p => p.inning === gameState.inning && p.isTop === gameState.isTop && p.batter === gameState.batter);
+                let newBalls = 0;
+                let newStrikes = 0;
+                const nonEventPitches = targetPitches.filter(p => !p.isEvent);
+                for (let p of nonEventPitches) {
+                  if (p.result === 'ボール' || p.result === 'ウエスト') newBalls++;
+                  else if (p.result === 'ストライク' || p.result === '空振り') newStrikes++;
+                  else if (p.result === 'ファウル' && newStrikes < 2) newStrikes++;
+                }
+                setGameState(prev => ({...prev, balls: newBalls, strikes: newStrikes}));
+            }
+          }
+        });
+      };
+
+      const applyLineupToPast = () => {
+        setConfirmDialog({
+          title: '💡 過去の記録に一括反映',
+          message: `現在表示している【${gameState.inning}回${gameState.isTop?'表':'裏'}】以降のすべての投球・イベント記録の「投手名」と「打者名」を書き換えますか？`,
+          subMessage: '（※過去の入力忘れを修正する場合に使います）',
+          isDanger: false,
+          onConfirm: () => {
+            recordAction();
+            const newPitches = pitches.map(p => {
+              let isAfter = false;
+              if (p.inning > gameState.inning) isAfter = true;
+              else if (p.inning === gameState.inning) {
+                if (gameState.isTop) isAfter = true; 
+                else if (!gameState.isTop && !p.isTop) isAfter = true; 
+              }
+
+              if (isAfter) {
+                const offTeamLineup = p.isTop ? lineups.top : lineups.bottom;
+                const defTeamLineup = p.isTop ? lineups.bottom : lineups.top;
+                
+                const batterObj = offTeamLineup[p.batter - 1] || { name: '打者未設定', bats: '右' };
+                const pitcherObj = defTeamLineup.find(pl => pl.pos === '投' || pl.pos === '1' || pl.pos === '①') || { name: '投手未設定', throws: '右' };
+                
+                return {
+                  ...p,
+                  batterName: batterObj.name,
+                  batterBats: batterObj.bats,
+                  pitcherName: pitcherObj.name,
+                  pitcherThrows: pitcherObj.throws
+                };
+              }
+              return p;
+            });
+            
+            setPitches(newPitches);
+            setConfirmDialog(null);
+            showToast(`記録を上書きしました！`, "success");
+            setShowSettings(false);
+          }
+        });
+      };
+
+      const swapTopAndBottom = () => {
+        setConfirmDialog({
+          title: '⇅ 先攻/後攻の入替',
+          message: '先攻と後攻のチーム名・オーダーを入れ替えますか？',
+          subMessage: '（※すでに記録済みの打席データには影響しません）',
+          isDanger: false,
+          onConfirm: () => {
+            recordAction();
+            setGameInfo(prev => ({
+              ...prev,
+              teamTop: prev.teamBottom,
+              teamBottom: prev.teamTop
+            }));
+            setLineups(prev => ({
+              ...prev,
+              top: prev.bottom,
+              bottom: prev.top
+            }));
+            setConfirmDialog(null);
+            showToast("先攻と後攻を入れ替えました！", "success");
+          }
+        });
+      };
+
+      // --- 試合進行ロジックつづき ---
       const jumpToInning = (inning, isTop) => {
         recordAction();
         const inningPitches = pitches.filter(p => p.inning === inning && p.isTop === isTop);
@@ -318,6 +464,7 @@
         }));
         setShowInPlayResult(false);
         setSelectedPosition(null);
+        setSelectedFielder(null);
       };
 
       const toggleRunner = (base) => {
@@ -389,7 +536,7 @@
         });
         setShowInPlayResult(false);
         setSelectedPosition(null);
-        setSelectedFielder(null); // ← 追加：打者交代時にリセット
+        setSelectedFielder(null);
       };
 
       const handleAdvanceRecord = () => {
@@ -400,7 +547,14 @@
         recordAction();
         
         const runnerName = advanceData.runner === 'first' ? '1塁走者' : advanceData.runner === 'second' ? '2塁走者' : '3塁走者';
-        const toName = advanceData.to === 'second' ? '2塁' : advanceData.to === 'third' ? '3塁' : '本塁';
+        const toName = advanceData.to === 'second' ? '2塁' : advanceData.to === 'third' ? '3塁' : advanceData.to === 'same' ? 'そのまま' : '本塁';
+        
+        let resultText = `${runnerName} ${advanceData.reason}で${toName}へ`;
+        if (advanceData.reason === '代走') {
+            resultText = `${runnerName} に代走`;
+        } else if (advanceData.to === 'same') {
+            resultText = `${runnerName} ${advanceData.reason}`;
+        }
         
         const defTeamKey = gameState.isTop ? 'bottom' : 'top';
         const offTeamKey = gameState.isTop ? 'top' : 'bottom';
@@ -409,7 +563,7 @@
         const currentBatterObj = lineups[offTeamKey][currentBatterIndex] || { name: '打者未設定', bats: '右' };
 
         const eventPitch = {
-          course: null, type: '-', result: `${runnerName} ${advanceData.reason}で${toName}へ`,
+          course: null, type: '-', result: resultText,
           inning: gameState.inning, isTop: gameState.isTop, batter: currentBatterIndex + 1,
           pitchNumber: '-', pitcherName: currentPitcherObj.name, pitcherThrows: currentPitcherObj.throws,
           batterName: currentBatterObj.name, batterBats: currentBatterObj.bats, isEvent: true,
@@ -418,8 +572,11 @@
         setPitches([...pitches, eventPitch]);
 
         setGameState(prev => {
-          const newRunners = { ...prev.runners, [advanceData.runner]: false };
-          if (advanceData.to !== 'home') newRunners[advanceData.to] = true;
+          const newRunners = { ...prev.runners };
+          if (advanceData.to !== 'same') {
+            newRunners[advanceData.runner] = false;
+            if (advanceData.to !== 'home') newRunners[advanceData.to] = true;
+          }
           const newRuns = { ...prev.runs };
           if (advanceData.to === 'home') {
               const team = prev.isTop ? 'top' : 'bottom';
@@ -594,7 +751,7 @@
         });
         setShowInPlayResult(false);
         setSelectedPosition(null);
-        setSelectedFielder(null); // ← 追加：打者変更時にリセット
+        setSelectedFielder(null); 
       };
 
       const updatePlayerInfo = (team, index, field, value) => {
@@ -624,41 +781,6 @@
         setEditPitchData(null);
       };
 
-      const deletePitchRecord = () => {
-        if(window.confirm("この記録を削除しますか？\n※ランナーやアウト数は自動で戻りません。必要に応じて画面上部から手動で直してください。")) {
-          recordAction();
-          const newPitches = [...pitches];
-          const deletedPitch = newPitches.splice(editingPitchIndex, 1)[0];
-          
-          if (!deletedPitch.isEvent) {
-             let currentNum = 1;
-             newPitches.forEach(p => {
-               if (p.inning === deletedPitch.inning && p.isTop === deletedPitch.isTop && p.batter === deletedPitch.batter && !p.isEvent) {
-                 p.pitchNumber = currentNum++;
-               }
-             });
-          }
-
-          setPitches(newPitches);
-          setEditingPitchIndex(null);
-          setEditPitchData(null);
-          showToast("記録を削除しました", "success");
-          
-          if (gameState.inning === deletedPitch.inning && gameState.isTop === deletedPitch.isTop && gameState.batter === deletedPitch.batter) {
-              const targetPitches = newPitches.filter(p => p.inning === gameState.inning && p.isTop === gameState.isTop && p.batter === gameState.batter);
-              let newBalls = 0;
-              let newStrikes = 0;
-              const nonEventPitches = targetPitches.filter(p => !p.isEvent);
-              for (let p of nonEventPitches) {
-                if (p.result === 'ボール' || p.result === 'ウエスト') newBalls++;
-                else if (p.result === 'ストライク' || p.result === '空振り') newStrikes++;
-                else if (p.result === 'ファウル' && newStrikes < 2) newStrikes++;
-              }
-              setGameState(prev => ({...prev, balls: newBalls, strikes: newStrikes}));
-          }
-        }
-      };
-
       const cancelPitchEdit = () => {
         setEditingPitchIndex(null);
         setEditPitchData(null);
@@ -669,41 +791,6 @@
           ...prev,
           runners: { ...prev.runners, [base]: !prev.runners[base] }
         }));
-      };
-
-      const applyLineupToPast = () => {
-        if(!window.confirm(`現在表示している【${gameState.inning}回${gameState.isTop?'表':'裏'}】以降のすべての投球・イベント記録の「投手名」と「打者名」を、いま画面に入力されている名前に書き換えますか？\n（※過去の入力忘れを修正する場合に使います）`)) return;
-        
-        recordAction();
-        const newPitches = pitches.map(p => {
-          let isAfter = false;
-          if (p.inning > gameState.inning) isAfter = true;
-          else if (p.inning === gameState.inning) {
-            if (gameState.isTop) isAfter = true; 
-            else if (!gameState.isTop && !p.isTop) isAfter = true; 
-          }
-
-          if (isAfter) {
-            const offTeamLineup = p.isTop ? lineups.top : lineups.bottom;
-            const defTeamLineup = p.isTop ? lineups.bottom : lineups.top;
-            
-            const batterObj = offTeamLineup[p.batter - 1] || { name: '打者未設定', bats: '右' };
-            const pitcherObj = defTeamLineup.find(pl => pl.pos === '投' || pl.pos === '1' || pl.pos === '①') || { name: '投手未設定', throws: '右' };
-            
-            return {
-              ...p,
-              batterName: batterObj.name,
-              batterBats: batterObj.bats,
-              pitcherName: pitcherObj.name,
-              pitcherThrows: pitcherObj.throws
-            };
-          }
-          return p;
-        });
-        
-        setPitches(newPitches);
-        showToast(`記録を上書きしました！`, "success");
-        setShowSettings(false);
       };
 
       // 投球ごとのカウント状態 (ahead, even, behind) を事前計算する
@@ -873,13 +960,11 @@
       const advancedStats = useMemo(() => {
         if (!showPostGameAnalysis) return null;
         
-        // 記録文字列から大まかな方向を判別するロジック（新方式対応）
         const getHitDirection = (res) => {
-          if (res.includes('レフト') || res.includes('サード') || res.includes('ショート')) return 'left';
-          if (res.includes('ライト') || res.includes('ファースト') || res.includes('セカンド')) return 'right';
-          if (res.includes('センター') || res.includes('ピッチャー') || res.includes('キャッチャー')) return 'center';
+          if (res.includes('レフト') || res.includes('サード') || res.includes('ショート') || res.includes('左翼線') || res.includes('三遊間')) return 'left';
+          if (res.includes('ライト') || res.includes('ファースト') || res.includes('セカンド') || res.includes('右翼線') || res.includes('一二間')) return 'right';
+          if (res.includes('センター') || res.includes('ピッチャー') || res.includes('キャッチャー') || res.includes('左中間') || res.includes('右中間') || res.includes('二遊間')) return 'center';
           
-          // 過去データのフォールバック用
           if (res.match(/[左三遊]/)) return 'left';
           if (res.match(/[右一二]/)) return 'right';
           if (res.match(/[中投捕]/)) return 'center';
@@ -939,7 +1024,7 @@
             const batterKey = `${lastPitch.batter}-${lastPitch.batterName}`;
             if (!playerStats[batterKey]) {
               playerStats[batterKey] = { 
-                order: lastPitch.batter, name: lastPitch.batterName, pos: '代', bats: lastPitch.batterBats,
+                order: lastPitch.batter, name: lastPitch.batterName, pos: '途中', bats: lastPitch.batterBats,
                 PA: 0, AB: 0, H: 0, TB: 0, BB_HBP: 0, K: 0, SAC: 0, SB: 0, results: [],
                 firstPitches: 0, firstPitchSwings: 0,
                 directions: { left: 0, center: 0, right: 0 }
@@ -1037,7 +1122,11 @@
             ...p, ...calcRates(p)
           })).sort((a, b) => {
             if (a.order !== b.order) return a.order - b.order;
-            return a.pos === '代' ? 1 : -1; 
+            const isSubA = ['途中', '打', '走', '代'].includes(a.pos);
+            const isSubB = ['途中', '打', '走', '代'].includes(b.pos);
+            if (isSubA && !isSubB) return 1;
+            if (!isSubA && isSubB) return -1;
+            return 0; 
           });
 
           return { team: teamStats, players: playersArray };
@@ -1421,12 +1510,12 @@
             </div>
           )}
 
-          {/* 確認ダイアログ */}
+          {/* カスタム確認ダイアログ */}
           {confirmDialog && (
             <div className="fixed inset-0 bg-black/60 z-[300] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200 font-sans">
               <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col p-6 text-center border border-slate-300">
                 <h3 className="text-xl font-black text-slate-800 mb-2">{confirmDialog.title}</h3>
-                <p className="text-slate-600 font-bold mb-1">{confirmDialog.message}</p>
+                <p className="text-slate-600 font-bold mb-1 whitespace-pre-wrap">{confirmDialog.message}</p>
                 {confirmDialog.subMessage && <p className="text-xs text-red-500 font-bold mb-6">{confirmDialog.subMessage}</p>}
                 
                 <div className="flex gap-3 mt-4">
@@ -1920,6 +2009,7 @@
                     <select value={advanceData.reason} onChange={e=>setAdvanceData({...advanceData, reason: e.target.value})} className="border border-slate-300 p-2 rounded outline-none font-bold text-slate-700">
                       <option value="">選択してください</option>
                       <option value="盗塁">盗塁</option>
+                      <option value="代走">代走</option>
                       <option value="ワイルドピッチ">ワイルドピッチ(WP)</option>
                       <option value="パスボール">パスボール(PB)</option>
                       <option value="ボーク">ボーク</option>
@@ -1932,6 +2022,7 @@
                     <label className="text-xs font-bold text-slate-500">どこへ進塁した？</label>
                     <select value={advanceData.to} onChange={e=>setAdvanceData({...advanceData, to: e.target.value})} className="border border-slate-300 p-2 rounded outline-none font-bold text-slate-700">
                       <option value="">選択してください</option>
+                      <option value="same">そのままの塁 (代走・牽制エラー等)</option>
                       <option value="second">2塁へ</option>
                       <option value="third">3塁へ</option>
                       <option value="home">本塁へ (得点)</option>
@@ -1986,9 +2077,14 @@
                 <div className="p-5 border-b border-slate-300 flex justify-between items-center bg-slate-100">
                   <div className="flex flex-col">
                     <h2 className="text-xl font-black text-slate-800 flex items-center gap-2 tracking-tight font-bold">📋 オーダー設定・選手交代</h2>
-                    <p className="text-xs text-slate-500 font-bold mt-1">※ここで選手名を書き換えると「選手交代」とみなされ、以降の個人成績は新しい選手として記録・分離されます。</p>
+                    <p className="text-[10px] text-slate-500 font-bold mt-1 text-blue-600">※DH制の場合は、10枠目の「P(DH)」に投手を登録してください。DH制なしの場合は1〜9番に投手を配置してください。</p>
                   </div>
-                  <button onClick={() => setShowSettings(false)} className="bg-slate-800 text-white px-8 py-3 rounded-2xl font-bold shadow-lg hover:bg-black active:scale-95 transition-all">完了して戻る</button>
+                  <div className="flex gap-3">
+                    <button onClick={swapTopAndBottom} className="bg-white text-slate-700 border-2 border-slate-300 px-4 py-3 rounded-2xl font-bold shadow-sm hover:bg-slate-50 active:scale-95 transition-all flex items-center gap-1">
+                      <span className="text-lg leading-none">⇅</span> 先攻/後攻を入替
+                    </button>
+                    <button onClick={() => setShowSettings(false)} className="bg-slate-800 text-white px-8 py-3 rounded-2xl font-bold shadow-lg hover:bg-black active:scale-95 transition-all">完了して戻る</button>
+                  </div>
                 </div>
                 
                 <div className="bg-yellow-50 border-b border-yellow-200 px-6 py-3 flex justify-between items-center shrink-0">
@@ -2011,10 +2107,32 @@
                         <thead className="bg-slate-200 text-slate-600 tracking-widest font-black uppercase tracking-widest border-b border-slate-300"><tr><th className="py-2 w-8">順</th><th className="py-2 w-12">守備</th><th className="py-2 text-left px-3">選手名</th><th className="w-16">投/打</th></tr></thead>
                         <tbody className="bg-white">
                           {lineups[team].map((p, i) => (
-                            <tr key={i} className="border-b border-slate-200 last:border-0 hover:bg-slate-50 transition-colors font-bold">
-                              <td className="py-2 text-slate-500 font-mono italic">{i+1}</td>
-                              <td><input type="text" value={p.pos} onChange={e => { recordAction(); const newL = [...lineups[team]]; newL[i].pos = e.target.value; setLineups({...lineups, [team]: newL}); }} className="w-10 border border-slate-400 rounded-lg text-center py-1 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 shadow-inner font-black" /></td>
-                              <td className="px-3"><input type="text" value={p.name} onChange={e => { recordAction(); const newL = [...lineups[team]]; newL[i].name = e.target.value; setLineups({...lineups, [team]: newL}); }} className="w-full border border-slate-400 rounded-lg px-2 py-1 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 shadow-inner font-bold text-slate-700" placeholder="交代時はここを変更" /></td>
+                            <tr key={`${team}-${i}`} className={`border-b border-slate-200 last:border-0 transition-colors font-bold ${i === 9 ? 'bg-indigo-50/50' : 'hover:bg-slate-50'}`}>
+                              <td className="py-2 text-slate-500 font-mono italic">
+                                {i < 9 ? i + 1 : <span className="text-[9px] bg-indigo-100 text-indigo-700 px-1 py-0.5 rounded border border-indigo-200">P(DH)</span>}
+                              </td>
+                              <td>
+                                <select 
+                                  value={p.pos} 
+                                  onChange={e => { recordAction(); const newL = [...lineups[team]]; newL[i].pos = e.target.value; setLineups({...lineups, [team]: newL}); }} 
+                                  className="w-11 border border-slate-400 rounded-lg py-1 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 shadow-inner font-black bg-slate-50 cursor-pointer text-center appearance-none"
+                                >
+                                  <option value="投">投</option>
+                                  <option value="捕">捕</option>
+                                  <option value="一">一</option>
+                                  <option value="二">二</option>
+                                  <option value="三">三</option>
+                                  <option value="遊">遊</option>
+                                  <option value="左">左</option>
+                                  <option value="中">中</option>
+                                  <option value="右">右</option>
+                                  <option value="DH">DH</option>
+                                  <option value="打">打</option>
+                                  <option value="走">走</option>
+                                  <option value="未">未</option>
+                                </select>
+                              </td>
+                              <td className="px-3"><input type="text" value={p.name} onChange={e => { recordAction(); const newL = [...lineups[team]]; newL[i].name = e.target.value; setLineups({...lineups, [team]: newL}); }} className="w-full border border-slate-400 rounded-lg px-2 py-1 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 shadow-inner font-bold text-slate-700" placeholder={i === 9 ? "DH制の先発投手" : "交代時はここを変更"} /></td>
                               <td className="pr-2">
                                 <select value={`${p.throws}${p.bats}`} onChange={e => { recordAction(); const val = e.target.value; const newL = [...lineups[team]]; newL[i].throws = val[0]; newL[i].bats = val[1]; setLineups({...lineups, [team]: newL}); }} className="w-full border border-slate-400 rounded-lg py-1 outline-none text-[9px] bg-slate-50 font-black text-center shadow-sm cursor-pointer">
                                   <option value="右右">右/右</option><option value="右左">右/左</option><option value="左右">左/右</option><option value="左左">左/左</option>
@@ -2378,10 +2496,13 @@
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-700/50">
-                            {(postGameTab === 'battingTop' ? advancedStats.topBatting.players : advancedStats.bottomBatting.players).map((p, idx) => (
-                              <tr key={idx} className={`transition-colors ${p.pos === '代' ? 'bg-slate-800/50 hover:bg-slate-700/50' : 'hover:bg-slate-700/50'}`}>
+                            {(postGameTab === 'battingTop' ? advancedStats.topBatting.players : advancedStats.bottomBatting.players).map((p, idx) => {
+                              const isSub = ['途中', '打', '走', '代'].includes(p.pos);
+                              const badgeText = p.pos === '代' ? '途中' : p.pos;
+                              return (
+                              <tr key={idx} className={`transition-colors ${isSub ? 'bg-slate-800/50 hover:bg-slate-700/50' : 'hover:bg-slate-700/50'}`}>
                                 <td className="p-4 text-slate-400 font-mono">
-                                  {p.pos === '代' ? <span className="text-[10px] bg-slate-700 px-2 py-0.5 rounded text-white">途中</span> : p.order}
+                                  {isSub ? <span className="text-[10px] bg-slate-700 px-2 py-0.5 rounded text-white">{badgeText}</span> : p.order}
                                 </td>
                                 <td className="p-4 font-bold text-white">
                                   {p.name} <span className="text-xs text-slate-500 font-normal ml-1">({p.pos})</span>
@@ -2408,7 +2529,7 @@
                                   </div>
                                 </td>
                               </tr>
-                            ))}
+                            )})}
                           </tbody>
                         </table>
                       </div>
