@@ -59,7 +59,23 @@
   </style>
 </head>
 <body class="bg-slate-100 font-sans">
-  <div id="root"></div>
+  <div id="root"><div style="padding:20px;font-family:monospace;font-size:12px;"><p>⏳ アプリを読み込み中...</p><p id="debug-log" style="color:red;white-space:pre-wrap;"></p></div></div>
+  <script>
+  var debugEl;
+  function debugLog(msg) { 
+    if (!debugEl) debugEl = document.getElementById('debug-log');
+    if (debugEl) debugEl.textContent += msg + '\n';
+    console.log('[DEBUG]', msg);
+  }
+  window.onerror = function(msg, url, line, col, err) {
+    debugLog('ERROR: ' + msg + ' (line ' + line + ')');
+    return false;
+  };
+  debugLog('Step 1: Page loaded');
+  debugLog('React: ' + (typeof React));
+  debugLog('ReactDOM: ' + (typeof ReactDOM));
+  debugLog('Babel: ' + (typeof Babel));
+  </script>
 
   <script>
   try {
