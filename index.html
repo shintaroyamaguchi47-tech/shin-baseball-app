@@ -2628,13 +2628,13 @@
 
           {/* チーム管理モーダル */}
           {showTeamManager && (
-            <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-md animate-in fade-in duration-200 font-sans modal-overlay">
-              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[85vh] flex flex-col ring-1 ring-amber-400" onClick={e => e.stopPropagation()}>
-                <div className="p-4 border-b border-slate-200 flex justify-between items-center bg-amber-50 shrink-0 rounded-t-2xl">
-                  <h2 className="text-lg font-bold flex items-center gap-2 text-amber-800">👥 自チーム管理</h2>
-                  <button onClick={() => setShowTeamManager(false)} className="text-slate-400 hover:text-black font-bold text-xl px-2">✕</button>
-                </div>
-                <div className="p-6 flex-1 bg-slate-50 flex flex-col gap-4 modal-scroll min-h-0">
+            <div className="fixed inset-0 bg-slate-100 z-[200] flex flex-col font-sans overflow-hidden animate-in fade-in duration-200">
+              <div className="p-4 border-b border-slate-300 bg-white flex justify-between items-center shadow-sm shrink-0">
+                <h2 className="text-xl font-black text-amber-800 flex items-center gap-2">👥 自チーム管理</h2>
+                <button onClick={() => setShowTeamManager(false)} className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-6 py-2 rounded-full font-bold transition-colors shadow-sm">閉じる</button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-6" style={{WebkitOverflowScrolling: 'touch'}}>
+                <div className="max-w-xl mx-auto flex flex-col gap-4">
                   <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
                     <label className="text-xs font-bold text-slate-500 mb-1 block">自チーム名（スコアボードのチーム名と完全一致させてください）</label>
                     <input 
@@ -2667,8 +2667,8 @@
                       </button>
 
                       {/* 選手登録テーブル */}
-                      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                        <div className="bg-slate-100 px-4 py-2 border-b border-slate-200 flex justify-between items-center">
+                      <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
+                        <div className="bg-slate-100 px-4 py-2 border-b border-slate-200 flex justify-between items-center rounded-t-xl">
                           <span className="text-xs font-bold text-slate-600">登録メンバー ({(myTeam.players || []).length}名)</span>
                           <div className="flex gap-2">
                             <button
@@ -2737,6 +2737,9 @@
                       </div>
                     </>
                   )}
+
+                  {/* 下部の余白 (スクロールの余裕) */}
+                  <div className="h-20 shrink-0"></div>
                 </div>
               </div>
             </div>
