@@ -59,46 +59,7 @@
   </style>
 </head>
 <body class="bg-slate-100 font-sans">
-  <div id="root"><div style="padding:20px;font-family:monospace;font-size:11px;"><p>⏳ アプリを読み込み中...</p><p id="debug-log" style="color:red;white-space:pre-wrap;word-break:break-all;"></p></div></div>
-  <script>
-  var debugEl;
-  function debugLog(msg) { 
-    if (!debugEl) debugEl = document.getElementById('debug-log');
-    if (debugEl) debugEl.textContent += msg + '\n';
-  }
-  window.onerror = function(msg, url, line, col, err) {
-    debugLog('GLOBAL ERROR: ' + msg + ' line:' + line + ' col:' + col);
-    if (err && err.stack) debugLog('STACK: ' + err.stack.substring(0, 500));
-    return false;
-  };
-  debugLog('CDN: React=' + (typeof React) + ' ReactDOM=' + (typeof ReactDOM) + ' Babel=' + (typeof Babel));
-  
-  // Babelのトランスパイルを手動で実行してエラー詳細を取得
-  window.addEventListener('DOMContentLoaded', function() {
-    var babelScript = document.querySelector('script[type="text/babel"]');
-    if (!babelScript) { debugLog('No babel script found!'); return; }
-    debugLog('Babel script found: ' + babelScript.textContent.length + ' chars');
-    try {
-      var code = babelScript.textContent;
-      debugLog('Transpiling...');
-      var result = Babel.transform(code, { presets: ['react'] });
-      debugLog('Transpile OK! Executing...');
-      eval(result.code);
-      debugLog('Execution OK!');
-    } catch(e) {
-      debugLog('BABEL ERROR: ' + e.message);
-      if (e.loc) debugLog('Location: line ' + e.loc.line + ' col ' + e.loc.column);
-      // エラー周辺のコードを表示
-      if (e.loc && e.loc.line) {
-        var lines = code.split('\n');
-        var errLine = e.loc.line - 1;
-        for (var i = Math.max(0, errLine-2); i <= Math.min(lines.length-1, errLine+2); i++) {
-          debugLog((i === errLine ? '>>> ' : '    ') + (i+1) + ': ' + lines[i].substring(0, 120));
-        }
-      }
-    }
-  });
-  </script>
+  <div id="root"></div>
 
   <script>
   try {
@@ -3336,10 +3297,10 @@
               <div className="p-4 border-b border-slate-300 bg-white flex justify-between items-center shadow-sm shrink-0">
                 <h2 className="text-xl font-black text-amber-800 flex items-center gap-2">👥 チーム管理</h2>
                 <div className="flex gap-2">
-                  {myTeam?.name && (
+                  {myTeam?.name && (<>
                     <button onClick={() => { setShowCrossGameStats(true); setShowTeamManager(false); setPostGameTab('crossBatting'); }} className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-full font-bold text-sm shadow-sm">📊 累積スタッツ</button>
                     <button onClick={() => handleGenerateQR('teams')} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-full font-bold text-sm shadow-sm">📱 QR共有</button>
-                  )}
+                  </>)}
                   <button onClick={() => setShowTeamManager(false)} className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-6 py-2 rounded-full font-bold transition-colors shadow-sm">閉じる</button>
                 </div>
               </div>
