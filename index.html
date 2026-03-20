@@ -12,6 +12,7 @@
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js"></script>
   <style>
     body { -webkit-touch-callout: none; overscroll-behavior-y: none; user-select: none; }
     ::-webkit-scrollbar { display: none; }
@@ -175,6 +176,48 @@
     setTimeout(function(){w.print();},500);
     return true;
   };
+
+  // --- データ共有 (QRコード方式) ---
+  // データ圧縮: JSON → UTF-16 → Base64 (軽量な独自圧縮)
+  window.compressData = function(obj) {
+    var json = JSON.stringify(obj);
+    // encodeURIComponentでURL安全にしてからbase64
+    return btoa(encodeURIComponent(json));
+  };
+  window.decompressData = function(str) {
+    try {
+      return JSON.parse(decodeURIComponent(atob(str)));
+    } catch(e) { return null; }
+  };
+
+  // QRコード生成（分割対応）
+  window.generateShareQR = function(data, type) {
+    var compressed = window.compressData(data);
+    var baseUrl = window.location.href.split('?')[0].split('#')[0];
+    var url = baseUrl + '?share=' + type + '&d=' + compressed;
+    
+    // URLが長すぎる場合の警告
+    if (url.length > 4000) {
+      return { error: true, size: url.length, message: 'データが大きすぎます(' + Math.round(url.length/1024) + 'KB)。チームデータのみ、または試合を個別に共有してください。' };
+    }
+    return { error: false, url: url, size: url.length };
+  };
+
+  // ページ読み込み時にURLパラメータからデータ復元
+  window.checkShareUrl = function() {
+    var params = new URLSearchParams(window.location.search);
+    var shareType = params.get('share');
+    var dataStr = params.get('d');
+    if (!shareType || !dataStr) return null;
+    
+    var data = window.decompressData(dataStr);
+    if (!data) return null;
+    
+    // URLパラメータをクリア（履歴に残さない）
+    window.history.replaceState({}, '', window.location.pathname);
+    
+    return { type: shareType, data: data };
+  };
   </script>
 
   <script type="text/babel">
@@ -332,6 +375,8 @@
       const [expandedBatter, setExpandedBatter] = useState(null);
       const [rightPanelMode, setRightPanelMode] = useState('current'); // 'current' or 'playByPlay'
       const [printMode, setPrintMode] = useState(false);
+      const [showShareModal, setShowShareModal] = useState(false);
+      const [shareQrData, setShareQrData] = useState(null);
 
       const [selectedFielder, setSelectedFielder] = useState(null);
       const [selectedPosition, setSelectedPosition] = useState(null);
@@ -384,6 +429,86 @@
         setMyTeam(mt || null);
         if (mt) localStorage.setItem('baseball_myTeam', JSON.stringify(mt));
       }, [registeredTeams]);
+
+      // --- URL共有データの受信処理 ---
+      useEffect(() => {
+        const shared = window.checkShareUrl();
+        if (!shared) return;
+        if (shared.type === 'teams') {
+          const incoming = shared.data;
+          if (Array.isArray(incoming)) {
+            setRegisteredTeams(prev => {
+              const existingNames = prev.map(t => t.name);
+              const newTeams = [...prev];
+              incoming.forEach(t => { if (!existingNames.includes(t.name)) newTeams.push(t); });
+              return newTeams;
+            });
+            showToast(`${incoming.length}チームのデータを受信しました！`, 'success');
+          }
+        } else if (shared.type === 'games') {
+          const incoming = shared.data;
+          if (incoming.teams) {
+            setRegisteredTeams(prev => {
+              const existingNames = prev.map(t => t.name);
+              const newTeams = [...prev];
+              incoming.teams.forEach(t => { if (!existingNames.includes(t.name)) newTeams.push(t); });
+              return newTeams;
+            });
+          }
+          if (incoming.games && Array.isArray(incoming.games)) {
+            setSavedGames(prev => {
+              const existingIds = prev.map(g => g.id);
+              const newGames = [...prev];
+              incoming.games.forEach(g => { if (!existingIds.includes(g.id)) newGames.push(g); });
+              return newGames;
+            });
+            showToast(`${incoming.games.length}試合 + チームデータを受信しました！`, 'success');
+          }
+        } else if (shared.type === 'game1') {
+          const game = shared.data;
+          if (game && game.id) {
+            setSavedGames(prev => {
+              if (prev.some(g => g.id === game.id)) return prev;
+              return [game, ...prev];
+            });
+            showToast(`試合データ(${game.teamTop} vs ${game.teamBottom})を受信しました！`, 'success');
+          }
+        }
+      }, []);
+
+      // QRコード生成ハンドラ
+      const handleGenerateQR = (type) => {
+        let data, shareType;
+        if (type === 'teams') {
+          data = registeredTeams;
+          shareType = 'teams';
+        } else if (type === 'all') {
+          data = { teams: registeredTeams, games: savedGames };
+          shareType = 'games';
+        } else if (typeof type === 'string' && type.startsWith('game:')) {
+          const gameId = type.replace('game:', '');
+          const game = savedGames.find(g => g.id === gameId);
+          if (!game) { showToast('試合が見つかりません', 'error'); return; }
+          data = game;
+          shareType = 'game1';
+        }
+        
+        const result = window.generateShareQR(data, shareType);
+        if (result.error) {
+          showToast(result.message, 'error');
+          return;
+        }
+        setShareQrData(result);
+        setShowShareModal(true);
+        
+        // QRコード描画（DOMが準備できてから）
+        setTimeout(() => {
+          const canvas = document.getElementById('share-qr-canvas');
+          if (canvas && window.QRious) {
+            new window.QRious({ element: canvas, value: result.url, size: 280, level: 'M' });
+          }
+        }, 100);
+      };
 
       // --- 履歴管理 ---
       const createSnapshot = () => ({
@@ -3058,6 +3183,17 @@
                     </button>
                   </div>
 
+                  {/* QR共有 */}
+                  {savedGames.length > 0 && (
+                    <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-200 flex items-center justify-between">
+                      <div>
+                        <h3 className="font-bold text-indigo-800 mb-1">📱 QRコードで別端末に共有</h3>
+                        <p className="text-xs text-indigo-600">チーム登録＋全試合データをQRコードで他の端末に送れます</p>
+                      </div>
+                      <button onClick={() => handleGenerateQR('all')} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl font-bold text-sm shadow-sm active:scale-95 transition-all">全データQR</button>
+                    </div>
+                  )}
+
                   {/* 保存済み試合一覧 */}
                   <div>
                     <h3 className="font-bold text-slate-700 mb-3 flex items-center gap-2">
@@ -3089,6 +3225,9 @@
                             <div className="flex gap-2 ml-4">
                               <button onClick={() => loadGame(game.id)} className="bg-white border-2 border-emerald-600 text-emerald-700 hover:bg-emerald-50 px-4 py-2 rounded-lg font-bold text-sm shadow-sm transition-colors">
                                 読み込む
+                              </button>
+                              <button onClick={() => handleGenerateQR('game:'+game.id)} className="bg-white border border-indigo-200 text-indigo-500 hover:bg-indigo-50 p-2 rounded-lg transition-colors" title="QR共有">
+                                📱
                               </button>
                               <button onClick={() => deleteGame(game.id)} className="bg-white border border-red-200 text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors" title="削除">
                                 🗑️
@@ -3159,6 +3298,7 @@
                 <div className="flex gap-2">
                   {myTeam?.name && (
                     <button onClick={() => { setShowCrossGameStats(true); setShowTeamManager(false); setPostGameTab('crossBatting'); }} className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-full font-bold text-sm shadow-sm">📊 累積スタッツ</button>
+                    <button onClick={() => handleGenerateQR('teams')} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-full font-bold text-sm shadow-sm">📱 QR共有</button>
                   )}
                   <button onClick={() => setShowTeamManager(false)} className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-6 py-2 rounded-full font-bold transition-colors shadow-sm">閉じる</button>
                 </div>
@@ -3488,6 +3628,33 @@
                     </div>
                   )}
 
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* QRコード共有モーダル */}
+          {showShareModal && shareQrData && (
+            <div className="fixed inset-0 bg-black/70 z-[250] flex items-center justify-center p-4 backdrop-blur-md animate-in fade-in duration-200 font-sans">
+              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col border border-indigo-300">
+                <div className="p-4 border-b border-slate-200 bg-indigo-50 flex justify-between items-center">
+                  <h2 className="font-black text-lg text-indigo-800 flex items-center gap-2">📱 QRコードで共有</h2>
+                  <button onClick={() => { setShowShareModal(false); setShareQrData(null); }} className="text-slate-400 hover:text-black font-bold text-xl px-2">✕</button>
+                </div>
+                <div className="p-6 flex flex-col items-center gap-4 bg-white">
+                  <canvas id="share-qr-canvas" className="border-4 border-slate-200 rounded-xl shadow-inner"></canvas>
+                  <div className="text-center">
+                    <p className="text-sm font-bold text-slate-700 mb-1">受信側の端末でQRコードを読み取ってください</p>
+                    <p className="text-xs text-slate-500">カメラアプリまたはQRリーダーでスキャン→ブラウザで開くとデータが自動で取り込まれます</p>
+                  </div>
+                  <div className="text-[9px] text-slate-400 bg-slate-50 px-3 py-1.5 rounded-full border border-slate-200">
+                    データサイズ: {Math.round(shareQrData.size / 1024 * 10) / 10} KB
+                  </div>
+                  {shareQrData.size > 2500 && (
+                    <div className="text-xs text-amber-700 bg-amber-50 p-3 rounded-xl border border-amber-200 text-center">
+                      ⚠️ データが大きめです。読み取りにくい場合は、チームデータのみ、または試合を個別に共有してみてください。
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
