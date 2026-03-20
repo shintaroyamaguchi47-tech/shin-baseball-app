@@ -23,6 +23,17 @@
     input:focus { background-color: white !important; }
     .custom-scrollbar::-webkit-scrollbar { display: block; height: 6px; }
     .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #475569; border-radius: 4px; }
+    
+    @media print {
+      body { background: white !important; }
+      * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
+      .no-print { display: none !important; }
+      .print-break { page-break-before: always; }
+      .print-section { break-inside: avoid; margin-bottom: 20px; }
+      #root > div > *:not(.print-target) { display: none !important; }
+      .print-target { position: static !important; overflow: visible !important; height: auto !important; }
+      .print-target > * { overflow: visible !important; height: auto !important; }
+    }
   </style>
 </head>
 <body class="bg-slate-100 font-sans">
@@ -121,7 +132,17 @@
 
       const [pitches, setPitches] = useState(() => {
         const saved = localStorage.getItem('baseball_pitches');
-        return saved ? JSON.parse(saved) : [];
+        if (!saved) return [];
+        const parsed = JSON.parse(saved);
+        // 5x5→7x7のコース変換（course値が0-24の範囲なら旧フォーマット）
+        return parsed.map(p => {
+          if (p.course !== null && p.course !== undefined && p.course < 25) {
+            const oldRow = Math.floor(p.course / 5);
+            const oldCol = p.course % 5;
+            return { ...p, course: (oldRow + 1) * 7 + (oldCol + 1) };
+          }
+          return p;
+        });
       });
 
       const [undoStack, setUndoStack] = useState([]);
@@ -171,6 +192,8 @@
       const [pitcherHeatmapTypeTab, setPitcherHeatmapTypeTab] = useState('split');
       const [expandedPitcher, setExpandedPitcher] = useState(null);
       const [expandedBatter, setExpandedBatter] = useState(null);
+      const [rightPanelMode, setRightPanelMode] = useState('current'); // 'current' or 'playByPlay'
+      const [printMode, setPrintMode] = useState(false);
 
       const [selectedFielder, setSelectedFielder] = useState(null);
       const [selectedPosition, setSelectedPosition] = useState(null);
@@ -189,6 +212,14 @@
       };
 
       const findRegisteredTeam = (name) => registeredTeams.find(t => t.name === name);
+      
+      const handlePrintDashboard = () => {
+        setPrintMode(true);
+        setTimeout(() => {
+          window.print();
+          setPrintMode(false);
+        }, 300);
+      };
       
       const applyTeamToLineup = (teamData, side) => {
         if (!teamData?.players || teamData.players.length === 0) return;
@@ -336,7 +367,7 @@
               setGameState(target.data.gameState);
               setGameInfo(target.data.gameInfo);
               setLineups(target.data.lineups);
-              setPitches(target.data.pitches);
+              setPitches(target.data.pitches.map(p => (p.course !== null && p.course !== undefined && p.course < 25) ? { ...p, course: Math.floor(p.course / 5 + 1) * 7 + (p.course % 5 + 1) } : p));
               setUndoStack([]);
               setRedoStack([]);
               setShowArchiveModal(false);
@@ -948,8 +979,87 @@
       const uniquePitchers = useMemo(() => Array.from(new Set(pitches.map(p => p.pitcherName).filter(Boolean))), [pitches]);
       const currentAtBatPitches = pitches.filter(p => p.inning === gameState.inning && p.isTop === gameState.isTop && p.batter === currentBatterIndex + 1);
 
-      const courses = Array.from({ length: 25 }, (_, i) => i);
-      const isStrikeZone = (i) => { const row = Math.floor(i / 5); const col = i % 5; return row >= 1 && row <= 3 && col >= 1 && col <= 3; };
+      // テキスト速報用: 全打席データをイニング・打席単位でグループ化
+      const playByPlayData = useMemo(() => {
+        const innings = {};
+        let currentAbKey = null;
+        let currentAb = [];
+        
+        const flushAb = () => {
+          if (currentAb.length === 0) return;
+          const first = currentAb[0];
+          const key = `${first.inning}-${first.isTop}`;
+          if (!innings[key]) innings[key] = { inning: first.inning, isTop: first.isTop, atBats: [] };
+          
+          const nonEvent = currentAb.filter(p => !p.isEvent);
+          const events = currentAb.filter(p => p.isEvent);
+          const lastPitch = nonEvent.length > 0 ? nonEvent[nonEvent.length - 1] : null;
+          
+          let result = '';
+          if (lastPitch) {
+            const res = lastPitch.result;
+            if (['安', '塁打', '本塁打'].some(w => res.includes(w))) result = res;
+            else if (res === 'インプレー') result = res;
+            else {
+              let b = 0, s = 0;
+              nonEvent.forEach(p => {
+                if (p.result === 'ボール' || p.result === 'ウエスト') b++;
+                else if (p.result === 'ストライク' || p.result === '空振り') s++;
+                else if (p.result === 'ファウル' && s < 2) s++;
+              });
+              if (s >= 3 || res === '三振') result = '三振';
+              else if (b >= 4 || res === '四球' || res === 'ウエスト') result = '四球';
+              else if (res === '死球') result = '死球';
+              else result = res;
+            }
+          }
+          
+          innings[key].atBats.push({
+            batter: first.batter,
+            batterName: first.batterName,
+            pitcherName: first.pitcherName,
+            pitchCount: nonEvent.length,
+            result,
+            events: events.map(e => e.result),
+            pitches: currentAb
+          });
+        };
+
+        pitches.forEach(p => {
+          const abKey = `${p.inning}-${p.isTop}-${p.batter}`;
+          if (p.isEvent) {
+            currentAb.push(p);
+            return;
+          }
+          if (abKey !== currentAbKey) {
+            flushAb();
+            currentAbKey = abKey;
+            currentAb = [];
+          }
+          currentAb.push(p);
+        });
+        flushAb();
+
+        return Object.values(innings).sort((a, b) => {
+          if (a.inning !== b.inning) return a.inning - b.inning;
+          return a.isTop ? -1 : 1;
+        });
+      }, [pitches]);
+
+      const courses = Array.from({ length: 49 }, (_, i) => i);
+      const GRID_SIZE = 7;
+      const isStrikeZone = (i) => { const row = Math.floor(i / GRID_SIZE); const col = i % GRID_SIZE; return row >= 2 && row <= 4 && col >= 2 && col <= 4; };
+      // 5x5→7x7のコース変換（既存データとの後方互換）
+      const convert5to7 = (oldCourse) => {
+        if (oldCourse === null || oldCourse === undefined) return null;
+        const oldRow = Math.floor(oldCourse / 5);
+        const oldCol = oldCourse % 5;
+        return (oldRow + 1) * GRID_SIZE + (oldCol + 1);
+      };
+      // ストライクゾーン枠のCSS位置 (2/7 ≈ 28.57%, 3/7 ≈ 42.86%)
+      const zoneTop = `${(2/7*100).toFixed(1)}%`;
+      const zoneLeft = `${(2/7*100).toFixed(1)}%`;
+      const zoneSize = `${(3/7*100).toFixed(1)}%`;
       
       const getPitchTypes = (throwsRight) => [
         { name: 'ストレート', icon: '↑', colorClass: 'border-red-500 bg-red-100 text-red-700' }, 
@@ -1002,39 +1112,53 @@
         );
       }
 
-      // スプレーチャートSVGコンポーネント
-      const SprayChart = ({ hits, size = 200, title = '', color = 'blue' }) => {
-        const scale = size / 200;
-        const jitter = () => (Math.random() - 0.5) * 8;
+      // スプレーチャートSVGコンポーネント（リアルフィールド版）
+      const SprayChart = ({ hits, size = 200, title = '' }) => {
+        const jitter = () => (Math.random() - 0.5) * 6;
+        // viewBox: 0,0 ~ 240,200 / 本塁=120,185
         return (
           <div className="flex flex-col items-center">
             {title && <div className="text-[10px] font-bold text-slate-400 mb-1">{title}</div>}
-            <svg width={size} height={size * 0.8} viewBox="0 0 200 160" className="bg-slate-900 rounded-lg border border-slate-700">
-              {/* フィールド描画 */}
-              <path d="M 100 145 L 15 50 Q 100 -15 185 50 Z" fill="#1a3a1a" stroke="#334155" strokeWidth="1.5" />
+            <svg width={size} height={size * 0.85} viewBox="0 0 240 200" className="bg-slate-900 rounded-lg border border-slate-700">
+              {/* ファールゾーン背景 */}
+              <path d="M 120 185 L 0 65 L 0 0 L 240 0 L 240 65 Z" fill="#111827" />
+              {/* フェア+外野芝 */}
+              <path d="M 120 185 L 8 70 Q 120 -25 232 70 Z" fill="#14532d" />
+              {/* 内野土 */}
+              <path d="M 120 185 L 55 120 Q 120 70 185 120 Z" fill="#78350f" opacity="0.3" />
+              {/* 外野フェンスライン */}
+              <path d="M 8 70 Q 120 -25 232 70" fill="none" stroke="#475569" strokeWidth="2" />
+              {/* ファールライン */}
+              <line x1="120" y1="185" x2="8" y2="70" stroke="#fbbf24" strokeWidth="1" opacity="0.5" />
+              <line x1="120" y1="185" x2="232" y2="70" stroke="#fbbf24" strokeWidth="1" opacity="0.5" />
               {/* 内野ダイヤモンド */}
-              <polygon points="100,130 65,90 100,60 135,90" fill="none" stroke="#475569" strokeWidth="1" strokeDasharray="3,3" />
-              {/* 本塁 */}
-              <rect x="97" y="128" width="6" height="6" fill="#94a3b8" transform="rotate(45,100,131)" />
+              <polygon points="120,185 80,145 120,110 160,145" fill="none" stroke="#94a3b8" strokeWidth="0.8" strokeDasharray="3,2" />
+              {/* 塁 */}
+              <rect x="118" y="183" width="4" height="4" fill="#e2e8f0" transform="rotate(45,120,185)" />
+              <rect x="78" y="143" width="3" height="3" fill="#e2e8f0" transform="rotate(45,80,145)" />
+              <rect x="118" y="108" width="3" height="3" fill="#e2e8f0" transform="rotate(45,120,110)" />
+              <rect x="158" y="143" width="3" height="3" fill="#e2e8f0" transform="rotate(45,160,145)" />
+              {/* マウンド */}
+              <circle cx="120" cy="148" r="3" fill="#94a3b8" opacity="0.3" />
               {/* 打球プロット */}
               {hits.map((h, idx) => {
                 const cx = h.x + jitter();
                 const cy = h.y + jitter();
-                const fillColor = h.type === 'hit' ? '#3b82f6' : h.type === 'error' ? '#facc15' : '#ef4444';
-                const strokeColor = h.type === 'hit' ? '#93c5fd' : h.type === 'error' ? '#fde68a' : '#fca5a5';
+                const fillColor = h.type === 'hit' ? '#3b82f6' : h.type === 'error' ? '#facc15' : h.type === 'foul' ? '#a855f7' : '#ef4444';
+                const strokeColor = h.type === 'hit' ? '#93c5fd' : h.type === 'error' ? '#fde68a' : h.type === 'foul' ? '#c084fc' : '#fca5a5';
                 return (
                   <g key={idx}>
-                    <circle cx={cx} cy={cy} r="5" fill={fillColor} stroke={strokeColor} strokeWidth="1.5" opacity="0.85" />
-                    {h.type === 'hit' && <circle cx={cx} cy={cy} r="5" fill="none" stroke="#93c5fd" strokeWidth="0.8" opacity="0.5" />}
+                    <circle cx={cx} cy={cy} r="4.5" fill={fillColor} stroke={strokeColor} strokeWidth="1.2" opacity="0.85" />
                   </g>
                 );
               })}
-              {hits.length === 0 && <text x="100" y="80" textAnchor="middle" fill="#475569" fontSize="11" fontWeight="bold">No Data</text>}
+              {hits.length === 0 && <text x="120" y="100" textAnchor="middle" fill="#475569" fontSize="11" fontWeight="bold">No Data</text>}
             </svg>
-            <div className="flex gap-3 mt-1.5">
-              <div className="flex items-center gap-1"><div className="w-2.5 h-2.5 rounded-full bg-blue-500"></div><span className="text-[9px] text-slate-400">安打</span></div>
-              <div className="flex items-center gap-1"><div className="w-2.5 h-2.5 rounded-full bg-red-500"></div><span className="text-[9px] text-slate-400">アウト</span></div>
-              <div className="flex items-center gap-1"><div className="w-2.5 h-2.5 rounded-full bg-yellow-400"></div><span className="text-[9px] text-slate-400">エラー</span></div>
+            <div className="flex gap-2 mt-1.5 flex-wrap justify-center">
+              <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-blue-500"></div><span className="text-[8px] text-slate-400">安打</span></div>
+              <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-red-500"></div><span className="text-[8px] text-slate-400">アウト</span></div>
+              <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-yellow-400"></div><span className="text-[8px] text-slate-400">エラー</span></div>
+              <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-purple-500"></div><span className="text-[8px] text-slate-400">ファウル</span></div>
             </div>
           </div>
         );
@@ -1055,24 +1179,26 @@
           return null;
         };
 
-        // スプレーチャート用の詳細方向 → フィールド座標 (SVG 200x200, 原点=本塁下中央)
+        // スプレーチャート用座標 (SVG viewBox: 0,0~240,200 / 本塁=120,185)
         const sprayCoordMap = {
-          '左翼線':   { x: 18, y: 42 },
-          'レフト':   { x: 30, y: 25 },
-          '左中間':   { x: 55, y: 14 },
-          'センター': { x: 100, y: 10 },
-          '右中間':   { x: 145, y: 14 },
-          'ライト':   { x: 170, y: 25 },
-          '右翼線':   { x: 182, y: 42 },
-          '三遊間':   { x: 42, y: 72 },
-          'ショート': { x: 58, y: 60 },
-          '二遊間':   { x: 100, y: 55 },
-          'セカンド': { x: 142, y: 60 },
-          '一二間':   { x: 158, y: 72 },
-          'サード':   { x: 48, y: 95 },
-          'ピッチャー':{ x: 100, y: 85 },
-          'ファースト':{ x: 152, y: 95 },
-          'キャッチャー':{ x: 100, y: 135 },
+          '左翼線':   { x: 20, y: 75 },
+          'レフト':   { x: 38, y: 45 },
+          '左中間':   { x: 65, y: 22 },
+          'センター': { x: 120, y: 12 },
+          '右中間':   { x: 175, y: 22 },
+          'ライト':   { x: 202, y: 45 },
+          '右翼線':   { x: 220, y: 75 },
+          '三遊間':   { x: 60, y: 130 },
+          'ショート': { x: 78, y: 118 },
+          '二遊間':   { x: 120, y: 108 },
+          'セカンド': { x: 162, y: 118 },
+          '一二間':   { x: 180, y: 130 },
+          'サード':   { x: 68, y: 152 },
+          'ピッチャー':{ x: 120, y: 148 },
+          'ファースト':{ x: 172, y: 152 },
+          'キャッチャー':{ x: 120, y: 178 },
+          '左ファウル': { x: 5, y: 110 },
+          '右ファウル': { x: 235, y: 110 },
         };
 
         const getSprayPosition = (res) => {
@@ -1102,6 +1228,7 @@
         const getSprayResultType = (res) => {
           if (['安', '塁打', '本塁打'].some(w => res.includes(w))) return 'hit';
           if (res.includes('エラー') || res.includes('野手選択')) return 'error';
+          if (res.includes('ファウル') || res.includes('左ファウル') || res.includes('右ファウル')) return 'foul';
           return 'out';
         };
 
@@ -1474,21 +1601,21 @@
 
         // sprayCoordMap (advancedStats内と同じ)
         const sprayCoordMap = {
-          '左翼線': { x: 18, y: 42 }, 'レフト': { x: 30, y: 25 }, '左中間': { x: 55, y: 14 },
-          'センター': { x: 100, y: 10 }, '右中間': { x: 145, y: 14 }, 'ライト': { x: 170, y: 25 },
-          '右翼線': { x: 182, y: 42 }, '三遊間': { x: 42, y: 72 }, 'ショート': { x: 58, y: 60 },
-          '二遊間': { x: 100, y: 55 }, 'セカンド': { x: 142, y: 60 }, '一二間': { x: 158, y: 72 },
-          'サード': { x: 48, y: 95 }, 'ピッチャー': { x: 100, y: 85 }, 'ファースト': { x: 152, y: 95 },
-          'キャッチャー': { x: 100, y: 135 },
+          '左翼線': { x: 20, y: 75 }, 'レフト': { x: 38, y: 45 }, '左中間': { x: 65, y: 22 },
+          'センター': { x: 120, y: 12 }, '右中間': { x: 175, y: 22 }, 'ライト': { x: 202, y: 45 },
+          '右翼線': { x: 220, y: 75 }, '三遊間': { x: 60, y: 130 }, 'ショート': { x: 78, y: 118 },
+          '二遊間': { x: 120, y: 108 }, 'セカンド': { x: 162, y: 118 }, '一二間': { x: 180, y: 130 },
+          'サード': { x: 68, y: 152 }, 'ピッチャー': { x: 120, y: 148 }, 'ファースト': { x: 172, y: 152 },
+          'キャッチャー': { x: 120, y: 178 }, '左ファウル': { x: 5, y: 110 }, '右ファウル': { x: 235, y: 110 },
         };
         const getSprayPos = (res) => { for (const [k, v] of Object.entries(sprayCoordMap)) { if (res.includes(k)) return v; } return null; };
-        const getSprayType = (res) => { if (['安', '塁打', '本塁打'].some(w => res.includes(w))) return 'hit'; if (res.includes('エラー') || res.includes('野手選択')) return 'error'; return 'out'; };
+        const getSprayType = (res) => { if (['安', '塁打', '本塁打'].some(w => res.includes(w))) return 'hit'; if (res.includes('エラー') || res.includes('野手選択')) return 'error'; if (res.includes('ファウル')) return 'foul'; return 'out'; };
         const isFastball = (type) => type && (type.includes('ストレート') || type.includes('シュート'));
-        const isStrikeZoneFn = (c) => { const row = Math.floor(c / 5); const col = c % 5; return row >= 1 && row <= 3 && col >= 1 && col <= 3; };
+        const isStrikeZoneFn = (c) => { const row = Math.floor(c / 7); const col = c % 7; return row >= 2 && row <= 4 && col >= 2 && col <= 4; };
 
         savedGames.forEach(game => {
           if (!game.data || !game.data.pitches) return;
-          const gPitches = game.data.pitches;
+          const gPitches = game.data.pitches.map(p => (p.course !== null && p.course !== undefined && p.course < 25) ? { ...p, course: Math.floor(p.course / 5 + 1) * 7 + (p.course % 5 + 1) } : p);
           const gLineups = game.data.lineups;
           const gInfo = game.data.gameInfo || { teamTop: game.teamTop, teamBottom: game.teamBottom };
           
@@ -1787,7 +1914,7 @@
         text += `最終スコア: ${gameInfo.teamTop} ${gameState.runs.top.reduce((a,b)=>a+b,0)} - ${gameState.runs.bottom.reduce((a,b)=>a+b,0)} ${gameInfo.teamBottom}\n\n`;
 
         text += `【全プレー履歴（1球ごと・イベントごと）】\n`;
-        text += `フォーマット: イニング, 攻撃チーム, 投手, 打者(左右), 投球数, 球種, コース(0-24, 0が左上, 12が真ん中, 24が右下。ストライクゾーンは6-8, 11-13, 16-18), 結果\n`;
+        text += `フォーマット: イニング, 攻撃チーム, 投手, 打者(左右), 投球数, 球種, コース(0-48, 7x7グリッド。0が左上, 24が中央, 48が右下。ストライクゾーンは16-18, 23-25, 30-32), 結果\n`;
         pitches.forEach(p => {
            const team = p.isTop ? gameInfo.teamTop : gameInfo.teamBottom;
            const courseStr = p.course !== null ? p.course : '-';
@@ -1832,7 +1959,7 @@
               setGameState(data.gameState);
               setGameInfo(data.gameInfo || { date: new Date().toISOString().split('T')[0], teamTop: '先攻チーム', teamBottom: '後攻チーム' });
               setLineups(data.lineups);
-              setPitches(data.pitches);
+              setPitches(data.pitches.map(p => (p.course !== null && p.course !== undefined && p.course < 25) ? { ...p, course: Math.floor(p.course / 5 + 1) * 7 + (p.course % 5 + 1) } : p));
               setUndoStack([]);
               setRedoStack([]);
               showToast('データを完全に復元しました！', 'success');
@@ -1887,6 +2014,8 @@
 
               {/* スマホ用: アクションボタン群 */}
               <div className="flex md:hidden gap-1">
+                <button onClick={handleNewGame} className="bg-red-50 text-red-600 px-2 py-1 rounded text-[10px] font-bold border border-red-200">🔄</button>
+                <button onClick={handleTieBreak} className="bg-purple-50 text-purple-700 px-2 py-1 rounded text-[10px] font-bold border border-purple-200">⚡</button>
                 <button onClick={()=>setShowSettings(true)} className="bg-slate-200 px-2 py-1 rounded text-[10px] font-bold border border-slate-300">⚙️</button>
                 <button onClick={()=>setShowArchiveModal(true)} className="bg-emerald-600 text-white px-2 py-1 rounded text-[10px] font-bold">📂</button>
                 <button onClick={()=>setShowExport(true)} className="bg-blue-600 text-white px-2 py-1 rounded text-[10px] font-bold">📤</button>
@@ -2036,13 +2165,17 @@
                 <div className="bg-white rounded-2xl shadow-sm p-3 md:p-6 border border-slate-300 flex-1 flex flex-col min-h-fit">
                   <div className="flex flex-col md:flex-row gap-4 md:gap-8 flex-1">
                     <div className="flex-1 flex flex-col items-center justify-center">
-                      <div className="grid grid-cols-5 grid-rows-5 w-48 h-48 md:w-64 md:h-64 gap-0.5 md:gap-1 relative bg-slate-200 p-1.5 md:p-2 rounded-lg border border-slate-400 shadow-inner">
-                        <div className="absolute top-[20%] left-[20%] w-[60%] h-[60%] border-4 border-slate-800 pointer-events-none rounded-sm z-10"></div>
-                        {courses.map(i => (
-                          <button key={i} onClick={() => setCurrentPitch({ ...currentPitch, course: i })} className={`rounded-sm relative ${isStrikeZone(i) ? 'bg-white' : 'bg-slate-50'} ${currentPitch.course === i ? 'ring-4 ring-blue-500 bg-blue-100 z-20 scale-110 shadow-lg' : 'border border-slate-400 hover:bg-white/50'}`}>
-                            {currentPitch.course === i && <div className="absolute inset-0 bg-blue-500 opacity-20"></div>}
+                      <div className="grid grid-cols-7 grid-rows-7 w-48 h-48 md:w-64 md:h-64 gap-px md:gap-0.5 relative bg-slate-300 p-1.5 md:p-2 rounded-lg border border-slate-400 shadow-inner">
+                        <div className="absolute top-[28.6%] left-[28.6%] w-[42.8%] h-[42.8%] border-[3px] md:border-4 border-slate-800 pointer-events-none rounded-sm z-10"></div>
+                        {courses.map(i => {
+                          const isZone = isStrikeZone(i);
+                          const isSelected = currentPitch.course === i;
+                          return (
+                          <button key={i} onClick={() => setCurrentPitch({ ...currentPitch, course: i })} className={`rounded-sm relative ${isZone ? 'bg-white' : 'bg-slate-100/70'} ${isSelected ? 'ring-2 md:ring-4 ring-blue-500 bg-blue-100 z-20 scale-105 md:scale-110 shadow-lg' : isZone ? 'border border-slate-300 hover:bg-blue-50' : 'border border-slate-300/50 hover:bg-slate-200'}`}>
+                            {isSelected && <div className="absolute inset-0 bg-blue-500 opacity-20"></div>}
                           </button>
-                        ))}
+                          );
+                        })}
                       </div>
                       <div className="text-[10px] font-bold text-slate-500 mt-4 tracking-widest uppercase italic font-sans">捕手目線</div>
                     </div>
@@ -2096,11 +2229,39 @@
                         )}
                       </div>
                       
-                      <div className="relative w-[260px] md:w-[320px] h-[260px] md:h-[320px] mb-4 mx-auto">
+                      <div className="relative w-[260px] md:w-[320px] h-[280px] md:h-[340px] mb-4 mx-auto">
                         {/* グラウンド背景 */}
-                        <div className="absolute inset-0 bg-green-50 border-2 border-slate-300 rounded-t-[160px] overflow-hidden shadow-inner pointer-events-none">
-                          <div className="absolute bottom-[-50px] left-1/2 -translate-x-1/2 w-[180px] h-[180px] bg-amber-50 rounded-full border border-amber-200/50"></div>
+                        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+                          <svg viewBox="0 0 320 340" className="w-full h-full">
+                            {/* ファールゾーン背景 */}
+                            <rect width="320" height="340" fill="#e2e8f0" />
+                            {/* フェアゾーン芝 */}
+                            <path d="M 160 310 L 12 115 Q 160 -20 308 115 Z" fill="#bbf7d0" />
+                            {/* 内野土 */}
+                            <path d="M 160 310 L 90 230 Q 160 160 230 230 Z" fill="#fde68a" opacity="0.3" />
+                            {/* 外野フェンス */}
+                            <path d="M 12 115 Q 160 -20 308 115" fill="none" stroke="#64748b" strokeWidth="3" />
+                            {/* ファールライン */}
+                            <line x1="160" y1="310" x2="12" y2="115" stroke="#94a3b8" strokeWidth="1.5" strokeDasharray="6,3" />
+                            <line x1="160" y1="310" x2="308" y2="115" stroke="#94a3b8" strokeWidth="1.5" strokeDasharray="6,3" />
+                            {/* ダイヤモンド */}
+                            <polygon points="160,300 115,250 160,205 205,250" fill="none" stroke="#94a3b8" strokeWidth="1" />
+                            {/* 塁 */}
+                            <rect x="157" y="297" width="6" height="6" fill="#94a3b8" transform="rotate(45,160,300)" />
+                          </svg>
                         </div>
+
+                        {/* ファウルゾーンボタン */}
+                        <button
+                          onClick={() => { recordAction(); setSelectedPosition('左ファウル'); setSelectedFielder(null); }}
+                          className="absolute top-[55%] left-[2%] bg-purple-100 text-purple-700 text-[9px] font-bold px-1.5 py-3 rounded-lg border border-purple-300 shadow-sm hover:bg-purple-200 z-20 writing-vertical"
+                          style={{writingMode: 'vertical-rl'}}
+                        >左ﾌｧｳﾙ</button>
+                        <button
+                          onClick={() => { recordAction(); setSelectedPosition('右ファウル'); setSelectedFielder(null); }}
+                          className="absolute top-[55%] right-[2%] bg-purple-100 text-purple-700 text-[9px] font-bold px-1.5 py-3 rounded-lg border border-purple-300 shadow-sm hover:bg-purple-200 z-20"
+                          style={{writingMode: 'vertical-rl'}}
+                        >右ﾌｧｳﾙ</button>
 
                         {/* 野手アイコンと展開ボタン */}
                         <div className="absolute inset-0">
@@ -2211,6 +2372,14 @@
             </div>
 
             <div className="w-full md:w-[45%] flex flex-col gap-2 md:gap-4 overflow-hidden font-sans">
+              {/* パネル切替タブ */}
+              <div className="flex bg-slate-200 rounded-lg p-0.5 shrink-0">
+                <button onClick={() => setRightPanelMode('current')} className={`flex-1 text-[10px] font-bold py-1.5 rounded-md transition-colors ${rightPanelMode === 'current' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500'}`}>📋 現在の打席</button>
+                <button onClick={() => setRightPanelMode('playByPlay')} className={`flex-1 text-[10px] font-bold py-1.5 rounded-md transition-colors ${rightPanelMode === 'playByPlay' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500'}`}>📰 テキスト速報</button>
+              </div>
+
+              {rightPanelMode === 'current' ? (
+              <>
               <div className="hidden md:block bg-white rounded-2xl shadow-sm p-4 border border-slate-300 shrink-0">
                 <div className="flex justify-between items-center mb-3 border-b border-slate-300 pb-2">
                   <h2 className="text-[11px] font-bold uppercase tracking-wider text-slate-500 italic font-bold tracking-widest font-sans uppercase">📊 Stats <span className="font-mono ml-2">Pitches:{analysisData.totalPitches}</span></h2>
@@ -2246,8 +2415,8 @@
                       <button onClick={() => setHeatmapCountTab('even')} className={`flex-1 text-[8px] font-bold py-1 rounded-sm ${heatmapCountTab === 'even' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500'}`}>平行</button>
                       <button onClick={() => setHeatmapCountTab('behind')} className={`flex-1 text-[8px] font-bold py-1 rounded-sm ${heatmapCountTab === 'behind' ? 'bg-white shadow-sm text-red-600' : 'text-slate-500'}`}>不利</button>
                     </div>
-                    <div className="grid grid-cols-5 grid-rows-5 w-full aspect-square gap-0.5 relative bg-slate-100 p-1 rounded border border-slate-200">
-                      <div className="absolute top-[20%] left-[20%] w-[60%] h-[60%] border-2 border-slate-800 pointer-events-none rounded-sm z-10"></div>
+                    <div className="grid grid-cols-7 grid-rows-7 w-full aspect-square gap-0.5 relative bg-slate-100 p-1 rounded border border-slate-200">
+                      <div className="absolute top-[28.6%] left-[28.6%] w-[42.8%] h-[42.8%] border-2 border-slate-800 pointer-events-none rounded-sm z-10"></div>
                       {courses.map(i => {
                         const isTypeSpecific = heatmapTab.startsWith('type:');
                         const hData = isTypeSpecific
@@ -2323,9 +2492,9 @@
                             <div className={`absolute top-1/2 right-0 -translate-y-1/2 w-1.5 h-1.5 transform rotate-45 border border-slate-400 ${p.runners?.first ? 'bg-blue-600' : 'bg-white'}`}></div>
                           </div>
 
-                          <div className="grid grid-cols-5 grid-rows-5 w-8 h-8 gap-[1px] bg-slate-300 border border-slate-400 relative shadow-inner shrink-0">
-                            <div className="absolute top-[20%] left-[20%] w-[60%] h-[60%] border border-slate-800 z-10 pointer-events-none"></div>
-                            {p.course !== null && courses.map(i => <div key={i} className={`${p.course === i ? 'bg-red-500 z-20 relative shadow-sm ring-1 ring-white/50' : isStrikeZone(i) ? 'bg-white' : 'bg-transparent'}`}></div>)}
+                          <div className="grid grid-cols-7 grid-rows-7 w-10 h-10 gap-[0.5px] bg-slate-300 border border-slate-400 relative shadow-inner shrink-0">
+                            <div className="absolute top-[28.6%] left-[28.6%] w-[42.8%] h-[42.8%] border border-slate-800 z-10 pointer-events-none"></div>
+                            {p.course !== null && courses.map(i => <div key={i} className={`${p.course === i ? 'bg-red-500 z-20 relative ring-1 ring-white/50' : isStrikeZone(i) ? 'bg-white' : 'bg-transparent'}`}></div>)}
                           </div>
                           <div className="flex-1 truncate font-bold text-[11px] text-slate-700 tracking-tighter">{p.type ? p.type.replace(/系$/, '') : ''}</div>
                           <div className={`text-white text-[9px] font-black px-3 py-1 rounded-full shadow-sm whitespace-nowrap ${p.result.includes('ストライク')?'bg-yellow-500':p.result==='ボール'?'bg-green-600':p.result==='ウエスト'?'bg-emerald-600':p.result==='死球'?'bg-purple-600':p.result==='その他出塁'?'bg-teal-600':['安','塁打','本塁打'].some(w=>p.result.includes(w))?'bg-blue-600':p.result==='牽制'?'bg-orange-500':p.result==='盗塁死'?'bg-rose-600':'bg-red-500'}`}>{p.result}</div>
@@ -2335,6 +2504,55 @@
                   )}
                 </div>
               </div>
+              </>
+              ) : (
+              /* テキスト速報モード */
+              <div className="bg-white rounded-2xl shadow-sm border border-slate-300 flex-1 flex flex-col overflow-hidden">
+                <div className="bg-slate-800 p-2 md:p-3 flex justify-between items-center shrink-0 rounded-t-2xl">
+                  <h2 className="text-xs font-bold text-white">📰 テキスト速報</h2>
+                  <div className="text-[10px] text-slate-400 font-mono">{pitches.filter(p => !p.isEvent).length}球</div>
+                </div>
+                <div className="flex-1 overflow-y-auto bg-slate-900 p-2 md:p-3">
+                  {playByPlayData.length === 0 ? (
+                    <div className="text-center text-slate-500 text-xs mt-8 font-bold">まだ記録がありません</div>
+                  ) : (
+                    playByPlayData.slice().reverse().map((inningData, iIdx) => (
+                      <div key={iIdx} className="mb-3 last:mb-0">
+                        <div className={`text-[10px] font-black px-2 py-1 rounded-t ${inningData.isTop ? 'bg-blue-900 text-blue-300' : 'bg-red-900 text-red-300'}`}>
+                          {inningData.inning}回{inningData.isTop ? '表' : '裏'}
+                          <span className="ml-2 text-slate-400 font-normal">{inningData.isTop ? gameInfo.teamTop : gameInfo.teamBottom}の攻撃</span>
+                        </div>
+                        <div className="bg-slate-800 rounded-b border border-slate-700 border-t-0 divide-y divide-slate-700/50">
+                          {inningData.atBats.map((ab, abIdx) => {
+                            const isHit = ['安', '塁打', '本塁打'].some(w => ab.result.includes(w));
+                            const isBB = ['四球', '死球'].some(w => ab.result.includes(w));
+                            const isK = ab.result === '三振';
+                            const resultColor = isHit ? 'text-blue-300 bg-blue-900/30' : isBB ? 'text-green-300 bg-green-900/30' : isK ? 'text-red-300' : 'text-slate-300';
+                            return (
+                              <div key={abIdx} className="px-2 py-1.5 flex items-center gap-2 text-[11px] hover:bg-slate-700/30 cursor-pointer transition-colors"
+                                onClick={() => {
+                                  jumpToInning(inningData.inning, inningData.isTop);
+                                  manuallyChangeBatter(ab.batter);
+                                  setRightPanelMode('current');
+                                }}
+                              >
+                                <span className="text-slate-500 font-mono w-4 text-right shrink-0">{ab.batter}</span>
+                                <span className="text-white font-bold w-16 md:w-20 truncate shrink-0">{ab.batterName}</span>
+                                <span className="text-slate-500 text-[9px] shrink-0">{ab.pitchCount}球</span>
+                                <span className={`font-black px-1.5 py-0.5 rounded text-[10px] ${resultColor}`}>{ab.result || '打席中'}</span>
+                                {ab.events.length > 0 && ab.events.map((ev, evIdx) => (
+                                  <span key={evIdx} className="text-[9px] text-amber-400/80 truncate">({ev})</span>
+                                ))}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+              )}
             </div>
           </main>
 
@@ -2377,10 +2595,10 @@
                        </div>
                        <div className="flex flex-col items-center">
                          <span className="text-xs font-bold text-slate-500 mb-2 tracking-widest">コース</span>
-                         <div className="grid grid-cols-5 grid-rows-5 w-40 h-40 relative bg-slate-200 p-1 rounded-lg border border-slate-400 shadow-inner">
-                           <div className="absolute top-[20%] left-[20%] w-[60%] h-[60%] border-4 border-slate-800 z-10 pointer-events-none"></div>
+                         <div className="grid grid-cols-7 grid-rows-7 w-40 h-40 relative bg-slate-300 p-1 rounded-lg border border-slate-400 shadow-inner gap-px">
+                           <div className="absolute top-[28.6%] left-[28.6%] w-[42.8%] h-[42.8%] border-[3px] border-slate-800 z-10 pointer-events-none"></div>
                            {courses.map(i => (
-                             <button key={i} onClick={() => setEditPitchData({...editPitchData, course: i})} className={`relative ${isStrikeZone(i) ? 'bg-white' : 'bg-slate-50'} ${editPitchData.course === i ? 'ring-4 ring-blue-500 bg-blue-100 z-20 scale-110 shadow-md' : 'border border-slate-300 hover:bg-blue-50'}`}></button>
+                             <button key={i} onClick={() => setEditPitchData({...editPitchData, course: i})} className={`relative ${isStrikeZone(i) ? 'bg-white' : 'bg-slate-100/70'} ${editPitchData.course === i ? 'ring-2 ring-blue-500 bg-blue-100 z-20 scale-105 shadow-md' : isStrikeZone(i) ? 'border border-slate-300 hover:bg-blue-50' : 'border border-slate-300/50 hover:bg-slate-200'}`}></button>
                            ))}
                          </div>
                        </div>
@@ -3043,9 +3261,9 @@
                                             return (
                                               <div key={typeName} className="flex flex-col items-center">
                                                 <div className={`text-[10px] font-bold ${labelCls} mb-1`}>{typeName} <span className="text-slate-500">({totalCount}球)</span></div>
-                                                <div className="grid grid-cols-5 grid-rows-5 w-24 h-24 gap-px relative bg-slate-700 p-1 rounded border border-slate-600">
-                                                  <div className="absolute top-[20%] left-[20%] w-[60%] h-[60%] border-2 border-white/40 pointer-events-none z-10"></div>
-                                                  {Array.from({length:25},(_,i)=>i).map(i => {
+                                                <div className="grid grid-cols-7 grid-rows-7 w-24 h-24 gap-px relative bg-slate-700 p-1 rounded border border-slate-600">
+                                                  <div className="absolute top-[28.6%] left-[28.6%] w-[42.8%] h-[42.8%] border-2 border-white/40 pointer-events-none z-10"></div>
+                                                  {Array.from({length:49},(_,i)=>i).map(i => {
                                                     const c = courseData[i] || 0;
                                                     const op = maxVal === 0 ? 0 : c / maxVal;
                                                     return <div key={`ch-${typeName}-${i}`} className="bg-slate-800 relative flex items-center justify-center text-[8px] text-white font-mono">{c > 0 && <div className={`absolute inset-0 ${colorCls} transition-opacity`} style={{opacity: op*0.8}}></div>}<span className="relative z-20">{c>0?c:''}</span></div>
@@ -3075,18 +3293,31 @@
 
           {/* メジャーリーグレベル分析モーダル (Advanced Analytics) */}
           {showPostGameAnalysis && advancedStats && (
-            <div className="fixed inset-0 bg-slate-900 z-[200] flex flex-col font-sans text-slate-200 overflow-hidden animate-in fade-in duration-300">
-              <div className="p-4 border-b border-slate-700 bg-slate-800 flex justify-between items-center shadow-md shrink-0">
+            <div className={`fixed inset-0 bg-slate-900 z-[200] flex flex-col font-sans text-slate-200 overflow-hidden animate-in fade-in duration-300 ${printMode ? 'print-target' : ''}`}>
+              <div className="p-4 border-b border-slate-700 bg-slate-800 flex justify-between items-center shadow-md shrink-0 no-print">
                 <h2 className="text-2xl font-black text-white flex items-center gap-3">
                   <span className="text-blue-400">📊</span> 試合分析ダッシュボード
                 </h2>
-                <button onClick={() => setShowPostGameAnalysis(false)} className="bg-slate-700 hover:bg-slate-600 text-white px-6 py-2 rounded-full font-bold transition-colors shadow-lg border border-slate-600">
-                  閉じる
-                </button>
+                <div className="flex gap-2">
+                  <button onClick={handlePrintDashboard} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full font-bold transition-colors shadow-lg border border-blue-500 text-sm">📄 PDF出力</button>
+                  <button onClick={() => setShowPostGameAnalysis(false)} className="bg-slate-700 hover:bg-slate-600 text-white px-6 py-2 rounded-full font-bold transition-colors shadow-lg border border-slate-600">閉じる</button>
+                </div>
               </div>
               
-              {/* タブナビゲーション */}
-              <div className="flex flex-wrap md:flex-nowrap bg-slate-800 border-b border-slate-700 text-xs md:text-sm font-bold shrink-0 overflow-x-auto">
+              {/* 印刷用ヘッダー */}
+              {printMode && (
+                <div className="hidden print:block bg-white text-black p-6 border-b-2 border-slate-300">
+                  <h1 className="text-2xl font-black mb-2">⚾ 試合分析レポート</h1>
+                  <div className="flex gap-6 text-sm">
+                    <span>{gameInfo.date}</span>
+                    <span className="font-bold">{gameInfo.teamTop} {gameState.runs.top.reduce((a,b)=>a+b,0)} - {gameState.runs.bottom.reduce((a,b)=>a+b,0)} {gameInfo.teamBottom}</span>
+                    <span>総投球数: {pitches.filter(p=>!p.isEvent).length}球</span>
+                  </div>
+                </div>
+              )}
+              
+              {/* タブナビゲーション (印刷時は非表示) */}
+              <div className="flex flex-wrap md:flex-nowrap bg-slate-800 border-b border-slate-700 text-xs md:text-sm font-bold shrink-0 overflow-x-auto no-print">
                 <button onClick={() => setPostGameTab('tendency')} className={`px-3 md:px-6 py-2.5 md:py-4 transition-colors whitespace-nowrap ${postGameTab === 'tendency' ? 'border-b-2 border-yellow-400 text-yellow-400 bg-slate-800/50' : 'text-slate-400 hover:text-slate-200'}`}>傾向</button>
                 <button onClick={() => setPostGameTab('team')} className={`px-3 md:px-6 py-2.5 md:py-4 transition-colors whitespace-nowrap ${postGameTab === 'team' ? 'border-b-2 border-blue-400 text-blue-400 bg-slate-800/50' : 'text-slate-400 hover:text-slate-200'}`}>サマリー</button>
                 <button onClick={() => setPostGameTab('battingTop')} className={`px-3 md:px-6 py-2.5 md:py-4 transition-colors whitespace-nowrap ${postGameTab === 'battingTop' ? 'border-b-2 border-blue-400 text-blue-400 bg-slate-800/50' : 'text-slate-400 hover:text-slate-200'}`}>打:{gameInfo.teamTop}</button>
@@ -3099,7 +3330,7 @@
                 <div className="max-w-6xl mx-auto">
 
                   {/* --- タブ: チーム特徴・傾向 --- */}
-                  {postGameTab === 'tendency' && (
+                  {(postGameTab === 'tendency' || printMode) && (
                     <div className="animate-in fade-in duration-300">
                       <h3 className="text-xl font-bold text-slate-400 mb-6 border-b border-slate-700 pb-2 flex items-center gap-2">
                         <span className="text-slate-500">🔍</span> Team Tendency Analysis
@@ -3208,7 +3439,7 @@
                   )}
 
                   {/* --- タブ: 全体成績まとめ --- */}
-                  {postGameTab === 'team' && (
+                  {(postGameTab === 'team' || printMode) && (
                     <div className="animate-in fade-in duration-300">
                       <h3 className="text-xl font-bold text-slate-400 mb-4 border-b border-slate-700 pb-2 flex items-center gap-2">
                         <span className="text-slate-500">⚾</span> Team Batting & Running (攻撃・走塁)
@@ -3296,26 +3527,29 @@
                   )}
 
                   {/* --- タブ: 打者成績（先攻・後攻） --- */}
-                  {(postGameTab === 'battingTop' || postGameTab === 'battingBottom') && (
-                    <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+                  {(postGameTab === 'battingTop' || postGameTab === 'battingBottom' || printMode) && (
+                    <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 print-section">
+                      {(printMode ? ['top', 'bottom'] : [postGameTab === 'battingTop' ? 'top' : 'bottom']).map(side => (
+                      <div key={side} className="mb-6">
+                      {printMode && <h4 className="text-lg font-bold text-slate-300 mb-2">打者成績: {side === 'top' ? gameInfo.teamTop : gameInfo.teamBottom}</h4>}
                       <div className="bg-slate-800 rounded-2xl border border-slate-700 shadow-2xl overflow-hidden overflow-x-auto">
                         <table className="w-full text-left text-sm whitespace-nowrap">
                           <thead className="bg-slate-900 text-slate-400 border-b-2 border-slate-700">
                             <tr>
                               <th className="p-4 font-bold">打順</th>
-                              <th className="p-4 font-bold">選手名 <span className="text-xs text-slate-500 font-normal ml-2">※タップで打球方向</span></th>
-                              <th className="p-4 font-bold text-right" title="打数">打数</th>
-                              <th className="p-4 font-bold text-right" title="安打">安打</th>
-                              <th className="p-4 font-bold text-right" title="四死球">四球</th>
+                              <th className="p-4 font-bold">選手名</th>
+                              <th className="p-4 font-bold text-right">打数</th>
+                              <th className="p-4 font-bold text-right">安打</th>
+                              <th className="p-4 font-bold text-right">四球</th>
                               <th className="p-4 font-bold text-right text-blue-400">打率</th>
                               <th className="p-4 font-bold text-right text-yellow-400">OPS</th>
-                              <th className="p-4 font-bold text-right text-red-400" title="三振率">K%</th>
-                              <th className="p-4 font-bold text-right text-orange-400" title="初球スイング率">初球Swing%</th>
+                              <th className="p-4 font-bold text-right text-red-400">K%</th>
+                              <th className="p-4 font-bold text-right text-orange-400">初球Swing%</th>
                               <th className="p-4 font-bold w-1/4">打席結果</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-700/50">
-                            {(postGameTab === 'battingTop' ? advancedStats.topBatting.players : advancedStats.bottomBatting.players).map((p, idx) => {
+                            {(side === 'top' ? advancedStats.topBatting.players : advancedStats.bottomBatting.players).map((p, idx) => {
                               const isSub = ['途中', '打', '走', '代'].includes(p.pos);
                               const badgeText = p.pos === '代' ? '途中' : p.pos;
                               const batterKey = `${p.order}-${p.name}`;
@@ -3386,30 +3620,37 @@
                           </tbody>
                         </table>
                       </div>
+                      </div>
+                      ))}
                     </div>
                   )}
 
                   {/* --- タブ: 投手成績 (先攻・後攻) --- */}
-                  {(postGameTab === 'pitchingTop' || postGameTab === 'pitchingBottom') && (
-                    <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+                  {(postGameTab === 'pitchingTop' || postGameTab === 'pitchingBottom' || printMode) && (
+                    <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 print-section">
+                      {(printMode ? [false, true] : [postGameTab === 'pitchingTop' ? false : true]).map((isBottom, sIdx) => {
+                      const pitchingData = isBottom ? advancedStats.pitchingBottom : advancedStats.pitchingTop;
+                      return (
+                      <div key={sIdx} className="mb-6">
+                      {printMode && <h4 className="text-lg font-bold text-slate-300 mb-2">投手成績: {isBottom ? gameInfo.teamBottom : gameInfo.teamTop}</h4>}
                       <div className="bg-slate-800 rounded-2xl border border-slate-700 shadow-2xl overflow-hidden overflow-x-auto">
                         <table className="w-full text-left text-sm whitespace-nowrap min-w-max">
                           <thead className="bg-slate-900 text-slate-400 border-b-2 border-slate-700">
                             <tr>
-                              <th className="p-4 font-bold">投手名 <span className="text-xs text-slate-500 font-normal ml-2">※タップで配球詳細</span></th>
+                              <th className="p-4 font-bold">投手名</th>
                               <th className="p-4 font-bold text-right">投球数</th>
                               <th className="p-4 font-bold text-right">対打者</th>
                               <th className="p-4 font-bold text-right">被安打</th>
                               <th className="p-4 font-bold text-right">奪三振</th>
                               <th className="p-4 font-bold text-right">与四球</th>
                               <th className="p-4 font-bold text-right text-yellow-300">CSW%</th>
-                              <th className="p-4 font-bold text-right text-red-300">Whiff%<br/><span className="text-[9px] font-normal text-slate-500">空振り率</span></th>
-                              <th className="p-4 font-bold text-right text-green-300">P/PA<br/><span className="text-[9px] font-normal text-slate-500">1打席球数</span></th>
-                              <th className="p-4 font-bold text-right text-blue-300">F-Strike%<br/><span className="text-[9px] font-normal text-slate-500">初球ｽﾄﾗｲｸ</span></th>
+                              <th className="p-4 font-bold text-right text-red-300">Whiff%</th>
+                              <th className="p-4 font-bold text-right text-green-300">P/PA</th>
+                              <th className="p-4 font-bold text-right text-blue-300">F-Strike%</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-700/50">
-                            {(postGameTab === 'pitchingTop' ? advancedStats.pitchingTop.pitchers : advancedStats.pitchingBottom.pitchers).map(p => (
+                            {pitchingData.pitchers.map(p => (
                               <React.Fragment key={p.name}>
                                 <tr onClick={() => setExpandedPitcher(expandedPitcher === p.name ? null : p.name)} className="hover:bg-slate-700/50 transition-colors cursor-pointer">
                                   <td className="p-4 font-bold text-white flex items-center gap-2">
@@ -3497,8 +3738,8 @@
                                            <div className="flex gap-12 mt-2">
                                              <div className="flex flex-col items-center">
                                                <div className="text-[10px] font-bold text-red-400 mb-2 tracking-widest">直球系 (ｽﾄﾚｰﾄ・ｼｭｰﾄ)</div>
-                                               <div className="grid grid-cols-5 grid-rows-5 w-28 h-28 gap-px relative bg-slate-700 p-1 rounded border border-slate-600">
-                                                 <div className="absolute top-[20%] left-[20%] w-[60%] h-[60%] border-2 border-white/40 pointer-events-none z-10"></div>
+                                               <div className="grid grid-cols-7 grid-rows-7 w-28 h-28 gap-px relative bg-slate-700 p-1 rounded border border-slate-600">
+                                                 <div className="absolute top-[28.6%] left-[28.6%] w-[42.8%] h-[42.8%] border-2 border-white/40 pointer-events-none z-10"></div>
                                                  {courses.map(i => {
                                                    const c = p.heatmaps?.fastball[pitcherHeatmapCountTab][i] || 0;
                                                    const max = p.heatmaps?.fastball.max[pitcherHeatmapCountTab] || 0;
@@ -3509,8 +3750,8 @@
                                              </div>
                                              <div className="flex flex-col items-center">
                                                <div className="text-[10px] font-bold text-blue-400 mb-2 tracking-widest">変化球系 (ｽﾗｲﾀﾞｰ・ｶｰﾌﾞ等)</div>
-                                               <div className="grid grid-cols-5 grid-rows-5 w-28 h-28 gap-px relative bg-slate-700 p-1 rounded border border-slate-600">
-                                                 <div className="absolute top-[20%] left-[20%] w-[60%] h-[60%] border-2 border-white/40 pointer-events-none z-10"></div>
+                                               <div className="grid grid-cols-7 grid-rows-7 w-28 h-28 gap-px relative bg-slate-700 p-1 rounded border border-slate-600">
+                                                 <div className="absolute top-[28.6%] left-[28.6%] w-[42.8%] h-[42.8%] border-2 border-white/40 pointer-events-none z-10"></div>
                                                  {courses.map(i => {
                                                    const c = p.heatmaps?.breaking[pitcherHeatmapCountTab][i] || 0;
                                                    const max = p.heatmaps?.breaking.max[pitcherHeatmapCountTab] || 0;
@@ -3534,8 +3775,8 @@
                                                return (
                                                  <div key={typeName} className="flex flex-col items-center">
                                                    <div className={`text-[10px] font-bold ${labelCls} mb-1`}>{typeName} <span className="text-slate-500">({totalCount}球)</span></div>
-                                                   <div className="grid grid-cols-5 grid-rows-5 w-24 h-24 gap-px relative bg-slate-700 p-1 rounded border border-slate-600">
-                                                     <div className="absolute top-[20%] left-[20%] w-[60%] h-[60%] border-2 border-white/40 pointer-events-none z-10"></div>
+                                                   <div className="grid grid-cols-7 grid-rows-7 w-24 h-24 gap-px relative bg-slate-700 p-1 rounded border border-slate-600">
+                                                     <div className="absolute top-[28.6%] left-[28.6%] w-[42.8%] h-[42.8%] border-2 border-white/40 pointer-events-none z-10"></div>
                                                      {courses.map(i => {
                                                        const c = typeHM[pitcherHeatmapCountTab][i] || 0;
                                                        const max = typeHM.max[pitcherHeatmapCountTab] || 0;
@@ -3558,6 +3799,9 @@
                           </tbody>
                         </table>
                       </div>
+                      </div>
+                      );
+                      })}
                     </div>
                   )}
 
