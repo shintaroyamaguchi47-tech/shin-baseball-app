@@ -20,7 +20,7 @@
     .modal-scroll::-webkit-scrollbar-thumb { background-color: #94a3b8; border-radius: 4px; }
     .modal-overlay { touch-action: auto; overflow: hidden; }
     .grid-bg { background-image: radial-gradient(#cbd5e1 1px, transparent 1px); background-size: 20px 20px; }
-    input:focus, textarea:focus { background-color: white !important; }
+    input:focus { background-color: white !important; }
     .custom-scrollbar::-webkit-scrollbar { display: block; height: 6px; }
     .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #475569; border-radius: 4px; }
     
@@ -34,7 +34,7 @@
       /* 印刷時: ダッシュボード以外を非表示 */
       body.printing > #root > div > header,
       body.printing > #root > div > main,
-      body.printing > #root > div > .md\:hidden { display: none !important; }
+      body.printing > #root > div > .md\\:hidden { display: none !important; }
       
       /* ダッシュボードを通常フローに */
       body.printing .print-target {
@@ -177,10 +177,11 @@
     return true;
   };
 
-  // --- データ共有 (テキストコピー方式) ---
-  // データ圧縮: JSON → UTF-16 → Base64
+  // --- データ共有 (QRコード方式) ---
+  // データ圧縮: JSON → UTF-16 → Base64 (軽量な独自圧縮)
   window.compressData = function(obj) {
     var json = JSON.stringify(obj);
+    // encodeURIComponentでURL安全にしてからbase64
     return btoa(encodeURIComponent(json));
   };
   window.decompressData = function(str) {
@@ -189,6 +190,34 @@
     } catch(e) { return null; }
   };
 
+  // QRコード生成（分割対応）
+  window.generateShareQR = function(data, type) {
+    var compressed = window.compressData(data);
+    var baseUrl = window.location.href.split('?')[0].split('#')[0];
+    var url = baseUrl + '?share=' + type + '&d=' + compressed;
+    
+    // URLが長すぎる場合の警告
+    if (url.length > 4000) {
+      return { error: true, size: url.length, message: 'データが大きすぎます(' + Math.round(url.length/1024) + 'KB)。チームデータのみ、または試合を個別に共有してください。' };
+    }
+    return { error: false, url: url, size: url.length };
+  };
+
+  // ページ読み込み時にURLパラメータからデータ復元
+  window.checkShareUrl = function() {
+    var params = new URLSearchParams(window.location.search);
+    var shareType = params.get('share');
+    var dataStr = params.get('d');
+    if (!shareType || !dataStr) return null;
+    
+    var data = window.decompressData(dataStr);
+    if (!data) return null;
+    
+    // URLパラメータをクリア（履歴に残さない）
+    window.history.replaceState({}, '', window.location.pathname);
+    
+    return { type: shareType, data: data };
+  };
   } catch(e) { console.error('Pre-script error:', e); }
   </script>
 
@@ -347,12 +376,8 @@
       const [expandedBatter, setExpandedBatter] = useState(null);
       const [rightPanelMode, setRightPanelMode] = useState('current'); // 'current' or 'playByPlay'
       const [printMode, setPrintMode] = useState(false);
-
-      // --- テキスト共有用 ---
       const [showShareModal, setShowShareModal] = useState(false);
-      const [shareTextData, setShareTextData] = useState(null);
-      const [showImportTextModal, setShowImportTextModal] = useState(false);
-      const [importText, setImportText] = useState('');
+      const [shareQrData, setShareQrData] = useState(null);
 
       const [selectedFielder, setSelectedFielder] = useState(null);
       const [selectedPosition, setSelectedPosition] = useState(null);
@@ -392,62 +417,26 @@
         setLineups(prev => ({ ...prev, [side]: newLineup }));
       };
 
-      // --- 永続化 ---
+      // --- 永続化 (個別分割で不要な再書き込みを防止) ---
       useEffect(() => { localStorage.setItem('baseball_gameState', JSON.stringify(gameState)); }, [gameState]);
       useEffect(() => { localStorage.setItem('baseball_gameInfo', JSON.stringify(gameInfo)); }, [gameInfo]);
       useEffect(() => { localStorage.setItem('baseball_lineups', JSON.stringify(lineups)); }, [lineups]);
       useEffect(() => { localStorage.setItem('baseball_pitches', JSON.stringify(pitches)); }, [pitches]);
       useEffect(() => { localStorage.setItem('baseball_savedGames', JSON.stringify(savedGames)); }, [savedGames]);
       useEffect(() => { localStorage.setItem('baseball_registeredTeams', JSON.stringify(registeredTeams)); }, [registeredTeams]);
+      // myTeamはregisteredTeamsから導出して同期
       useEffect(() => {
         const mt = registeredTeams.find(t => t.isMyTeam);
         setMyTeam(mt || null);
         if (mt) localStorage.setItem('baseball_myTeam', JSON.stringify(mt));
       }, [registeredTeams]);
 
-      // --- テキスト共有用関数 ---
-      const handleShareData = (type) => {
-        let data, shareType;
-        if (type === 'teams') {
-          data = registeredTeams;
-          shareType = 'teams';
-        } else if (type === 'all') {
-          data = { teams: registeredTeams, games: savedGames };
-          shareType = 'games';
-        } else if (typeof type === 'string' && type.startsWith('game:')) {
-          const gameId = type.replace('game:', '');
-          const game = savedGames.find(g => g.id === gameId);
-          if (!game) { showToast('試合が見つかりません', 'error'); return; }
-          data = game;
-          shareType = 'game1';
-        }
-        
-        const compressed = window.compressData(data);
-        const shareString = `BASEBALL_SHARE:${shareType}:${compressed}`;
-        setShareTextData(shareString);
-        setShowShareModal(true);
-      };
-
-      const handleImportText = (text) => {
-        if (!text || !text.startsWith('BASEBALL_SHARE:')) {
-          showToast('無効な共有テキストです。BASEBALL_SHARE: から始まるテキストを入力してください。', 'error');
-          return;
-        }
-        const parts = text.split(':');
-        if (parts.length < 3) {
-          showToast('データ形式が不正です', 'error');
-          return;
-        }
-        const shareType = parts[1];
-        const compressed = text.substring(`BASEBALL_SHARE:${shareType}:`.length);
-        const incoming = window.decompressData(compressed);
-        
-        if (!incoming) {
-          showToast('データの解凍に失敗しました', 'error');
-          return;
-        }
-
-        if (shareType === 'teams') {
+      // --- URL共有データの受信処理 ---
+      useEffect(() => {
+        const shared = window.checkShareUrl();
+        if (!shared) return;
+        if (shared.type === 'teams') {
+          const incoming = shared.data;
           if (Array.isArray(incoming)) {
             setRegisteredTeams(prev => {
               const existingNames = prev.map(t => t.name);
@@ -457,7 +446,8 @@
             });
             showToast(`${incoming.length}チームのデータを受信しました！`, 'success');
           }
-        } else if (shareType === 'games') {
+        } else if (shared.type === 'games') {
+          const incoming = shared.data;
           if (incoming.teams) {
             setRegisteredTeams(prev => {
               const existingNames = prev.map(t => t.name);
@@ -475,18 +465,50 @@
             });
             showToast(`${incoming.games.length}試合 + チームデータを受信しました！`, 'success');
           }
-        } else if (shareType === 'game1') {
-          if (incoming && incoming.id) {
+        } else if (shared.type === 'game1') {
+          const game = shared.data;
+          if (game && game.id) {
             setSavedGames(prev => {
-              if (prev.some(g => g.id === incoming.id)) return prev;
-              return [incoming, ...prev];
+              if (prev.some(g => g.id === game.id)) return prev;
+              return [game, ...prev];
             });
-            showToast(`試合データ(${incoming.teamTop} vs ${incoming.teamBottom})を受信しました！`, 'success');
+            showToast(`試合データ(${game.teamTop} vs ${game.teamBottom})を受信しました！`, 'success');
           }
         }
+      }, []);
+
+      // QRコード生成ハンドラ
+      const handleGenerateQR = (type) => {
+        let data, shareType;
+        if (type === 'teams') {
+          data = registeredTeams;
+          shareType = 'teams';
+        } else if (type === 'all') {
+          data = { teams: registeredTeams, games: savedGames };
+          shareType = 'games';
+        } else if (typeof type === 'string' && type.startsWith('game:')) {
+          const gameId = type.replace('game:', '');
+          const game = savedGames.find(g => g.id === gameId);
+          if (!game) { showToast('試合が見つかりません', 'error'); return; }
+          data = game;
+          shareType = 'game1';
+        }
         
-        setShowImportTextModal(false);
-        setImportText('');
+        const result = window.generateShareQR(data, shareType);
+        if (result.error) {
+          showToast(result.message, 'error');
+          return;
+        }
+        setShareQrData(result);
+        setShowShareModal(true);
+        
+        // QRコード描画（DOMが準備できてから）
+        setTimeout(() => {
+          const canvas = document.getElementById('share-qr-canvas');
+          if (canvas && window.QRious) {
+            new window.QRious({ element: canvas, value: result.url, size: 280, level: 'M' });
+          }
+        }, 100);
       };
 
       // --- 履歴管理 ---
@@ -3152,4 +3174,1019 @@
                 <div className="p-6 overflow-y-auto modal-scroll flex-1 bg-slate-50 flex flex-col gap-6">
                   
                   {/* 現在の試合を保存 */}
-                  <div className="bg-white p-4 rounded-xl border border-
+                  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
+                    <div>
+                      <h3 className="font-bold text-slate-800 mb-1">現在の試合をアーカイブに保存</h3>
+                      <p className="text-xs text-slate-500">入力中のデータを「保存済み一覧」にバックアップとして残します。</p>
+                    </div>
+                    <button onClick={saveCurrentGame} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-xl font-bold shadow-md transition-transform active:scale-95">
+                      💾 今の試合を保存
+                    </button>
+                  </div>
+
+                  {/* QR共有 */}
+                  {savedGames.length > 0 && (
+                    <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-200 flex items-center justify-between">
+                      <div>
+                        <h3 className="font-bold text-indigo-800 mb-1">📱 QRコードで別端末に共有</h3>
+                        <p className="text-xs text-indigo-600">チーム登録＋全試合データをQRコードで他の端末に送れます</p>
+                      </div>
+                      <button onClick={() => handleGenerateQR('all')} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl font-bold text-sm shadow-sm active:scale-95 transition-all">全データQR</button>
+                    </div>
+                  )}
+
+                  {/* 保存済み試合一覧 */}
+                  <div>
+                    <h3 className="font-bold text-slate-700 mb-3 flex items-center gap-2">
+                      <span className="bg-slate-200 px-2 py-0.5 rounded text-xs">保存済み</span>
+                      試合データ一覧 ({savedGames.length}件)
+                    </h3>
+                    
+                    {savedGames.length === 0 ? (
+                      <div className="bg-white p-8 rounded-xl border border-slate-200 text-center text-slate-400 text-sm border-dashed">
+                        保存された試合データはありません
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-3">
+                        {savedGames.map(game => (
+                          <div key={game.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between hover:border-emerald-300 transition-colors">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-3 mb-2">
+                                <span className="bg-slate-100 text-slate-600 font-mono text-xs px-2 py-1 rounded border border-slate-200">{game.date}</span>
+                                <span className="text-xs font-bold text-slate-400">{game.pitchesCount}球記録</span>
+                              </div>
+                              <div className="flex items-center gap-4 text-base font-black text-slate-800">
+                                <div className="w-32 truncate text-right">{game.teamTop}</div>
+                                <div className="bg-slate-100 px-4 py-1 rounded-lg border border-slate-200 flex items-center justify-center min-w-[80px]">
+                                  {game.scoreTop} <span className="text-slate-400 font-normal mx-2">-</span> {game.scoreBottom}
+                                </div>
+                                <div className="w-32 truncate text-left">{game.teamBottom}</div>
+                              </div>
+                            </div>
+                            <div className="flex gap-2 ml-4">
+                              <button onClick={() => loadGame(game.id)} className="bg-white border-2 border-emerald-600 text-emerald-700 hover:bg-emerald-50 px-4 py-2 rounded-lg font-bold text-sm shadow-sm transition-colors">
+                                読み込む
+                              </button>
+                              <button onClick={() => handleGenerateQR('game:'+game.id)} className="bg-white border border-indigo-200 text-indigo-500 hover:bg-indigo-50 p-2 rounded-lg transition-colors" title="QR共有">
+                                📱
+                              </button>
+                              <button onClick={() => deleteGame(game.id)} className="bg-white border border-red-200 text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors" title="削除">
+                                🗑️
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {showExport && (
+            <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-md animate-in zoom-in duration-200 font-sans">
+              <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-md p-8 relative overflow-hidden font-sans max-h-[90vh] flex flex-col">
+                <button onClick={() => setShowExport(false)} className="absolute top-6 right-6 text-2xl font-black text-slate-400 hover:text-slate-600 transition-colors font-bold font-sans z-10">✕</button>
+                <div className="flex flex-col items-center mb-6 shrink-0">
+                  <div className="w-16 h-16 bg-blue-100 rounded-3xl flex items-center justify-center text-blue-600 text-3xl mb-4 shadow-inner tracking-tighter font-sans uppercase">📤</div>
+                  <h2 className="text-2xl font-black text-slate-800 font-sans font-bold">出力と引継ぎ</h2>
+                </div>
+                
+                <div className="flex flex-col gap-4 font-bold overflow-y-auto pr-2 pb-2">
+                  <div className="border-b border-slate-200 pb-4">
+                    <h3 className="text-sm text-slate-500 mb-3">AI分析・データ出力</h3>
+                    <div className="flex flex-col gap-3">
+                      <button onClick={copyForAI} className="bg-indigo-600 hover:bg-indigo-700 text-white py-4 rounded-xl font-black shadow-md flex items-center justify-center gap-2 active:scale-95 transition-all text-sm">
+                        🤖 AIに分析させる (Gemini等へ)
+                      </button>
+                      <div className="grid grid-cols-2 gap-3">
+                        <button onClick={copyShareText} className="bg-slate-800 hover:bg-black text-white py-3 rounded-xl font-black shadow-md flex items-center justify-center gap-2 active:scale-95 transition-all text-xs">📋 簡易結果をコピー</button>
+                        <button onClick={exportCSV} className="bg-green-600 hover:bg-green-700 text-white py-3 rounded-xl font-black shadow-md flex items-center justify-center gap-2 active:scale-95 transition-all text-xs">📥 CSVを保存 (Excel)</button>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="pt-2">
+                    <h3 className="text-sm text-slate-500 mb-3">端末間のデータ引継ぎ</h3>
+                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 shadow-inner flex flex-col gap-4">
+                      <button onClick={exportData} className="bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-black shadow-sm flex items-center justify-center gap-2 active:scale-95 transition-all text-sm w-full">
+                        📤 引継ぎ用ファイルを保存
+                      </button>
+                      <div className="flex flex-col gap-2">
+                        <div className="text-xs text-slate-500 font-bold">📥 保存したファイルから復元:</div>
+                        <input 
+                          type="file" 
+                          accept=".json"
+                          onChange={importData} 
+                          className="text-xs text-slate-600 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 w-full"
+                        />
+                      </div>
+                      <p className="text-[10px] text-slate-500 leading-relaxed">
+                        ※保存された「.json」ファイルをAirDrop、メール等で別の端末に送り、ここで選択すると一瞬でデータが復元されます。
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* チーム管理モーダル */}
+          {showTeamManager && (
+            <div className="fixed inset-0 bg-slate-100 z-[200] flex flex-col font-sans overflow-hidden animate-in fade-in duration-200">
+              <div className="p-4 border-b border-slate-300 bg-white flex justify-between items-center shadow-sm shrink-0">
+                <h2 className="text-xl font-black text-amber-800 flex items-center gap-2">👥 チーム管理</h2>
+                <div className="flex gap-2">
+                  {myTeam?.name && (<>
+                    <button onClick={() => { setShowCrossGameStats(true); setShowTeamManager(false); setPostGameTab('crossBatting'); }} className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-full font-bold text-sm shadow-sm">📊 累積スタッツ</button>
+                    <button onClick={() => handleGenerateQR('teams')} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-full font-bold text-sm shadow-sm">📱 QR共有</button>
+                  </>)}
+                  <button onClick={() => setShowTeamManager(false)} className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-6 py-2 rounded-full font-bold transition-colors shadow-sm">閉じる</button>
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto p-6" style={{WebkitOverflowScrolling: 'touch'}}>
+                <div className="max-w-2xl mx-auto flex flex-col gap-4">
+
+                  {/* チーム一覧とチーム編集 */}
+                  {editingTeamIndex === null ? (
+                    <>
+                      <div className="flex justify-between items-center">
+                        <div className="text-sm font-bold text-slate-600">登録チーム ({registeredTeams.length}チーム)</div>
+                        <button onClick={() => {
+                          setRegisteredTeams(prev => [...prev, { name: '', players: [], isMyTeam: !prev.some(t => t.isMyTeam) }]);
+                          setEditingTeamIndex(registeredTeams.length);
+                        }} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl font-bold text-sm shadow-sm active:scale-95 transition-all">＋ 新しいチームを追加</button>
+                      </div>
+
+                      {registeredTeams.length === 0 ? (
+                        <div className="bg-white p-8 rounded-xl border-2 border-dashed border-slate-300 text-center text-slate-400 text-sm">
+                          チームが登録されていません。「＋ 新しいチームを追加」で始めましょう。
+                        </div>
+                      ) : (
+                        <div className="flex flex-col gap-3">
+                          {registeredTeams.map((team, idx) => (
+                            <div key={idx} className={`bg-white p-4 rounded-xl border shadow-sm flex items-center justify-between ${team.isMyTeam ? 'border-amber-300 ring-1 ring-amber-200' : 'border-slate-200'}`}>
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2 mb-1">
+                                  {team.isMyTeam && <span className="bg-amber-100 text-amber-700 text-[10px] font-bold px-2 py-0.5 rounded border border-amber-200">⭐ 自チーム</span>}
+                                  <span className="font-black text-lg text-slate-800">{team.name || '(未入力)'}</span>
+                                </div>
+                                <div className="text-xs text-slate-500">{(team.players || []).length}名登録</div>
+                              </div>
+                              <div className="flex gap-2">
+                                <button onClick={() => setEditingTeamIndex(idx)} className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg font-bold text-xs transition-colors">✏️ 編集</button>
+                                <button onClick={() => {
+                                  setConfirmDialog({
+                                    title: '🗑️ チームの削除', message: `「${team.name}」を削除しますか？`, subMessage: '※選手登録も消えます', isDanger: true,
+                                    onConfirm: () => { setRegisteredTeams(prev => prev.filter((_, i) => i !== idx)); setConfirmDialog(null); }
+                                  });
+                                }} className="bg-red-50 hover:bg-red-100 text-red-500 px-3 py-2 rounded-lg font-bold text-xs transition-colors">🗑️</button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    /* チーム編集画面 */
+                    (() => {
+                      const team = registeredTeams[editingTeamIndex] || { name: '', players: [], isMyTeam: false };
+                      const updateTeam = (updates) => {
+                        setRegisteredTeams(prev => prev.map((t, i) => i === editingTeamIndex ? { ...t, ...updates } : t));
+                      };
+                      const updatePlayer = (playerIdx, updates) => {
+                        const newPlayers = [...(team.players || [])].map(p => typeof p === 'string' ? { name: p, throws: '右', bats: '右' } : { ...p });
+                        newPlayers[playerIdx] = { ...newPlayers[playerIdx], ...updates };
+                        updateTeam({ players: newPlayers });
+                      };
+                      return (
+                        <>
+                          <button onClick={() => setEditingTeamIndex(null)} className="self-start bg-slate-200 hover:bg-slate-300 text-slate-700 px-4 py-2 rounded-lg font-bold text-sm mb-2">← チーム一覧に戻る</button>
+
+                          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col gap-3">
+                            <div>
+                              <label className="text-xs font-bold text-slate-500 mb-1 block">チーム名</label>
+                              <input type="text" value={team.name} onChange={e => updateTeam({ name: e.target.value })} className="w-full border-2 border-slate-300 rounded-xl px-4 py-3 font-bold text-lg outline-none focus:border-amber-500 shadow-inner" placeholder="例：○○中学校" />
+                            </div>
+                            <label className="flex items-center gap-2 cursor-pointer">
+                              <input type="checkbox" checked={team.isMyTeam || false} onChange={e => {
+                                if (e.target.checked) {
+                                  setRegisteredTeams(prev => prev.map((t, i) => ({ ...t, isMyTeam: i === editingTeamIndex })));
+                                } else {
+                                  updateTeam({ isMyTeam: false });
+                                }
+                              }} className="w-4 h-4 accent-amber-500" />
+                              <span className="text-sm font-bold text-amber-700">⭐ これを自チームに設定（累積スタッツの対象）</span>
+                            </label>
+                          </div>
+
+                          <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
+                            <div className="bg-slate-100 px-4 py-2 border-b border-slate-200 flex justify-between items-center rounded-t-xl">
+                              <span className="text-xs font-bold text-slate-600">登録メンバー ({(team.players || []).length}名)</span>
+                              <div className="flex gap-2">
+                                <button onClick={() => {
+                                  const targetKey = gameInfo.teamTop === team.name ? 'top' : gameInfo.teamBottom === team.name ? 'bottom' : null;
+                                  if (targetKey) {
+                                    const imported = lineups[targetKey].map(p => ({ name: p.name, throws: p.throws, bats: p.bats })).filter(p => p.name && !p.name.startsWith('先攻') && !p.name.startsWith('後攻') && !p.name.startsWith('先発投手'));
+                                    const existing = (team.players || []).map(p => typeof p === 'string' ? p : p.name);
+                                    const newPlayers = [...(team.players || [])].map(p => typeof p === 'string' ? { name: p, throws: '右', bats: '右' } : p);
+                                    imported.forEach(imp => { if (!existing.includes(imp.name)) newPlayers.push(imp); });
+                                    updateTeam({ players: newPlayers });
+                                    showToast(`オーダーから取り込みました`, 'success');
+                                  } else {
+                                    showToast('現在の試合にこのチーム名がありません', 'error');
+                                  }
+                                }} className="text-[10px] bg-amber-100 text-amber-700 px-2 py-1 rounded font-bold border border-amber-200 hover:bg-amber-200">📋 オーダーから取込</button>
+                                <button onClick={() => updateTeam({ players: [...(team.players || []).map(p => typeof p === 'string' ? { name: p, throws: '右', bats: '右' } : p), { name: '', throws: '右', bats: '右' }] })} className="text-[10px] bg-blue-100 text-blue-700 px-2 py-1 rounded font-bold border border-blue-200 hover:bg-blue-200">＋ 追加</button>
+                              </div>
+                            </div>
+                            <table className="w-full text-[11px]">
+                              <thead className="bg-slate-50 text-slate-500 border-b border-slate-200">
+                                <tr><th className="py-1.5 w-8 text-center">#</th><th className="py-1.5 text-left px-2">選手名</th><th className="py-1.5 w-16 text-center">投/打</th><th className="py-1.5 w-8"></th></tr>
+                              </thead>
+                              <tbody>
+                                {(team.players || []).map((pl, i) => {
+                                  const player = typeof pl === 'string' ? { name: pl, throws: '右', bats: '右' } : pl;
+                                  return (
+                                    <tr key={i} className="border-b border-slate-100 last:border-0">
+                                      <td className="py-1.5 text-center text-slate-400 font-mono">{i + 1}</td>
+                                      <td className="py-1.5 px-2">
+                                        <input type="text" value={player.name} onChange={e => updatePlayer(i, { name: e.target.value })} className="w-full border border-slate-300 rounded px-2 py-1 outline-none focus:border-amber-500 font-bold text-slate-700" placeholder="選手名" />
+                                      </td>
+                                      <td className="py-1.5 text-center">
+                                        <select value={`${player.throws}${player.bats}`} onChange={e => { const v = e.target.value; updatePlayer(i, { throws: v[0], bats: v[1] }); }} className="border border-slate-300 rounded py-0.5 text-[9px] font-bold outline-none bg-slate-50 cursor-pointer">
+                                          <option value="右右">右/右</option><option value="右左">右/左</option><option value="左右">左/右</option><option value="左左">左/左</option>
+                                        </select>
+                                      </td>
+                                      <td className="py-1.5 text-center">
+                                        <button onClick={() => updateTeam({ players: (team.players || []).filter((_, idx) => idx !== i) })} className="text-red-400 hover:text-red-600 text-xs">✕</button>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                            {(team.players || []).length === 0 && (
+                              <div className="p-4 text-center text-slate-400 text-xs">「＋追加」か「オーダーから取込」で選手を登録してください</div>
+                            )}
+                          </div>
+                        </>
+                      );
+                    })()
+                  )}
+
+                  <div className="h-20 shrink-0"></div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 累積スタッツ全画面モーダル */}
+          {showCrossGameStats && crossGameStats && (
+            <div className="fixed inset-0 bg-slate-900 z-[200] flex flex-col font-sans text-slate-200 overflow-hidden animate-in fade-in duration-300">
+              <div className="p-4 border-b border-slate-700 bg-slate-800 flex justify-between items-center shadow-md shrink-0">
+                <h2 className="text-2xl font-black text-white flex items-center gap-3">
+                  <span className="text-amber-400">📊</span> {myTeam?.name} 累積スタッツ
+                  <span className="text-sm font-normal text-slate-400 ml-3">{crossGameStats.matchedGames}試合</span>
+                </h2>
+                <button onClick={() => setShowCrossGameStats(false)} className="bg-slate-700 hover:bg-slate-600 text-white px-6 py-2 rounded-full font-bold transition-colors shadow-lg border border-slate-600">閉じる</button>
+              </div>
+
+              <div className="flex bg-slate-800 border-b border-slate-700 text-sm font-bold shrink-0">
+                <button onClick={() => setPostGameTab('crossBatting')} className={`px-6 py-4 transition-colors ${postGameTab === 'crossBatting' ? 'border-b-2 border-amber-400 text-amber-400' : 'text-slate-400 hover:text-slate-200'}`}>打者累積成績</button>
+                <button onClick={() => setPostGameTab('crossPitching')} className={`px-6 py-4 transition-colors ${postGameTab === 'crossPitching' ? 'border-b-2 border-green-400 text-green-400' : 'text-slate-400 hover:text-slate-200'}`}>投手累積成績</button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-6 md:p-10 bg-slate-900">
+                <div className="max-w-6xl mx-auto">
+
+                  {/* 打者累積 */}
+                  {postGameTab === 'crossBatting' && (
+                    <div className="animate-in fade-in duration-300">
+                      <div className="bg-slate-800 rounded-2xl border border-slate-700 shadow-2xl overflow-hidden overflow-x-auto">
+                        <table className="w-full text-left text-sm whitespace-nowrap">
+                          <thead className="bg-slate-900 text-slate-400 border-b-2 border-slate-700">
+                            <tr>
+                              <th className="p-4 font-bold">選手名 <span className="text-xs text-slate-500 font-normal">※タップで打球方向</span></th>
+                              <th className="p-4 font-bold text-right">試合</th>
+                              <th className="p-4 font-bold text-right">打席</th>
+                              <th className="p-4 font-bold text-right">打数</th>
+                              <th className="p-4 font-bold text-right">安打</th>
+                              <th className="p-4 font-bold text-right text-blue-400">打率</th>
+                              <th className="p-4 font-bold text-right text-yellow-400">OPS</th>
+                              <th className="p-4 font-bold text-right text-red-400">K%</th>
+                              <th className="p-4 font-bold text-right text-green-400">BB%</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-700/50">
+                            {crossGameStats.batters.map((b, idx) => {
+                              const bKey = `cross-${b.name}`;
+                              return (
+                              <React.Fragment key={idx}>
+                              <tr onClick={() => setExpandedBatter(expandedBatter === bKey ? null : bKey)} className="hover:bg-slate-700/50 transition-colors cursor-pointer">
+                                <td className="p-4 font-bold text-white">
+                                  <span className="text-amber-400 font-mono w-4 inline-block mr-1">{expandedBatter === bKey ? '▼' : '▶'}</span>
+                                  {b.name}
+                                </td>
+                                <td className="p-4 text-right font-mono text-slate-300">{b.games}</td>
+                                <td className="p-4 text-right font-mono text-slate-300">{b.PA}</td>
+                                <td className="p-4 text-right font-mono text-slate-300">{b.AB}</td>
+                                <td className="p-4 text-right font-mono text-slate-300">{b.H}</td>
+                                <td className="p-4 text-right font-mono font-bold text-blue-300">{b.AVG}</td>
+                                <td className="p-4 text-right font-mono font-bold text-yellow-300">{b.OPS}</td>
+                                <td className="p-4 text-right font-mono text-red-300">{b.KPct}%</td>
+                                <td className="p-4 text-right font-mono text-green-300">{b.BBPct}%</td>
+                              </tr>
+                              {expandedBatter === bKey && (
+                                <tr>
+                                  <td colSpan="9" className="p-4 bg-slate-900 border-b-2 border-amber-500/50">
+                                    <div className="flex items-start gap-8 justify-center">
+                                      <SprayChart hits={b.sprayHits} size={220} title={`${b.name} 通算打球方向 (${b.sprayHits.length}打球)`} />
+                                      <div className="flex flex-col gap-3 pt-4 min-w-[180px]">
+                                        <div className="text-xs font-bold text-slate-300 border-b border-slate-700 pb-1">方向別集計 (通算)</div>
+                                        {['left', 'center', 'right'].map((dir, dIdx) => {
+                                          const val = b.directions[dir];
+                                          const total = b.directions.left + b.directions.center + b.directions.right;
+                                          const pct = total > 0 ? Math.round((val / total) * 100) : 0;
+                                          const labels = ['レフト方向', 'センター方向', 'ライト方向'];
+                                          return (
+                                            <div key={dir} className="flex items-center gap-2 text-[10px]">
+                                              <span className="w-20 text-slate-400 font-bold">{labels[dIdx]}</span>
+                                              <div className="flex-1 bg-slate-700 h-2 rounded-full overflow-hidden">
+                                                <div className="bg-amber-500 h-full rounded-full" style={{width: `${pct}%`}}></div>
+                                              </div>
+                                              <span className="w-8 text-right font-mono text-slate-300">{pct}%</span>
+                                            </div>
+                                          )
+                                        })}
+                                      </div>
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
+                              </React.Fragment>
+                            )})}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 投手累積 */}
+                  {postGameTab === 'crossPitching' && (
+                    <div className="animate-in fade-in duration-300">
+                      <div className="bg-slate-800 rounded-2xl border border-slate-700 shadow-2xl overflow-hidden overflow-x-auto">
+                        <table className="w-full text-left text-sm whitespace-nowrap min-w-max">
+                          <thead className="bg-slate-900 text-slate-400 border-b-2 border-slate-700">
+                            <tr>
+                              <th className="p-4 font-bold">投手名 <span className="text-xs text-slate-500 font-normal">※タップで詳細</span></th>
+                              <th className="p-4 font-bold text-right">試合</th>
+                              <th className="p-4 font-bold text-right">投球数</th>
+                              <th className="p-4 font-bold text-right">対打者</th>
+                              <th className="p-4 font-bold text-right">被安打</th>
+                              <th className="p-4 font-bold text-right">奪三振</th>
+                              <th className="p-4 font-bold text-right">与四球</th>
+                              <th className="p-4 font-bold text-right text-blue-300">S率</th>
+                              <th className="p-4 font-bold text-right text-yellow-300">CSW%</th>
+                              <th className="p-4 font-bold text-right text-red-300">Whiff%</th>
+                              <th className="p-4 font-bold text-right text-green-300">P/PA</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-700/50">
+                            {crossGameStats.pitchers.map((p, idx) => {
+                              const pKey = `cross-p-${p.name}`;
+                              return (
+                              <React.Fragment key={idx}>
+                              <tr onClick={() => setExpandedPitcher(expandedPitcher === pKey ? null : pKey)} className="hover:bg-slate-700/50 transition-colors cursor-pointer">
+                                <td className="p-4 font-bold text-white">
+                                  <span className="text-green-400 font-mono w-4 inline-block mr-1">{expandedPitcher === pKey ? '▼' : '▶'}</span>
+                                  {p.name}
+                                </td>
+                                <td className="p-4 text-right font-mono text-slate-300">{p.games}</td>
+                                <td className="p-4 text-right font-mono text-slate-300">{p.total}</td>
+                                <td className="p-4 text-right font-mono text-slate-300">{p.PA}</td>
+                                <td className="p-4 text-right font-mono text-slate-300">{p.H}</td>
+                                <td className="p-4 text-right font-mono text-slate-300">{p.K}</td>
+                                <td className="p-4 text-right font-mono text-slate-300">{p.BB}</td>
+                                <td className="p-4 text-right font-mono font-bold text-blue-300">{p.strikeRate}%</td>
+                                <td className="p-4 text-right font-mono font-bold text-yellow-300">{p.csw}%</td>
+                                <td className="p-4 text-right font-mono font-bold text-red-300">{p.whiff}%</td>
+                                <td className="p-4 text-right font-mono font-bold text-green-300">{p.pPa}</td>
+                              </tr>
+                              {expandedPitcher === pKey && (
+                                <tr>
+                                  <td colSpan="11" className="p-6 bg-slate-900 border-b-2 border-green-500/50">
+                                    <div className="flex flex-col gap-4 max-w-5xl mx-auto">
+                                      {/* 球種別 */}
+                                      <div className="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
+                                        <h4 className="text-sm font-bold text-slate-300 p-3 border-b border-slate-700">⚾ 球種別 通算データ</h4>
+                                        <table className="w-full text-left text-xs">
+                                          <thead className="bg-slate-900/50 text-slate-400">
+                                            <tr><th className="p-2 pl-4 font-bold">球種</th><th className="p-2 text-right font-bold">投球数</th><th className="p-2 text-right font-bold">割合</th><th className="p-2 text-right font-bold text-blue-300">S率</th></tr>
+                                          </thead>
+                                          <tbody className="divide-y divide-slate-700/50">
+                                            {p.typesArray.map(pt => (
+                                              <tr key={pt.type} className="hover:bg-slate-700/30"><td className="p-2 pl-4 font-bold text-white">{pt.type}</td><td className="p-2 text-right font-mono text-slate-300">{pt.total}</td><td className="p-2 text-right font-mono text-slate-400">{Math.round((pt.total / p.total) * 100)}%</td><td className="p-2 text-right font-mono font-bold text-blue-300">{pt.strikeRate}%</td></tr>
+                                            ))}
+                                          </tbody>
+                                        </table>
+                                      </div>
+                                      {/* 球種別ヒートマップ */}
+                                      <div className="bg-slate-800 p-4 rounded-lg border border-slate-700">
+                                        <div className="text-slate-300 font-bold text-xs mb-3">🎯 球種別コース分布 (通算・捕手目線)</div>
+                                        <div className="flex gap-6 flex-wrap justify-center">
+                                          {Object.entries(p.heatmaps).sort(([,a],[,b]) => Object.values(b).reduce((s,v)=>s+v,0) - Object.values(a).reduce((s,v)=>s+v,0)).map(([typeName, courseData]) => {
+                                            const maxVal = Math.max(...Object.values(courseData), 0);
+                                            const totalCount = Object.values(courseData).reduce((s,v)=>s+v,0);
+                                            const isFB = typeName.includes('ストレート') || typeName.includes('シュート');
+                                            const colorCls = isFB ? 'bg-red-500' : 'bg-indigo-500';
+                                            const labelCls = isFB ? 'text-red-400' : 'text-indigo-400';
+                                            return (
+                                              <div key={typeName} className="flex flex-col items-center">
+                                                <div className={`text-[10px] font-bold ${labelCls} mb-1`}>{typeName} <span className="text-slate-500">({totalCount}球)</span></div>
+                                                <div className="grid grid-cols-7 grid-rows-7 w-24 h-24 gap-px relative bg-slate-700 p-1 rounded border border-slate-600">
+                                                  <div className="absolute top-[28.6%] left-[28.6%] w-[42.8%] h-[42.8%] border-2 border-white/40 pointer-events-none z-10"></div>
+                                                  {Array.from({length:49},(_,i)=>i).map(i => {
+                                                    const c = courseData[i] || 0;
+                                                    const op = maxVal === 0 ? 0 : c / maxVal;
+                                                    return <div key={`ch-${typeName}-${i}`} className="bg-slate-800 relative flex items-center justify-center text-[8px] text-white font-mono">{c > 0 && <div className={`absolute inset-0 ${colorCls} transition-opacity`} style={{opacity: op*0.8}}></div>}<span className="relative z-20">{c>0?c:''}</span></div>
+                                                  })}
+                                                </div>
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
+                              </React.Fragment>
+                            )})}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* QRコード共有モーダル */}
+          {showShareModal && shareQrData && (
+            <div className="fixed inset-0 bg-black/70 z-[250] flex items-center justify-center p-4 backdrop-blur-md animate-in fade-in duration-200 font-sans">
+              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col border border-indigo-300">
+                <div className="p-4 border-b border-slate-200 bg-indigo-50 flex justify-between items-center">
+                  <h2 className="font-black text-lg text-indigo-800 flex items-center gap-2">📱 QRコードで共有</h2>
+                  <button onClick={() => { setShowShareModal(false); setShareQrData(null); }} className="text-slate-400 hover:text-black font-bold text-xl px-2">✕</button>
+                </div>
+                <div className="p-6 flex flex-col items-center gap-4 bg-white">
+                  <canvas id="share-qr-canvas" className="border-4 border-slate-200 rounded-xl shadow-inner"></canvas>
+                  <div className="text-center">
+                    <p className="text-sm font-bold text-slate-700 mb-1">受信側の端末でQRコードを読み取ってください</p>
+                    <p className="text-xs text-slate-500">カメラアプリまたはQRリーダーでスキャン→ブラウザで開くとデータが自動で取り込まれます</p>
+                  </div>
+                  <div className="text-[9px] text-slate-400 bg-slate-50 px-3 py-1.5 rounded-full border border-slate-200">
+                    データサイズ: {Math.round(shareQrData.size / 1024 * 10) / 10} KB
+                  </div>
+                  {shareQrData.size > 2500 && (
+                    <div className="text-xs text-amber-700 bg-amber-50 p-3 rounded-xl border border-amber-200 text-center">
+                      ⚠️ データが大きめです。読み取りにくい場合は、チームデータのみ、または試合を個別に共有してみてください。
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* メジャーリーグレベル分析モーダル (Advanced Analytics) */}
+          {showPostGameAnalysis && advancedStats && (
+            <div className={`fixed inset-0 bg-slate-900 z-[200] flex flex-col font-sans text-slate-200 overflow-hidden animate-in fade-in duration-300 ${printMode ? 'print-target' : ''}`}>
+              <div className="p-4 border-b border-slate-700 bg-slate-800 flex justify-between items-center shadow-md shrink-0 no-print">
+                <h2 className="text-2xl font-black text-white flex items-center gap-3">
+                  <span className="text-blue-400">📊</span> 試合分析ダッシュボード
+                </h2>
+                <div className="flex gap-2">
+                  <button onClick={handlePrintDashboard} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-full font-bold transition-colors shadow-lg border border-blue-500 text-sm">📄 PDF出力</button>
+                  <button onClick={() => setShowPostGameAnalysis(false)} className="bg-slate-700 hover:bg-slate-600 text-white px-6 py-2 rounded-full font-bold transition-colors shadow-lg border border-slate-600">閉じる</button>
+                </div>
+              </div>
+              
+              {/* 印刷用ヘッダー */}
+              {printMode && (
+                <div className="bg-white text-black p-6 border-b-2 border-slate-300">
+                  <h1 className="text-2xl font-black mb-2">⚾ 試合分析レポート</h1>
+                  <div className="flex gap-6 text-sm">
+                    <span>{gameInfo.date}</span>
+                    <span className="font-bold">{gameInfo.teamTop} {gameState.runs.top.reduce((a,b)=>a+b,0)} - {gameState.runs.bottom.reduce((a,b)=>a+b,0)} {gameInfo.teamBottom}</span>
+                    <span>総投球数: {pitches.filter(p=>!p.isEvent).length}球</span>
+                  </div>
+                </div>
+              )}
+              
+              {/* タブナビゲーション (印刷時は非表示) */}
+              <div className="flex flex-wrap md:flex-nowrap bg-slate-800 border-b border-slate-700 text-xs md:text-sm font-bold shrink-0 overflow-x-auto no-print">
+                <button onClick={() => setPostGameTab('tendency')} className={`px-3 md:px-6 py-2.5 md:py-4 transition-colors whitespace-nowrap ${postGameTab === 'tendency' ? 'border-b-2 border-yellow-400 text-yellow-400 bg-slate-800/50' : 'text-slate-400 hover:text-slate-200'}`}>傾向</button>
+                <button onClick={() => setPostGameTab('team')} className={`px-3 md:px-6 py-2.5 md:py-4 transition-colors whitespace-nowrap ${postGameTab === 'team' ? 'border-b-2 border-blue-400 text-blue-400 bg-slate-800/50' : 'text-slate-400 hover:text-slate-200'}`}>サマリー</button>
+                <button onClick={() => setPostGameTab('battingTop')} className={`px-3 md:px-6 py-2.5 md:py-4 transition-colors whitespace-nowrap ${postGameTab === 'battingTop' ? 'border-b-2 border-blue-400 text-blue-400 bg-slate-800/50' : 'text-slate-400 hover:text-slate-200'}`}>打:{gameInfo.teamTop}</button>
+                <button onClick={() => setPostGameTab('battingBottom')} className={`px-3 md:px-6 py-2.5 md:py-4 transition-colors whitespace-nowrap ${postGameTab === 'battingBottom' ? 'border-b-2 border-red-400 text-red-400 bg-slate-800/50' : 'text-slate-400 hover:text-slate-200'}`}>打:{gameInfo.teamBottom}</button>
+                <button onClick={() => setPostGameTab('pitchingTop')} className={`px-3 md:px-6 py-2.5 md:py-4 transition-colors whitespace-nowrap ${postGameTab === 'pitchingTop' ? 'border-b-2 border-green-400 text-green-400 bg-slate-800/50' : 'text-slate-400 hover:text-slate-200'}`}>投:{gameInfo.teamTop}</button>
+                <button onClick={() => setPostGameTab('pitchingBottom')} className={`px-3 md:px-6 py-2.5 md:py-4 transition-colors whitespace-nowrap ${postGameTab === 'pitchingBottom' ? 'border-b-2 border-green-400 text-green-400 bg-slate-800/50' : 'text-slate-400 hover:text-slate-200'}`}>投:{gameInfo.teamBottom}</button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-4 md:p-10 bg-slate-900">
+                <div className="max-w-6xl mx-auto">
+
+                  {/* --- タブ: チーム特徴・傾向 --- */}
+                  {(postGameTab === 'tendency' || printMode) && (
+                    <div className="animate-in fade-in duration-300">
+                      <h3 className="text-xl font-bold text-slate-400 mb-6 border-b border-slate-700 pb-2 flex items-center gap-2">
+                        <span className="text-slate-500">🔍</span> Team Tendency Analysis
+                      </h3>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-8 mb-8">
+                        {/* 先攻の傾向 */}
+                        <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-xl">
+                          <h4 className="text-lg font-black text-blue-400 mb-4">{gameInfo.teamTop} の攻撃傾向</h4>
+                          
+                          <div className="mb-6">
+                            <div className="text-xs text-slate-400 font-bold mb-2 tracking-widest">打球方向 (インプレー)</div>
+                            <div className="flex flex-col md:flex-row gap-4 md:gap-6 items-center md:items-start">
+                              <SprayChart hits={advancedStats.topBatting.team.sprayHits} size={180} />
+                              <div className="flex flex-col gap-2 flex-1 pt-2">
+                                {['left', 'center', 'right'].map((dir, idx) => {
+                                  const val = advancedStats.topBatting.team.directions[dir];
+                                  const total = advancedStats.topBatting.team.directions.left + advancedStats.topBatting.team.directions.center + advancedStats.topBatting.team.directions.right;
+                                  const pct = total > 0 ? Math.round((val / total) * 100) : 0;
+                                  const labels = ['レフト方向', 'センター方向', 'ライト方向'];
+                                  return (
+                                    <div key={dir} className="flex items-center gap-2 text-[10px]">
+                                      <span className="w-20 text-slate-400 font-bold">{labels[idx]}</span>
+                                      <div className="flex-1 bg-slate-700 h-2 rounded-full overflow-hidden">
+                                        <div className="bg-blue-500 h-full rounded-full transition-all" style={{width: `${pct}%`}}></div>
+                                      </div>
+                                      <span className="w-10 text-right font-mono text-slate-300">{pct}%</span>
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div>
+                            <div className="text-xs text-slate-400 font-bold mb-2 tracking-widest">球種別の打撃成績 (安打 / 打数)</div>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div className="bg-slate-900 p-4 rounded-xl border border-slate-700 text-center">
+                                <div className="text-[10px] text-slate-500 mb-1">直球系 (ストレート等)</div>
+                                <div className="text-2xl font-mono font-bold text-white mb-1">
+                                  {advancedStats.topBatting.team.fastball.AB > 0 ? (advancedStats.topBatting.team.fastball.H / advancedStats.topBatting.team.fastball.AB).toFixed(3).replace(/^0/, '') : '.000'}
+                                </div>
+                                <div className="text-xs text-slate-500 font-mono">{advancedStats.topBatting.team.fastball.H} - {advancedStats.topBatting.team.fastball.AB}</div>
+                              </div>
+                              <div className="bg-slate-900 p-4 rounded-xl border border-slate-700 text-center">
+                                <div className="text-[10px] text-slate-500 mb-1">変化球系</div>
+                                <div className="text-2xl font-mono font-bold text-white mb-1">
+                                  {advancedStats.topBatting.team.breaking.AB > 0 ? (advancedStats.topBatting.team.breaking.H / advancedStats.topBatting.team.breaking.AB).toFixed(3).replace(/^0/, '') : '.000'}
+                                </div>
+                                <div className="text-xs text-slate-500 font-mono">{advancedStats.topBatting.team.breaking.H} - {advancedStats.topBatting.team.breaking.AB}</div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* 後攻の傾向 */}
+                        <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-xl">
+                          <h4 className="text-lg font-black text-red-400 mb-4">{gameInfo.teamBottom} の攻撃傾向</h4>
+                          
+                          <div className="mb-6">
+                            <div className="text-xs text-slate-400 font-bold mb-2 tracking-widest">打球方向 (インプレー)</div>
+                            <div className="flex flex-col md:flex-row gap-4 md:gap-6 items-center md:items-start">
+                              <SprayChart hits={advancedStats.bottomBatting.team.sprayHits} size={180} />
+                              <div className="flex flex-col gap-2 flex-1 pt-2">
+                                {['left', 'center', 'right'].map((dir, idx) => {
+                                  const val = advancedStats.bottomBatting.team.directions[dir];
+                                  const total = advancedStats.bottomBatting.team.directions.left + advancedStats.bottomBatting.team.directions.center + advancedStats.bottomBatting.team.directions.right;
+                                  const pct = total > 0 ? Math.round((val / total) * 100) : 0;
+                                  const labels = ['レフト方向', 'センター方向', 'ライト方向'];
+                                  return (
+                                    <div key={dir} className="flex items-center gap-2 text-[10px]">
+                                      <span className="w-20 text-slate-400 font-bold">{labels[idx]}</span>
+                                      <div className="flex-1 bg-slate-700 h-2 rounded-full overflow-hidden">
+                                        <div className="bg-red-500 h-full rounded-full transition-all" style={{width: `${pct}%`}}></div>
+                                      </div>
+                                      <span className="w-10 text-right font-mono text-slate-300">{pct}%</span>
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div>
+                            <div className="text-xs text-slate-400 font-bold mb-2 tracking-widest">球種別の打撃成績 (安打 / 打数)</div>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div className="bg-slate-900 p-4 rounded-xl border border-slate-700 text-center">
+                                <div className="text-[10px] text-slate-500 mb-1">直球系 (ストレート等)</div>
+                                <div className="text-2xl font-mono font-bold text-white mb-1">
+                                  {advancedStats.bottomBatting.team.fastball.AB > 0 ? (advancedStats.bottomBatting.team.fastball.H / advancedStats.bottomBatting.team.fastball.AB).toFixed(3).replace(/^0/, '') : '.000'}
+                                </div>
+                                <div className="text-xs text-slate-500 font-mono">{advancedStats.bottomBatting.team.fastball.H} - {advancedStats.bottomBatting.team.fastball.AB}</div>
+                              </div>
+                              <div className="bg-slate-900 p-4 rounded-xl border border-slate-700 text-center">
+                                <div className="text-[10px] text-slate-500 mb-1">変化球系</div>
+                                <div className="text-2xl font-mono font-bold text-white mb-1">
+                                  {advancedStats.bottomBatting.team.breaking.AB > 0 ? (advancedStats.bottomBatting.team.breaking.H / advancedStats.bottomBatting.team.breaking.AB).toFixed(3).replace(/^0/, '') : '.000'}
+                                </div>
+                                <div className="text-xs text-slate-500 font-mono">{advancedStats.bottomBatting.team.breaking.H} - {advancedStats.bottomBatting.team.breaking.AB}</div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* --- タブ: 全体成績まとめ --- */}
+                  {(postGameTab === 'team' || printMode) && (
+                    <div className="animate-in fade-in duration-300">
+                      <h3 className="text-xl font-bold text-slate-400 mb-4 border-b border-slate-700 pb-2 flex items-center gap-2">
+                        <span className="text-slate-500">⚾</span> Team Batting & Running (攻撃・走塁)
+                      </h3>
+                      <div className="grid grid-cols-2 gap-8 mb-10">
+                        {/* 先攻チーム */}
+                        <div className="p-6 rounded-2xl border border-blue-500/30 bg-blue-900/10 shadow-lg backdrop-blur-sm relative overflow-hidden">
+                          <div className="absolute -right-10 -top-10 w-40 h-40 bg-blue-500/10 rounded-full blur-3xl pointer-events-none"></div>
+                          <h3 className="text-2xl font-black mb-6 border-b border-slate-700 pb-2 text-blue-400">{gameInfo.teamTop} <span className="text-sm font-normal text-slate-500 ml-2">先攻</span></h3>
+                          <div className="grid grid-cols-4 gap-4 mb-6 relative z-10">
+                            <div className="text-center"><div className="text-xs text-slate-400 mb-1">AVG (打率)</div><div className="text-2xl font-mono font-bold text-white">{advancedStats.topBatting.team.AVG}</div></div>
+                            <div className="text-center"><div className="text-xs text-slate-400 mb-1">OBP (出塁率)</div><div className="text-2xl font-mono font-bold text-white">{advancedStats.topBatting.team.OBP}</div></div>
+                            <div className="text-center"><div className="text-xs text-slate-400 mb-1">SLG (長打率)</div><div className="text-2xl font-mono font-bold text-white">{advancedStats.topBatting.team.SLG}</div></div>
+                            <div className="text-center bg-slate-800 rounded-lg py-1 border border-slate-600 shadow-inner"><div className="text-xs text-slate-400 mb-1">OPS</div><div className="text-2xl font-mono font-black text-yellow-400">{advancedStats.topBatting.team.OPS}</div></div>
+                          </div>
+                          <div className="grid grid-cols-4 text-center text-sm border-t border-slate-700 pt-4 relative z-10 bg-slate-900/50 rounded-lg mt-2 p-3 gap-2">
+                            <div><div className="text-slate-500 text-[10px]">四死球</div><div className="font-bold text-white">{advancedStats.topBatting.team.BB_HBP}</div></div>
+                            <div><div className="text-slate-500 text-[10px]">三振</div><div className="font-bold text-white">{advancedStats.topBatting.team.K}</div></div>
+                            <div><div className="text-slate-500 text-[10px]">犠打</div><div className="font-bold text-blue-300">{advancedStats.topBatting.team.SAC}</div></div>
+                            <div><div className="text-slate-500 text-[10px]">盗塁</div><div className="font-bold text-blue-300">{advancedStats.topBatting.team.SB}</div></div>
+                          </div>
+                        </div>
+
+                        {/* 後攻チーム */}
+                        <div className="p-6 rounded-2xl border border-red-500/30 bg-red-900/10 shadow-lg backdrop-blur-sm relative overflow-hidden">
+                          <div className="absolute -right-10 -top-10 w-40 h-40 bg-red-500/10 rounded-full blur-3xl pointer-events-none"></div>
+                          <h3 className="text-2xl font-black mb-6 border-b border-slate-700 pb-2 text-red-400">{gameInfo.teamBottom} <span className="text-sm font-normal text-slate-500 ml-2">後攻</span></h3>
+                          <div className="grid grid-cols-4 gap-4 mb-6 relative z-10">
+                            <div className="text-center"><div className="text-xs text-slate-400 mb-1">AVG (打率)</div><div className="text-2xl font-mono font-bold text-white">{advancedStats.bottomBatting.team.AVG}</div></div>
+                            <div className="text-center"><div className="text-xs text-slate-400 mb-1">OBP (出塁率)</div><div className="text-2xl font-mono font-bold text-white">{advancedStats.bottomBatting.team.OBP}</div></div>
+                            <div className="text-center"><div className="text-xs text-slate-400 mb-1">SLG (長打率)</div><div className="text-2xl font-mono font-bold text-white">{advancedStats.bottomBatting.team.SLG}</div></div>
+                            <div className="text-center bg-slate-800 rounded-lg py-1 border border-slate-600 shadow-inner"><div className="text-xs text-slate-400 mb-1">OPS</div><div className="text-2xl font-mono font-black text-yellow-400">{advancedStats.bottomBatting.team.OPS}</div></div>
+                          </div>
+                          <div className="grid grid-cols-4 text-center text-sm border-t border-slate-700 pt-4 relative z-10 bg-slate-900/50 rounded-lg mt-2 p-3 gap-2">
+                            <div><div className="text-slate-500 text-[10px]">四死球</div><div className="font-bold text-white">{advancedStats.bottomBatting.team.BB_HBP}</div></div>
+                            <div><div className="text-slate-500 text-[10px]">三振</div><div className="font-bold text-white">{advancedStats.bottomBatting.team.K}</div></div>
+                            <div><div className="text-slate-500 text-[10px]">犠打</div><div className="font-bold text-red-300">{advancedStats.bottomBatting.team.SAC}</div></div>
+                            <div><div className="text-slate-500 text-[10px]">盗塁</div><div className="font-bold text-red-300">{advancedStats.bottomBatting.team.SB}</div></div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <h3 className="text-xl font-bold text-slate-400 mb-4 border-b border-slate-700 pb-2 flex items-center gap-2">
+                        <span className="text-slate-500">🎯</span> Pitching Core (基本・応用指標)
+                      </h3>
+                      <div className="grid grid-cols-2 gap-8 mb-10">
+                        {/* 先攻の投手成績 */}
+                        <div>
+                          <h4 className="text-blue-400 font-bold mb-3">{gameInfo.teamTop} 投手陣</h4>
+                          <div className="grid grid-cols-3 gap-3">
+                             <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 text-center">
+                               <div className="text-slate-400 text-[10px] mb-1">初球ストライク</div>
+                               <div className="text-2xl font-black text-white font-mono">{advancedStats.pitchingTop.overall.fStrikePct}%</div>
+                             </div>
+                             <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 text-center">
+                               <div className="text-slate-400 text-[10px] mb-1">1打席球数</div>
+                               <div className="text-2xl font-black text-white font-mono">{advancedStats.pitchingTop.overall.pPa}</div>
+                             </div>
+                             <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 text-center">
+                               <div className="text-slate-400 text-[10px] mb-1">CSW%</div>
+                               <div className="text-2xl font-black text-yellow-400 font-mono">{advancedStats.pitchingTop.overall.csw}%</div>
+                             </div>
+                          </div>
+                        </div>
+                        {/* 後攻の投手成績 */}
+                        <div>
+                          <h4 className="text-red-400 font-bold mb-3">{gameInfo.teamBottom} 投手陣</h4>
+                          <div className="grid grid-cols-3 gap-3">
+                             <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 text-center">
+                               <div className="text-slate-400 text-[10px] mb-1">初球ストライク</div>
+                               <div className="text-2xl font-black text-white font-mono">{advancedStats.pitchingBottom.overall.fStrikePct}%</div>
+                             </div>
+                             <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 text-center">
+                               <div className="text-slate-400 text-[10px] mb-1">1打席球数</div>
+                               <div className="text-2xl font-black text-white font-mono">{advancedStats.pitchingBottom.overall.pPa}</div>
+                             </div>
+                             <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 text-center">
+                               <div className="text-slate-400 text-[10px] mb-1">CSW%</div>
+                               <div className="text-2xl font-black text-yellow-400 font-mono">{advancedStats.pitchingBottom.overall.csw}%</div>
+                             </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* --- タブ: 打者成績（先攻・後攻） --- */}
+                  {(postGameTab === 'battingTop' || postGameTab === 'battingBottom' || printMode) && (
+                    <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 print-section">
+                      {(printMode ? ['top', 'bottom'] : [postGameTab === 'battingTop' ? 'top' : 'bottom']).map(side => (
+                      <div key={side} className="mb-6">
+                      {printMode && <h4 className="text-lg font-bold text-slate-300 mb-2">打者成績: {side === 'top' ? gameInfo.teamTop : gameInfo.teamBottom}</h4>}
+                      <div className="bg-slate-800 rounded-2xl border border-slate-700 shadow-2xl overflow-hidden overflow-x-auto">
+                        <table className="w-full text-left text-sm whitespace-nowrap">
+                          <thead className="bg-slate-900 text-slate-400 border-b-2 border-slate-700">
+                            <tr>
+                              <th className="p-4 font-bold">打順</th>
+                              <th className="p-4 font-bold">選手名</th>
+                              <th className="p-4 font-bold text-right">打数</th>
+                              <th className="p-4 font-bold text-right">安打</th>
+                              <th className="p-4 font-bold text-right">四球</th>
+                              <th className="p-4 font-bold text-right text-blue-400">打率</th>
+                              <th className="p-4 font-bold text-right text-yellow-400">OPS</th>
+                              <th className="p-4 font-bold text-right text-red-400">K%</th>
+                              <th className="p-4 font-bold text-right text-orange-400">初球Swing%</th>
+                              <th className="p-4 font-bold w-1/4">打席結果</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-700/50">
+                            {(side === 'top' ? advancedStats.topBatting.players : advancedStats.bottomBatting.players).map((p, idx) => {
+                              const isSub = ['途中', '打', '走', '代'].includes(p.pos);
+                              const badgeText = p.pos === '代' ? '途中' : p.pos;
+                              const batterKey = `${p.order}-${p.name}`;
+                              return (
+                              <React.Fragment key={idx}>
+                              <tr onClick={() => setExpandedBatter(expandedBatter === batterKey ? null : batterKey)} className={`transition-colors cursor-pointer ${isSub ? 'bg-slate-800/50 hover:bg-slate-700/50' : 'hover:bg-slate-700/50'}`}>
+                                <td className="p-4 text-slate-400 font-mono">
+                                  <span className="text-blue-400 font-mono w-4 inline-block mr-1">{expandedBatter === batterKey ? '▼' : '▶'}</span>
+                                  {isSub ? <span className="text-[10px] bg-slate-700 px-2 py-0.5 rounded text-white">{badgeText}</span> : p.order}
+                                </td>
+                                <td className="p-4 font-bold text-white">
+                                  {p.name} <span className="text-xs text-slate-500 font-normal ml-1">({p.pos})</span>
+                                </td>
+                                <td className="p-4 text-right font-mono text-slate-300">{p.AB}</td>
+                                <td className="p-4 text-right font-mono text-slate-300">{p.H}</td>
+                                <td className="p-4 text-right font-mono text-slate-300">{p.BB_HBP}</td>
+                                <td className="p-4 text-right font-mono font-bold text-blue-300">{p.AVG}</td>
+                                <td className="p-4 text-right font-mono font-bold text-yellow-300">{p.OPS}</td>
+                                <td className="p-4 text-right font-mono text-red-300">{p.KPct}%</td>
+                                <td className="p-4 text-right font-mono text-orange-300">{p.FirstSwingPct}%</td>
+                                <td className="p-4 text-xs text-slate-400 max-w-xs overflow-x-auto custom-scrollbar">
+                                  <div className="flex gap-1.5 flex-wrap">
+                                    {p.results.map((r, rIdx) => {
+                                      const isHit = ['安', '塁打', '本塁打'].some(w => r.includes(w));
+                                      const isBB = ['四球', '死球'].some(w => r.includes(w));
+                                      return (
+                                        <span key={rIdx} className={`px-2 py-0.5 rounded shadow-sm text-[10px] font-bold ${isHit ? 'bg-blue-900/50 text-blue-300 border border-blue-700' : isBB ? 'bg-green-900/50 text-green-300 border border-green-700' : 'bg-slate-700 text-slate-300 border border-slate-600'}`}>
+                                          {r}
+                                        </span>
+                                      )
+                                    })}
+                                    {p.results.length === 0 && <span className="italic text-slate-600">-</span>}
+                                  </div>
+                                </td>
+                              </tr>
+                              {(expandedBatter === batterKey || expandedBatter === '__ALL__') && (
+                                <tr>
+                                  <td colSpan="10" className="p-4 bg-slate-900 border-b-2 border-blue-500/50">
+                                    <div className="flex items-start gap-8 justify-center">
+                                      <SprayChart hits={p.sprayHits} size={200} title={`${p.name} の打球方向`} />
+                                      <div className="flex flex-col gap-3 pt-4 min-w-[160px]">
+                                        <div className="text-xs font-bold text-slate-300 border-b border-slate-700 pb-1">方向別集計</div>
+                                        {['left', 'center', 'right'].map((dir, dIdx) => {
+                                          const val = p.directions[dir];
+                                          const total = p.directions.left + p.directions.center + p.directions.right;
+                                          const pct = total > 0 ? Math.round((val / total) * 100) : 0;
+                                          const labels = ['レフト方向', 'センター方向', 'ライト方向'];
+                                          return (
+                                            <div key={dir} className="flex items-center gap-2 text-[10px]">
+                                              <span className="w-20 text-slate-400 font-bold">{labels[dIdx]}</span>
+                                              <div className="flex-1 bg-slate-700 h-2 rounded-full overflow-hidden">
+                                                <div className="bg-blue-500 h-full rounded-full" style={{width: `${pct}%`}}></div>
+                                              </div>
+                                              <span className="w-8 text-right font-mono text-slate-300">{pct}%</span>
+                                            </div>
+                                          )
+                                        })}
+                                        <div className="text-[10px] text-slate-500 mt-2">
+                                          インプレー合計: {p.directions.left + p.directions.center + p.directions.right}打球
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
+                              </React.Fragment>
+                            )})}
+                          </tbody>
+                        </table>
+                      </div>
+                      </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* --- タブ: 投手成績 (先攻・後攻) --- */}
+                  {(postGameTab === 'pitchingTop' || postGameTab === 'pitchingBottom' || printMode) && (
+                    <div className="animate-in fade-in slide-in-from-bottom-2 duration-300 print-section">
+                      {(printMode ? [false, true] : [postGameTab === 'pitchingTop' ? false : true]).map((isBottom, sIdx) => {
+                      const pitchingData = isBottom ? advancedStats.pitchingBottom : advancedStats.pitchingTop;
+                      return (
+                      <div key={sIdx} className="mb-6">
+                      {printMode && <h4 className="text-lg font-bold text-slate-300 mb-2">投手成績: {isBottom ? gameInfo.teamBottom : gameInfo.teamTop}</h4>}
+                      <div className="bg-slate-800 rounded-2xl border border-slate-700 shadow-2xl overflow-hidden overflow-x-auto">
+                        <table className="w-full text-left text-sm whitespace-nowrap min-w-max">
+                          <thead className="bg-slate-900 text-slate-400 border-b-2 border-slate-700">
+                            <tr>
+                              <th className="p-4 font-bold">投手名</th>
+                              <th className="p-4 font-bold text-right">投球数</th>
+                              <th className="p-4 font-bold text-right">対打者</th>
+                              <th className="p-4 font-bold text-right">被安打</th>
+                              <th className="p-4 font-bold text-right">奪三振</th>
+                              <th className="p-4 font-bold text-right">与四球</th>
+                              <th className="p-4 font-bold text-right text-yellow-300">CSW%</th>
+                              <th className="p-4 font-bold text-right text-red-300">Whiff%</th>
+                              <th className="p-4 font-bold text-right text-green-300">P/PA</th>
+                              <th className="p-4 font-bold text-right text-blue-300">F-Strike%</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-700/50">
+                            {pitchingData.pitchers.map(p => (
+                              <React.Fragment key={p.name}>
+                                <tr onClick={() => setExpandedPitcher(expandedPitcher === p.name ? null : p.name)} className="hover:bg-slate-700/50 transition-colors cursor-pointer">
+                                  <td className="p-4 font-bold text-white flex items-center gap-2">
+                                    <span className="text-blue-400 font-mono w-4">{expandedPitcher === p.name ? '▼' : '▶'}</span> {p.name} <span className="text-xs text-slate-500 font-normal ml-1">({p.throws}投)</span>
+                                  </td>
+                                  <td className="p-4 text-right font-mono text-slate-300">{p.total}</td>
+                                  <td className="p-4 text-right font-mono text-slate-300">{p.PA}</td>
+                                  <td className="p-4 text-right font-mono text-slate-300">{p.H}</td>
+                                  <td className="p-4 text-right font-mono text-slate-300">{p.K}</td>
+                                  <td className="p-4 text-right font-mono text-slate-300">{p.BB}</td>
+                                  <td className="p-4 text-right font-mono font-bold text-yellow-300">{p.csw}%</td>
+                                  <td className="p-4 text-right font-mono font-bold text-red-300">{p.whiff}%</td>
+                                  <td className="p-4 text-right font-mono font-bold text-green-300">{p.pPa}</td>
+                                  <td className="p-4 text-right font-mono font-bold text-blue-300">{p.fStrikePct}%</td>
+                                </tr>
+                                
+                                {/* 展開されるカウント・左右別の配球詳細 */}
+                                {(expandedPitcher === p.name || expandedPitcher === '__ALL__') && (
+                                  <tr className="animate-in fade-in slide-in-from-top-2 duration-200">
+                                    <td colSpan="10" className="p-6 bg-slate-900 border-b-2 border-blue-500/50 shadow-inner">
+                                      <div className="flex flex-col gap-6 max-w-5xl mx-auto">
+                                        
+                                        {/* 球種別の詳細パフォーマンス表 */}
+                                        <div className="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden shadow-md">
+                                          <h4 className="text-sm font-bold text-slate-300 p-3 border-b border-slate-700 bg-slate-800/80">⚾ 球種別パフォーマンス</h4>
+                                          <table className="w-full text-left text-xs">
+                                            <thead className="bg-slate-900/50 text-slate-400">
+                                              <tr>
+                                                <th className="p-2 font-bold w-1/4 pl-4">球種</th>
+                                                <th className="p-2 font-bold text-right">投球数</th>
+                                                <th className="p-2 font-bold text-right">割合</th>
+                                                <th className="p-2 font-bold text-right text-blue-300">Strike% <span className="text-[9px] text-slate-500 font-normal">ｽﾄﾗｲｸ率</span></th>
+                                                <th className="p-2 font-bold text-right text-yellow-400">CSW% <span className="text-[9px] text-slate-500 font-normal">見逃し+空振り</span></th>
+                                                <th className="p-2 font-bold text-right text-red-300">Whiff% <span className="text-[9px] text-slate-500 font-normal">空振り/ｽｲﾝｸﾞ</span></th>
+                                                <th className="p-2 font-bold text-right text-green-300">Zone% <span className="text-[9px] text-slate-500 font-normal">ｿﾞｰﾝ内率</span></th>
+                                              </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-700/50">
+                                              {p.types.map(pt => (
+                                                <tr key={pt.type} className="hover:bg-slate-700/30 transition-colors">
+                                                  <td className="p-2 font-bold text-white pl-4">{pt.type}</td>
+                                                  <td className="p-2 text-right font-mono text-slate-300">{pt.total}</td>
+                                                  <td className="p-2 text-right font-mono text-slate-400">{Math.round((pt.total / p.total) * 100)}%</td>
+                                                  <td className="p-2 text-right font-mono font-bold text-blue-300">{pt.strikeRate}%</td>
+                                                  <td className="p-2 text-right font-mono font-bold text-yellow-400">{pt.csw}%</td>
+                                                  <td className="p-2 text-right font-mono font-bold text-red-300">{pt.whiff}%</td>
+                                                  <td className="p-2 text-right font-mono font-bold text-green-300">{pt.zone}%</td>
+                                                </tr>
+                                              ))}
+                                            </tbody>
+                                          </table>
+                                        </div>
+
+                                        {/* カウント・左右別の配球傾向 */}
+                                        <div className="flex gap-6">
+                                          {/* 対右打者 */}
+                                          {renderCountStats(p.counts.vsRight, '🆚 対 右打者の配球割合')}
+                                          {/* 対左打者 */}
+                                          {renderCountStats(p.counts.vsLeft, '🆚 対 左打者の配球割合')}
+                                        </div>
+                                        
+                                        {/* 球種別コースヒートマップ */}
+                                        <div className="flex flex-col gap-2 bg-slate-800 p-4 rounded-lg border border-slate-700 items-center justify-center shadow-md">
+                                           <div className="flex items-center gap-4 w-full px-4 flex-wrap">
+                                              <div className="text-slate-300 font-bold text-xs flex flex-col gap-1">
+                                                <span>🎯 コース別配球パターン</span>
+                                                <span className="text-[9px] text-slate-500">(捕手目線)</span>
+                                              </div>
+                                              
+                                              <div className="flex bg-slate-700 rounded-md p-1 ml-auto">
+                                                <button onClick={() => setPitcherHeatmapCountTab('all')} className={`px-3 py-1 text-[10px] font-bold rounded-sm transition-colors ${pitcherHeatmapCountTab === 'all' ? 'bg-slate-200 text-slate-800 shadow-sm' : 'text-slate-400 hover:text-white'}`}>全ｶｳﾝﾄ</button>
+                                                <button onClick={() => setPitcherHeatmapCountTab('ahead')} className={`px-3 py-1 text-[10px] font-bold rounded-sm transition-colors ${pitcherHeatmapCountTab === 'ahead' ? 'bg-slate-200 text-blue-700 shadow-sm' : 'text-slate-400 hover:text-white'}`}>有利(S先行)</button>
+                                                <button onClick={() => setPitcherHeatmapCountTab('even')} className={`px-3 py-1 text-[10px] font-bold rounded-sm transition-colors ${pitcherHeatmapCountTab === 'even' ? 'bg-slate-200 text-slate-800 shadow-sm' : 'text-slate-400 hover:text-white'}`}>平行(S=B)</button>
+                                                <button onClick={() => setPitcherHeatmapCountTab('behind')} className={`px-3 py-1 text-[10px] font-bold rounded-sm transition-colors ${pitcherHeatmapCountTab === 'behind' ? 'bg-slate-200 text-red-700 shadow-sm' : 'text-slate-400 hover:text-white'}`}>不利(B先行)</button>
+                                              </div>
+                                           </div>
+                                           
+                                           {/* 表示モード切替: 直球vs変化球 / 球種個別 */}
+                                           <div className="flex bg-slate-700 rounded-md p-1 w-full max-w-md">
+                                             <button onClick={() => setPitcherHeatmapTypeTab('split')} className={`flex-1 px-3 py-1 text-[10px] font-bold rounded-sm transition-colors ${pitcherHeatmapTypeTab === 'split' ? 'bg-slate-200 text-slate-800 shadow-sm' : 'text-slate-400 hover:text-white'}`}>直球 vs 変化球</button>
+                                             <button onClick={() => setPitcherHeatmapTypeTab('individual')} className={`flex-1 px-3 py-1 text-[10px] font-bold rounded-sm transition-colors ${pitcherHeatmapTypeTab === 'individual' ? 'bg-slate-200 text-indigo-700 shadow-sm' : 'text-slate-400 hover:text-white'}`}>球種個別</button>
+                                           </div>
+
+                                           {pitcherHeatmapTypeTab === 'split' ? (
+                                           <div className="flex gap-12 mt-2">
+                                             <div className="flex flex-col items-center">
+                                               <div className="text-[10px] font-bold text-red-400 mb-2 tracking-widest">直球系 (ｽﾄﾚｰﾄ・ｼｭｰﾄ)</div>
+                                               <div className="grid grid-cols-7 grid-rows-7 w-28 h-28 gap-px relative bg-slate-700 p-1 rounded border border-slate-600">
+                                                 <div className="absolute top-[28.6%] left-[28.6%] w-[42.8%] h-[42.8%] border-2 border-white/40 pointer-events-none z-10"></div>
+                                                 {courses.map(i => {
+                                                   const c = p.heatmaps?.fastball[pitcherHeatmapCountTab][i] || 0;
+                                                   const max = p.heatmaps?.fastball.max[pitcherHeatmapCountTab] || 0;
+                                                   const op = max === 0 ? 0 : c / max;
+                                                   return <div key={`fh-${i}`} className="bg-slate-800 relative flex items-center justify-center text-[9px] text-white font-mono">{c > 0 && <div className="absolute inset-0 bg-red-500 transition-opacity" style={{opacity: op*0.8}}></div>}<span className="relative z-20">{c>0?c:''}</span></div>
+                                                 })}
+                                               </div>
+                                             </div>
+                                             <div className="flex flex-col items-center">
+                                               <div className="text-[10px] font-bold text-blue-400 mb-2 tracking-widest">変化球系 (ｽﾗｲﾀﾞｰ・ｶｰﾌﾞ等)</div>
+                                               <div className="grid grid-cols-7 grid-rows-7 w-28 h-28 gap-px relative bg-slate-700 p-1 rounded border border-slate-600">
+                                                 <div className="absolute top-[28.6%] left-[28.6%] w-[42.8%] h-[42.8%] border-2 border-white/40 pointer-events-none z-10"></div>
+                                                 {courses.map(i => {
+                                                   const c = p.heatmaps?.breaking[pitcherHeatmapCountTab][i] || 0;
+                                                   const max = p.heatmaps?.breaking.max[pitcherHeatmapCountTab] || 0;
+                                                   const op = max === 0 ? 0 : c / max;
+                                                   return <div key={`bh-${i}`} className="bg-slate-800 relative flex items-center justify-center text-[9px] text-white font-mono">{c > 0 && <div className="absolute inset-0 bg-blue-500 transition-opacity" style={{opacity: op*0.8}}></div>}<span className="relative z-20">{c>0?c:''}</span></div>
+                                                 })}
+                                               </div>
+                                             </div>
+                                           </div>
+                                           ) : (
+                                           <div className="flex gap-6 mt-2 flex-wrap justify-center">
+                                             {Object.entries(p.pitchTypeHeatmaps || {}).sort(([,a],[,b]) => {
+                                               const totalA = Object.values(a.all).reduce((s,v)=>s+v,0);
+                                               const totalB = Object.values(b.all).reduce((s,v)=>s+v,0);
+                                               return totalB - totalA;
+                                             }).map(([typeName, typeHM]) => {
+                                               const isFast = typeName.includes('ストレート') || typeName.includes('シュート');
+                                               const colorCls = isFast ? 'bg-red-500' : 'bg-indigo-500';
+                                               const labelCls = isFast ? 'text-red-400' : 'text-indigo-400';
+                                               const totalCount = Object.values(typeHM.all).reduce((s,v)=>s+v,0);
+                                               return (
+                                                 <div key={typeName} className="flex flex-col items-center">
+                                                   <div className={`text-[10px] font-bold ${labelCls} mb-1`}>{typeName} <span className="text-slate-500">({totalCount}球)</span></div>
+                                                   <div className="grid grid-cols-7 grid-rows-7 w-24 h-24 gap-px relative bg-slate-700 p-1 rounded border border-slate-600">
+                                                     <div className="absolute top-[28.6%] left-[28.6%] w-[42.8%] h-[42.8%] border-2 border-white/40 pointer-events-none z-10"></div>
+                                                     {courses.map(i => {
+                                                       const c = typeHM[pitcherHeatmapCountTab][i] || 0;
+                                                       const max = typeHM.max[pitcherHeatmapCountTab] || 0;
+                                                       const op = max === 0 ? 0 : c / max;
+                                                       return <div key={`th-${typeName}-${i}`} className="bg-slate-800 relative flex items-center justify-center text-[8px] text-white font-mono">{c > 0 && <div className={`absolute inset-0 ${colorCls} transition-opacity`} style={{opacity: op*0.8}}></div>}<span className="relative z-20">{c>0?c:''}</span></div>
+                                                     })}
+                                                   </div>
+                                                 </div>
+                                               );
+                                             })}
+                                           </div>
+                                           )}
+                                        </div>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                )}
+                              </React.Fragment>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      </div>
+                      );
+                      })}
+                    </div>
+                  )}
+
+                </div>
+              </div>
+            </div>
+          )}
+
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrious/4.0.2/qrious.min.js" defer onerror="console.warn('QRious load failed')"></script>
+</body>
+</html>
