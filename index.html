@@ -59,22 +59,45 @@
   </style>
 </head>
 <body class="bg-slate-100 font-sans">
-  <div id="root"><div style="padding:20px;font-family:monospace;font-size:12px;"><p>⏳ アプリを読み込み中...</p><p id="debug-log" style="color:red;white-space:pre-wrap;"></p></div></div>
+  <div id="root"><div style="padding:20px;font-family:monospace;font-size:11px;"><p>⏳ アプリを読み込み中...</p><p id="debug-log" style="color:red;white-space:pre-wrap;word-break:break-all;"></p></div></div>
   <script>
   var debugEl;
   function debugLog(msg) { 
     if (!debugEl) debugEl = document.getElementById('debug-log');
     if (debugEl) debugEl.textContent += msg + '\n';
-    console.log('[DEBUG]', msg);
   }
   window.onerror = function(msg, url, line, col, err) {
-    debugLog('ERROR: ' + msg + ' (line ' + line + ')');
+    debugLog('GLOBAL ERROR: ' + msg + ' line:' + line + ' col:' + col);
+    if (err && err.stack) debugLog('STACK: ' + err.stack.substring(0, 500));
     return false;
   };
-  debugLog('Step 1: Page loaded');
-  debugLog('React: ' + (typeof React));
-  debugLog('ReactDOM: ' + (typeof ReactDOM));
-  debugLog('Babel: ' + (typeof Babel));
+  debugLog('CDN: React=' + (typeof React) + ' ReactDOM=' + (typeof ReactDOM) + ' Babel=' + (typeof Babel));
+  
+  // Babelのトランスパイルを手動で実行してエラー詳細を取得
+  window.addEventListener('DOMContentLoaded', function() {
+    var babelScript = document.querySelector('script[type="text/babel"]');
+    if (!babelScript) { debugLog('No babel script found!'); return; }
+    debugLog('Babel script found: ' + babelScript.textContent.length + ' chars');
+    try {
+      var code = babelScript.textContent;
+      debugLog('Transpiling...');
+      var result = Babel.transform(code, { presets: ['react'] });
+      debugLog('Transpile OK! Executing...');
+      eval(result.code);
+      debugLog('Execution OK!');
+    } catch(e) {
+      debugLog('BABEL ERROR: ' + e.message);
+      if (e.loc) debugLog('Location: line ' + e.loc.line + ' col ' + e.loc.column);
+      // エラー周辺のコードを表示
+      if (e.loc && e.loc.line) {
+        var lines = code.split('\n');
+        var errLine = e.loc.line - 1;
+        for (var i = Math.max(0, errLine-2); i <= Math.min(lines.length-1, errLine+2); i++) {
+          debugLog((i === errLine ? '>>> ' : '    ') + (i+1) + ': ' + lines[i].substring(0, 120));
+        }
+      }
+    }
+  });
   </script>
 
   <script>
