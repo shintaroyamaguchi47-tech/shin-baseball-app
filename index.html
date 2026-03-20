@@ -20,7 +20,8 @@
     .modal-scroll::-webkit-scrollbar-thumb { background-color: #94a3b8; border-radius: 4px; }
     .grid-bg { background-image: radial-gradient(#cbd5e1 1px, transparent 1px); background-size: 20px 20px; }
     input:focus, textarea:focus { background-color: white !important; }
-    
+    .custom-scrollbar::-webkit-scrollbar { display: block; height: 6px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #475569; border-radius: 4px; }
     @media print {
       body { background: white !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
       * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
@@ -83,23 +84,78 @@
     }
     
     function batterTable(batting, teamName) {
-      var h='<h3 style="margin:16px 0 8px;font-size:16px;font-weight:bold;">🏏 打者成績: '+esc(teamName)+'</h3><table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:12px;"><thead><tr style="background:#1e293b;color:#94a3b8;"><th style="padding:6px;text-align:left;">順</th><th style="padding:6px;text-align:left;">選手名</th><th style="padding:6px;text-align:right;">打数</th><th style="padding:6px;text-align:right;">安打</th><th style="padding:6px;text-align:right;">四球</th><th style="padding:6px;text-align:right;color:#60a5fa;">打率</th><th style="padding:6px;text-align:right;color:#facc15;">OPS</th><th style="padding:6px;text-align:right;color:#f87171;">K%</th><th style="padding:6px;">打席結果</th></tr></thead><tbody>';
+      var h='<h3 style="margin:16px 0 8px;font-size:16px;font-weight:bold;color:#38bdf8;">🏏 打者成績サマリー: '+esc(teamName)+'</h3><table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:12px;"><thead><tr style="background:#1e293b;color:#94a3b8;"><th style="padding:6px;text-align:left;">順</th><th style="padding:6px;text-align:left;">選手名</th><th style="padding:6px;text-align:right;">打数</th><th style="padding:6px;text-align:right;">安打</th><th style="padding:6px;text-align:right;">四球</th><th style="padding:6px;text-align:right;color:#60a5fa;">打率</th><th style="padding:6px;text-align:right;color:#facc15;">OPS</th><th style="padding:6px;text-align:right;color:#f87171;">K%</th><th style="padding:6px;">打席結果</th></tr></thead><tbody>';
       batting.players.forEach(function(p){h+='<tr style="background:#0f172a;border-bottom:1px solid #334155;"><td style="padding:5px;color:#94a3b8;">'+p.order+'</td><td style="padding:5px;color:white;font-weight:bold;">'+esc(p.name)+' <span style="color:#64748b;font-size:10px;">('+esc(p.pos)+')</span></td><td style="padding:5px;text-align:right;color:#cbd5e1;">'+p.AB+'</td><td style="padding:5px;text-align:right;color:#cbd5e1;">'+p.H+'</td><td style="padding:5px;text-align:right;color:#cbd5e1;">'+p.BB_HBP+'</td><td style="padding:5px;text-align:right;color:#60a5fa;font-weight:bold;">'+p.AVG+'</td><td style="padding:5px;text-align:right;color:#facc15;font-weight:bold;">'+p.OPS+'</td><td style="padding:5px;text-align:right;color:#f87171;">'+p.KPct+'%</td><td style="padding:5px;font-size:10px;color:#94a3b8;">'+(p.results.map(function(r){return esc(r);}).join('、')||'-')+'</td></tr>';});
       h+='</tbody></table>';return h;
     }
 
-    function pitcherFull(pitching, teamName) {
-      var h='<h3 style="margin:16px 0 8px;font-size:16px;font-weight:bold;">⚾ 投手成績: '+esc(teamName)+'</h3><table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:8px;"><thead><tr style="background:#1e293b;color:#94a3b8;"><th style="padding:6px;text-align:left;">投手名</th><th style="padding:6px;text-align:right;">球数</th><th style="padding:6px;text-align:right;">対打者</th><th style="padding:6px;text-align:right;">被安打</th><th style="padding:6px;text-align:right;">奪K</th><th style="padding:6px;text-align:right;">与BB</th><th style="padding:6px;text-align:right;color:#facc15;">CSW%</th><th style="padding:6px;text-align:right;color:#f87171;">Whiff%</th><th style="padding:6px;text-align:right;color:#4ade80;">P/PA</th><th style="padding:6px;text-align:right;color:#60a5fa;">F-S%</th></tr></thead><tbody>';
-      pitching.pitchers.forEach(function(p){
-        h+='<tr style="background:#0f172a;border-bottom:1px solid #334155;"><td style="padding:5px;color:white;font-weight:bold;">'+esc(p.name)+'</td><td style="padding:5px;text-align:right;color:#cbd5e1;">'+p.total+'</td><td style="padding:5px;text-align:right;color:#cbd5e1;">'+p.PA+'</td><td style="padding:5px;text-align:right;color:#cbd5e1;">'+p.H+'</td><td style="padding:5px;text-align:right;color:#cbd5e1;">'+p.K+'</td><td style="padding:5px;text-align:right;color:#cbd5e1;">'+p.BB+'</td><td style="padding:5px;text-align:right;color:#facc15;font-weight:bold;">'+p.csw+'%</td><td style="padding:5px;text-align:right;color:#f87171;font-weight:bold;">'+p.whiff+'%</td><td style="padding:5px;text-align:right;color:#4ade80;font-weight:bold;">'+p.pPa+'</td><td style="padding:5px;text-align:right;color:#60a5fa;font-weight:bold;">'+p.fStrikePct+'%</td></tr>';
-        if(p.types&&p.types.length>0){h+='<tr><td colspan="10" style="padding:8px 16px;background:#0f172a;"><table style="width:100%;font-size:10px;border-collapse:collapse;"><tr style="color:#64748b;"><td style="padding:3px;font-weight:bold;">球種</td><td style="text-align:right;padding:3px;">球数</td><td style="text-align:right;padding:3px;">割合</td><td style="text-align:right;padding:3px;color:#60a5fa;">S率</td><td style="text-align:right;padding:3px;color:#facc15;">CSW%</td><td style="text-align:right;padding:3px;color:#f87171;">Whiff%</td></tr>';p.types.forEach(function(pt){h+='<tr style="border-top:1px solid #1e293b;"><td style="padding:3px;color:white;">'+esc(pt.type)+'</td><td style="text-align:right;padding:3px;color:#cbd5e1;">'+pt.total+'</td><td style="text-align:right;padding:3px;color:#94a3b8;">'+Math.round((pt.total/p.total)*100)+'%</td><td style="text-align:right;padding:3px;color:#60a5fa;">'+pt.strikeRate+'%</td><td style="text-align:right;padding:3px;color:#facc15;">'+pt.csw+'%</td><td style="text-align:right;padding:3px;color:#f87171;">'+pt.whiff+'%</td></tr>';});h+='</table></td></tr>';}
-        h+='<tr><td colspan="10" style="padding:8px 16px;background:#111827;"><div style="font-size:10px;font-weight:bold;color:#94a3b8;margin-bottom:6px;">🎯 コース別配球 (捕手目線)</div><div style="display:flex;flex-wrap:wrap;gap:4px;justify-content:center;">';
-        var fb=p.heatmaps&&p.heatmaps.fastball||{all:{},max:{all:0}};
-        var br=p.heatmaps&&p.heatmaps.breaking||{all:{},max:{all:0}};
-        h+=heatmapSvg(fb.all,fb.max.all,'red','直球(全)');h+=heatmapSvg(br.all,br.max.all,'indigo','変化球(全)');
-        h+='</div></td></tr>';
+    function batterDetails(batting, teamName) {
+      var h='<h3 class="pb" style="margin:24px 0 8px;font-size:16px;font-weight:bold;color:#38bdf8;">👤 打者詳細分析 (打球方向): '+esc(teamName)+'</h3><div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:16px;">';
+      batting.players.forEach(function(p){
+        if(p.PA > 0) {
+           h+='<div class="nbi" style="width:calc(50% - 6px);background:#1e293b;border:1px solid #334155;border-radius:8px;padding:12px;box-sizing:border-box;">';
+           h+='<div style="font-size:14px;font-weight:bold;color:white;margin-bottom:8px;display:flex;justify-content:space-between;border-bottom:1px solid #334155;padding-bottom:4px;"><span>'+p.order+'番 '+esc(p.name)+'</span><span style="color:#60a5fa;">'+p.AVG+' / OPS:'+p.OPS+'</span></div>';
+           h+='<div style="display:flex;gap:12px;align-items:center;">';
+           h+=sprayChartSvg(p.sprayHits, '個人の打球方向');
+           h+='<div style="flex:1;font-size:10px;color:#cbd5e1;">';
+           h+='<div style="margin-bottom:6px;background:#0f172a;padding:6px;border-radius:4px;">打数:'+p.AB+' 安打:'+p.H+'<br>四死:'+p.BB_HBP+' 三振:'+p.K+'</div>';
+           h+='<div style="color:#94a3b8;font-size:9px;">結果:<br>'+(p.results.join(', ')||'-')+'</div>';
+           h+='</div></div></div>';
+        }
       });
-      h+='</tbody></table>';return h;
+      h+='</div>'; return h;
+    }
+
+    function countDistHtml(counts, title) {
+      var h='<div style="background:#1e293b;border:1px solid #334155;border-radius:8px;padding:8px;min-width:160px;flex:1;"><div style="font-size:10px;font-weight:bold;color:white;text-align:center;margin-bottom:6px;border-bottom:1px solid #334155;padding-bottom:4px;">'+esc(title)+'</div>';
+      h+='<div style="display:flex;gap:6px;">';
+      ['ahead','even','behind'].forEach(function(cs){
+        var label=cs==='ahead'?'有利':cs==='even'?'平行':'不利';
+        var d=counts[cs]||{total:0,strikes:0,types:{}};
+        var sPct=d.total>0?Math.round((d.strikes/d.total)*100):0;
+        h+='<div style="flex:1;background:#0f172a;padding:4px;border-radius:4px;"><div style="font-size:9px;color:#94a3b8;font-weight:bold;text-align:center;margin-bottom:4px;">'+label+' <span style="color:#60a5fa;">S:'+sPct+'%</span></div>';
+        if(d.total>0){
+            Object.entries(d.types).sort(function(a,b){return b[1]-a[1];}).forEach(function(e){
+                var pct=Math.round((e[1]/d.total)*100);
+                h+='<div style="display:flex;align-items:center;gap:2px;font-size:7px;margin:2px 0;"><span style="width:36px;color:#cbd5e1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(e[0])+'</span><div style="flex:1;height:4px;background:#334155;border-radius:2px;"><div style="width:'+pct+'%;height:100%;background:#60a5fa;border-radius:2px;"></div></div><span style="width:16px;text-align:right;color:#60a5fa;">'+pct+'%</span></div>';
+            });
+        }else{h+='<div style="text-align:center;font-size:8px;color:#475569;">-</div>';}
+        h+='</div>';
+      });
+      h+='</div></div>'; return h;
+    }
+
+    function pitcherDetails(pitching, teamName) {
+      var h='<h3 class="pb" style="margin:24px 0 8px;font-size:16px;font-weight:bold;color:#60a5fa;">⚾ 投手詳細分析: '+esc(teamName)+'</h3>';
+      pitching.pitchers.forEach(function(p){
+        h+='<div class="nbi" style="background:#0f172a;border:1px solid #334155;border-radius:8px;padding:16px;margin-bottom:16px;">';
+        h+='<div style="font-size:18px;font-weight:bold;color:white;margin-bottom:12px;border-bottom:1px solid #334155;padding-bottom:4px;">'+esc(p.name)+' <span style="font-size:12px;color:#94a3b8;font-weight:normal;">('+p.total+'球)</span></div>';
+        
+        h+='<div style="font-size:12px;font-weight:bold;color:#cbd5e1;margin-bottom:6px;">📊 カウント別 配球割合</div>';
+        h+='<div style="display:flex;gap:12px;margin-bottom:16px;">';
+        h+=countDistHtml(p.counts.vsRight, '対 右打者');
+        h+=countDistHtml(p.counts.vsLeft, '対 左打者');
+        h+='</div>';
+
+        h+='<div style="font-size:12px;font-weight:bold;color:#cbd5e1;margin-bottom:6px;">🎯 球種別 コース・カウントヒートマップ</div>';
+        h+='<div style="display:flex;flex-wrap:wrap;gap:8px;">';
+        Object.entries(p.pitchTypeHeatmaps||{}).sort(function(a,b){var ta=0,tb=0;Object.values(a[1].all||{}).forEach(function(v){ta+=v;});Object.values(b[1].all||{}).forEach(function(v){tb+=v;});return tb-ta;}).forEach(function(e){
+            var tn=e[0], th=e[1], isFB=tn.indexOf('ストレート')>=0||tn.indexOf('シュート')>=0, clr=isFB?'red':'indigo', cnt=0;
+            Object.values(th.all||{}).forEach(function(v){cnt+=v;});
+            if(cnt > 0) {
+                h+='<div style="background:#1e293b;padding:8px;border-radius:6px;border:1px solid #334155;display:flex;flex-direction:column;align-items:center;">';
+                h+='<div style="font-size:11px;font-weight:bold;color:white;margin-bottom:6px;background:#0f172a;padding:2px 8px;border-radius:4px;">'+esc(tn)+' ('+cnt+'球)</div>';
+                h+='<div style="display:flex;gap:4px;">';
+                h+=heatmapSvg(th.all, th.max.all, clr, '全体');
+                h+=heatmapSvg(th.ahead, th.max.ahead, clr, '有利');
+                h+=heatmapSvg(th.even, th.max.even, clr, '平行');
+                h+=heatmapSvg(th.behind, th.max.behind, clr, '不利');
+                h+='</div></div>';
+            }
+        });
+        h+='</div></div>';
+      });
+      return h;
     }
 
     var t=stats;
@@ -117,13 +173,15 @@
     sprayH+=sprayChartSvg(t.bottomBatting.team.sprayHits,gi.teamBottom+' ('+t.bottomBatting.team.sprayHits.length+'打球)');
     sprayH+='</div><div style="font-size:8px;color:#64748b;text-align:center;margin-top:4px;">波線=ゴロ / 破線弧=フライ / 直線=ライナー / 太弧+丸=HR | 青=安打 赤=凡打 黄=失策 紫=ファウル</div>';
 
-    var body='<div style="max-width:950px;margin:0 auto;padding:24px;font-family:sans-serif;background:#0f172a;color:#e2e8f0;"><div style="border-bottom:3px solid #3b82f6;padding-bottom:16px;margin-bottom:24px;"><h1 style="font-size:24px;font-weight:900;margin:0 0 8px;">⚾ 試合分析レポート</h1><div style="display:flex;gap:24px;font-size:14px;"><span>'+esc(gi.date)+'</span><span style="font-weight:bold;">'+esc(gi.teamTop)+' '+topTotal+' - '+bottomTotal+' '+esc(gi.teamBottom)+'</span><span>総投球数: '+ps.filter(function(p){return !p.isEvent;}).length+'球</span></div></div>';
+    var body='<div style="max-width:950px;margin:0 auto;padding:24px;font-family:sans-serif;background:#0f172a;color:#e2e8f0;"><div style="border-bottom:3px solid #3b82f6;padding-bottom:16px;margin-bottom:24px;"><h1 style="font-size:24px;font-weight:900;margin:0 0 8px;">⚾ 試合分析・スコアレポート</h1><div style="display:flex;gap:24px;font-size:14px;"><span>'+esc(gi.date)+'</span><span style="font-weight:bold;">'+esc(gi.teamTop)+' '+topTotal+' - '+bottomTotal+' '+esc(gi.teamBottom)+'</span><span>総投球数: '+ps.filter(function(p){return !p.isEvent;}).length+'球</span></div></div>';
     body+=summaryH+sprayH;
-    body+=batterTable(t.topBatting,gi.teamTop)+batterTable(t.bottomBatting,gi.teamBottom);
-    body+=pitcherFull(t.pitchingTop,gi.teamTop)+pitcherFull(t.pitchingBottom,gi.teamBottom);
+    body+=batterTable(t.topBatting,gi.teamTop) + batterDetails(t.topBatting,gi.teamTop);
+    body+=batterTable(t.bottomBatting,gi.teamBottom) + batterDetails(t.bottomBatting,gi.teamBottom);
+    body+=pitcherFull(t.pitchingTop,gi.teamTop) + pitcherDetails(t.pitchingTop,gi.teamTop);
+    body+=pitcherFull(t.pitchingBottom,gi.teamBottom) + pitcherDetails(t.pitchingBottom,gi.teamBottom);
     body+='</div>';
 
-    w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>試合分析レポート<\/title><style>body{margin:0;background:#0f172a;}@media print{body{background:#0f172a !important;}*{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;}}table{page-break-inside:auto;}tr{page-break-inside:avoid;}<\/style><\/head><body>'+body+'<\/body><\/html>');
+    w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>試合分析レポート<\/title><style>body{margin:0;background:#0f172a;}@media print{body{background:#0f172a !important;}*{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;} .pb{page-break-before:always;} .nbi{break-inside:avoid;}}table{page-break-inside:auto;}tr{page-break-inside:avoid;}<\/style><\/head><body>'+body+'<\/body><\/html>');
     w.document.close();
     setTimeout(function(){w.print();},500);
     return true;
@@ -222,8 +280,10 @@
       const [heatmapCountTab, setHeatmapCountTab] = useState('all'); 
       const [rightPanelMode, setRightPanelMode] = useState('current'); 
       const [printMode, setPrintMode] = useState(false);
-      const [expandedPitcher, setExpandedPitcher] = useState(null);
-      const [expandedBatter, setExpandedBatter] = useState(null);
+      
+      // 個人詳細展開用
+      const [expandedPitcherId, setExpandedPitcherId] = useState(null);
+      const [expandedBatterId, setExpandedBatterId] = useState(null);
       
       // --- テキスト共有用 State ---
       const [showShareModal, setShowShareModal] = useState(false);
@@ -240,11 +300,7 @@
       const [toast, setToast] = useState(null);
       const [confirmDialog, setConfirmDialog] = useState(null);
 
-      const showToast = (text, type = 'success') => {
-        setToast({ text, type });
-        setTimeout(() => setToast(null), 3000);
-      };
-
+      const showToast = (text, type = 'success') => { setToast({ text, type }); setTimeout(() => setToast(null), 3000); };
       const findRegisteredTeam = (name) => registeredTeams.find(t => t.name === name);
       
       const handlePrintDashboard = () => {
@@ -256,10 +312,7 @@
       const applyTeamToLineup = (teamData, side) => {
         if (!teamData?.players || teamData.players.length === 0) return;
         const players = teamData.players.map(p => typeof p === 'string' ? { name: p, throws: '右', bats: '右' } : p);
-        const newLineup = lineups[side].map((slot, i) => {
-          if (i < players.length) return { ...slot, name: players[i].name, throws: players[i].throws, bats: players[i].bats };
-          return slot;
-        });
+        const newLineup = lineups[side].map((slot, i) => i < players.length ? { ...slot, name: players[i].name, throws: players[i].throws, bats: players[i].bats } : slot);
         setLineups(prev => ({ ...prev, [side]: newLineup }));
       };
 
@@ -285,13 +338,11 @@
         if (type === 'teams') { data = registeredTeams; shareType = 'teams'; }
         else if (type === 'all') { data = { teams: registeredTeams, games: savedGames }; shareType = 'games'; }
         else if (typeof type === 'string' && type.startsWith('game:')) {
-          const gameId = type.replace('game:', '');
-          const game = savedGames.find(g => g.id === gameId);
+          const gameId = type.replace('game:', ''); const game = savedGames.find(g => g.id === gameId);
           if (!game) { showToast('試合が見つかりません', 'error'); return; }
           data = game; shareType = 'game1';
         }
-        setShareTextData(`BASEBALL_SHARE:${shareType}:${compressData(data)}`);
-        setShowShareModal(true);
+        setShareTextData(`BASEBALL_SHARE:${shareType}:${compressData(data)}`); setShowShareModal(true);
       };
 
       const handleImportText = () => {
@@ -303,57 +354,29 @@
 
         if (parts[1] === 'teams') {
           if (Array.isArray(incoming)) {
-            setRegisteredTeams(prev => {
-              const names = prev.map(t => t.name);
-              return [...prev, ...incoming.filter(t => !names.includes(t.name))];
-            });
+            setRegisteredTeams(prev => { const names = prev.map(t => t.name); return [...prev, ...incoming.filter(t => !names.includes(t.name))]; });
             showToast(`${incoming.length}チームを受信しました！`, 'success');
           }
         } else if (parts[1] === 'games') {
-          if (incoming.teams) {
-            setRegisteredTeams(prev => {
-              const names = prev.map(t => t.name);
-              return [...prev, ...incoming.teams.filter(t => !names.includes(t.name))];
-            });
-          }
-          if (incoming.games) {
-            setSavedGames(prev => {
-              const ids = prev.map(g => g.id);
-              return [...prev, ...incoming.games.filter(g => !ids.includes(g.id))];
-            });
-            showToast(`${incoming.games.length}試合を受信しました！`, 'success');
-          }
+          if (incoming.teams) setRegisteredTeams(prev => { const names = prev.map(t => t.name); return [...prev, ...incoming.teams.filter(t => !names.includes(t.name))]; });
+          if (incoming.games) setSavedGames(prev => { const ids = prev.map(g => g.id); return [...prev, ...incoming.games.filter(g => !ids.includes(g.id))]; });
+          showToast(`データを受信しました！`, 'success');
         } else if (parts[1] === 'game1') {
-          if (incoming.id) {
-            setSavedGames(prev => prev.some(g => g.id === incoming.id) ? prev : [incoming, ...prev]);
-            showToast(`試合を受信しました！`, 'success');
-          }
+          if (incoming.id) { setSavedGames(prev => prev.some(g => g.id === incoming.id) ? prev : [incoming, ...prev]); showToast(`試合を受信しました！`, 'success'); }
         }
-        setShowImportTextModal(false);
-        setImportText('');
+        setShowImportTextModal(false); setImportText('');
       };
 
       // --- 履歴管理 ---
-      const createSnapshot = () => ({
-        gameState: JSON.parse(JSON.stringify(gameState)), lineups: JSON.parse(JSON.stringify(lineups)),
-        pitches: JSON.parse(JSON.stringify(pitches)), showInPlayResult, selectedPosition
-      });
+      const createSnapshot = () => ({ gameState: JSON.parse(JSON.stringify(gameState)), lineups: JSON.parse(JSON.stringify(lineups)), pitches: JSON.parse(JSON.stringify(pitches)), showInPlayResult, selectedPosition });
       const recordAction = () => { const snapshot = createSnapshot(); setUndoStack(prev => [...prev, snapshot].slice(-20)); setRedoStack([]); };
       const handleUndo = () => {
-        if (undoStack.length === 0) return;
-        setRedoStack(prev => [...prev, createSnapshot()]);
-        const last = undoStack[undoStack.length - 1];
-        setGameState(last.gameState); setLineups(last.lineups); setPitches(last.pitches);
-        setShowInPlayResult(last.showInPlayResult); setSelectedPosition(last.selectedPosition);
-        setUndoStack(prev => prev.slice(0, -1));
+        if (undoStack.length === 0) return; setRedoStack(prev => [...prev, createSnapshot()]);
+        const last = undoStack[undoStack.length - 1]; setGameState(last.gameState); setLineups(last.lineups); setPitches(last.pitches); setShowInPlayResult(last.showInPlayResult); setSelectedPosition(last.selectedPosition); setUndoStack(prev => prev.slice(0, -1));
       };
       const handleRedo = () => {
-        if (redoStack.length === 0) return;
-        setUndoStack(prev => [...prev, createSnapshot()]);
-        const next = redoStack[redoStack.length - 1];
-        setGameState(next.gameState); setLineups(next.lineups); setPitches(next.pitches);
-        setShowInPlayResult(next.showInPlayResult); setSelectedPosition(next.selectedPosition);
-        setRedoStack(prev => prev.slice(0, -1));
+        if (redoStack.length === 0) return; setUndoStack(prev => [...prev, createSnapshot()]);
+        const next = redoStack[redoStack.length - 1]; setGameState(next.gameState); setLineups(next.lineups); setPitches(next.pitches); setShowInPlayResult(next.showInPlayResult); setSelectedPosition(next.selectedPosition); setRedoStack(prev => prev.slice(0, -1));
       };
 
       // --- 各種アクション ---
@@ -372,43 +395,13 @@
         });
       };
 
-      const handleTieBreak = () => {
-        setConfirmDialog({
-          title: '⚡ 特別延長', message: '特別延長（0アウト1,2塁）をセットしますか？', subMessage: '※カウントはリセットされます', isDanger: false,
-          onConfirm: () => { recordAction(); setGameState(prev => ({ ...prev, outs: 0, balls: 0, strikes: 0, runners: { first: true, second: true, third: false } })); setConfirmDialog(null); }
-        });
-      };
+      const handleTieBreak = () => { setConfirmDialog({ title: '⚡ 特別延長', message: '特別延長（0アウト1,2塁）をセットしますか？', subMessage: '※カウントはリセットされます', isDanger: false, onConfirm: () => { recordAction(); setGameState(prev => ({ ...prev, outs: 0, balls: 0, strikes: 0, runners: { first: true, second: true, third: false } })); setConfirmDialog(null); } }); };
 
-      const saveCurrentGame = () => {
-        setConfirmDialog({
-          title: '💾 アーカイブに保存', message: '現在の試合状態をアーカイブに保存しますか？', isDanger: false,
-          onConfirm: () => {
-            const newGame = { id: Date.now().toString(), date: gameInfo.date, teamTop: gameInfo.teamTop, teamBottom: gameInfo.teamBottom, scoreTop: gameState.runs.top.reduce((a,b)=>a+b,0), scoreBottom: gameState.runs.bottom.reduce((a,b)=>a+b,0), pitchesCount: pitches.length, data: { gameState, gameInfo, lineups, pitches } };
-            setSavedGames([newGame, ...savedGames]); setConfirmDialog(null); showToast('試合を保存しました！', 'success');
-          }
-        });
-      };
+      const saveCurrentGame = () => { setConfirmDialog({ title: '💾 アーカイブに保存', message: '現在の試合状態をアーカイブに保存しますか？', isDanger: false, onConfirm: () => { const newGame = { id: Date.now().toString(), date: gameInfo.date, teamTop: gameInfo.teamTop, teamBottom: gameInfo.teamBottom, scoreTop: gameState.runs.top.reduce((a,b)=>a+b,0), scoreBottom: gameState.runs.bottom.reduce((a,b)=>a+b,0), pitchesCount: pitches.length, data: { gameState, gameInfo, lineups, pitches } }; setSavedGames([newGame, ...savedGames]); setConfirmDialog(null); showToast('試合を保存しました！', 'success'); } }); };
 
-      const loadGame = (gameId) => {
-        setConfirmDialog({
-          title: '📂 データの読み込み', message: '現在の作業中データは上書きされます。本当に読み込みますか？', isDanger: true,
-          onConfirm: () => {
-            const target = savedGames.find(g => g.id === gameId);
-            if (target) {
-              setGameState(target.data.gameState); setGameInfo(target.data.gameInfo); setLineups(target.data.lineups);
-              setPitches(target.data.pitches.map(p => (p.course !== null && p.course !== undefined && p.course < 25) ? { ...p, course: Math.floor(p.course / 5 + 1) * 7 + (p.course % 5 + 1) } : p));
-              setUndoStack([]); setRedoStack([]); setShowArchiveModal(false); setConfirmDialog(null); showToast('試合データを読み込みました', 'success');
-            }
-          }
-        });
-      };
+      const loadGame = (gameId) => { setConfirmDialog({ title: '📂 データの読み込み', message: '現在の作業中データは上書きされます。本当に読み込みますか？', isDanger: true, onConfirm: () => { const target = savedGames.find(g => g.id === gameId); if (target) { setGameState(target.data.gameState); setGameInfo(target.data.gameInfo); setLineups(target.data.lineups); setPitches(target.data.pitches.map(p => (p.course !== null && p.course !== undefined && p.course < 25) ? { ...p, course: Math.floor(p.course / 5 + 1) * 7 + (p.course % 5 + 1) } : p)); setUndoStack([]); setRedoStack([]); setShowArchiveModal(false); setConfirmDialog(null); showToast('試合データを読み込みました', 'success'); } } }); };
 
-      const deleteGame = (gameId) => {
-        setConfirmDialog({
-          title: '🗑️ アーカイブの削除', message: 'この保存データを完全に削除しますか？', subMessage: '（この操作は取り消せません）', isDanger: true,
-          onConfirm: () => { setSavedGames(savedGames.filter(g => g.id !== gameId)); setConfirmDialog(null); }
-        });
-      };
+      const deleteGame = (gameId) => { setConfirmDialog({ title: '🗑️ アーカイブの削除', message: 'この保存データを完全に削除しますか？', subMessage: '（この操作は取り消せません）', isDanger: true, onConfirm: () => { setSavedGames(savedGames.filter(g => g.id !== gameId)); setConfirmDialog(null); } }); };
 
       const deletePitchRecord = () => {
         setConfirmDialog({
@@ -455,12 +448,7 @@
         });
       };
 
-      const swapTopAndBottom = () => {
-        setConfirmDialog({
-          title: '⇅ 先攻/後攻の入替', message: '先攻と後攻のチーム名・オーダーを入れ替えますか？', isDanger: false,
-          onConfirm: () => { recordAction(); setGameInfo(prev => ({...prev, teamTop: prev.teamBottom, teamBottom: prev.teamTop})); setLineups(prev => ({...prev, top: prev.bottom, bottom: prev.top})); setConfirmDialog(null); showToast("先攻と後攻を入れ替えました！", "success"); }
-        });
-      };
+      const swapTopAndBottom = () => { setConfirmDialog({ title: '⇅ 先攻/後攻の入替', message: '先攻と後攻のチーム名・オーダーを入れ替えますか？', isDanger: false, onConfirm: () => { recordAction(); setGameInfo(prev => ({...prev, teamTop: prev.teamBottom, teamBottom: prev.teamTop})); setLineups(prev => ({...prev, top: prev.bottom, bottom: prev.top})); setConfirmDialog(null); showToast("先攻と後攻を入れ替えました！", "success"); } }); };
 
       const jumpToInning = (inning, isTop) => {
         recordAction();
@@ -618,8 +606,8 @@
 
         return (
           <div className="flex flex-col items-center">
-            {title && <div className="text-[10px] font-bold text-slate-400 mb-1">{title}</div>}
-            <svg width={size} height={size * 0.85} viewBox="0 0 240 200" className="bg-slate-900 rounded-lg border border-slate-700">
+            {title && <div className="text-[10px] font-bold text-slate-400 mb-1 bg-slate-900 px-2 py-0.5 rounded">{title}</div>}
+            <svg width={size} height={size * 0.85} viewBox="0 0 240 200" className="bg-slate-900 rounded-lg border border-slate-700 shadow-inner">
               <path d="M 120 185 L 0 65 L 0 0 L 240 0 L 240 65 Z" fill="#111827" />
               <path d="M 120 185 L 8 70 Q 120 -25 232 70 Z" fill="#14532d" />
               <path d="M 120 185 L 55 120 Q 120 70 185 120 Z" fill="#78350f" opacity="0.3" />
@@ -755,6 +743,54 @@
         );
       }
 
+      // 分析結果・投手詳細用のミニコンポーネント群
+      const CountColumn = ({ title, data }) => {
+        const total = data.total || 0, strikes = data.strikes || 0, strikePct = total > 0 ? Math.round((strikes / total) * 100) : 0, typeData = data.types || {};
+        return (
+          <div className="flex flex-col gap-1">
+            <div className="text-[10px] text-slate-400 text-center font-bold flex flex-col mb-1 border-b border-slate-700/50 pb-1">
+              <span>{title}</span>{total > 0 ? <span className="text-blue-400 mt-0.5 text-[9px]">S率: {strikePct}%</span> : <span className="text-slate-600 mt-0.5">-</span>}
+            </div>
+            {total === 0 ? <div className="text-center text-xs text-slate-600">-</div> : 
+              Object.entries(typeData).sort((a,b)=>b[1]-a[1]).map(([type, count]) => {
+                const pct = Math.round((count/total)*100);
+                return (
+                  <div key={type} className="flex items-center gap-1.5 text-[9px]">
+                    <span className="w-10 truncate text-slate-300">{type}</span>
+                    <div className="flex-1 bg-slate-800 h-1.5 rounded-full overflow-hidden flex"><div className="bg-blue-500 h-full" style={{ width: `${pct}%`}}></div></div>
+                    <span className="w-5 text-right font-mono text-blue-400">{pct}%</span>
+                  </div>
+                )
+              })
+            }
+          </div>
+        );
+      };
+
+      const renderCountStats = (countsObj, title) => (
+        <div className="flex-1 bg-slate-900 rounded-lg p-2.5 border border-slate-700">
+          <h5 className="text-slate-300 font-bold text-[10px] mb-2 text-center">{title}</h5>
+          <div className="grid grid-cols-3 gap-2">
+            <CountColumn title="有利" data={countsObj.ahead} />
+            <CountColumn title="平行" data={countsObj.even} />
+            <CountColumn title="不利" data={countsObj.behind} />
+          </div>
+        </div>
+      );
+
+      const MiniHeatmap = ({ data, max, title, colorCls }) => (
+        <div className="flex flex-col items-center">
+          <div className="text-[9px] text-slate-400 mb-0.5">{title}</div>
+          <div className="grid grid-cols-7 grid-rows-7 w-16 h-16 gap-[1px] relative bg-slate-900 p-0.5 rounded border border-slate-700 shadow-inner">
+            <div className="absolute top-[28.6%] left-[28.6%] w-[42.8%] h-[42.8%] border border-slate-500 z-10 pointer-events-none rounded-sm"></div>
+            {courses.map(i => {
+               const c = data[i] || 0, op = max > 0 ? c/max : 0;
+               return <div key={i} className="bg-slate-800 relative flex items-center justify-center text-[6px] text-white font-mono">{c>0 && <div className={`absolute inset-0 ${colorCls} transition-opacity`} style={{opacity: op*0.8}}></div>}<span className="relative z-20">{c>0?c:''}</span></div>
+            })}
+          </div>
+        </div>
+      );
+
       const advancedStats = useMemo(() => {
         if (!showPostGameAnalysis) return null;
         
@@ -814,7 +850,18 @@
           const pStats = {};
           vP.forEach(p => {
               const pName = p.pitcherName || '不明';
-              if (!pStats[pName]) pStats[pName] = { name: pName, total: 0, calledStrikes: 0, whiffs: 0, swings: 0, strikes: 0, firstPitches: 0, firstStrikes: 0, PA: 0, H: 0, K: 0, BB: 0, throws: p.pitcherThrows || '右', typeStats: {}, pitchTypeHeatmaps: {} };
+              if (!pStats[pName]) pStats[pName] = { 
+                  name: pName, total: 0, calledStrikes: 0, whiffs: 0, swings: 0, strikes: 0, firstPitches: 0, firstStrikes: 0, PA: 0, H: 0, K: 0, BB: 0, throws: p.pitcherThrows || '右', typeStats: {}, 
+                  heatmaps: {
+                      fastball: { all: {}, ahead: {}, even: {}, behind: {}, max: {all:0, ahead:0, even:0, behind:0} },
+                      breaking: { all: {}, ahead: {}, even: {}, behind: {}, max: {all:0, ahead:0, even:0, behind:0} }
+                  },
+                  pitchTypeHeatmaps: {},
+                  counts: {
+                    vsRight: { ahead: { total: 0, strikes: 0, types: {} }, even: { total: 0, strikes: 0, types: {} }, behind: { total: 0, strikes: 0, types: {} } },
+                    vsLeft: { ahead: { total: 0, strikes: 0, types: {} }, even: { total: 0, strikes: 0, types: {} }, behind: { total: 0, strikes: 0, types: {} } }
+                  }
+              };
           });
 
           const abArr = []; let cAb = [];
@@ -828,7 +875,17 @@
               if (!st.typeStats[type]) st.typeStats[type] = { total: 0, calledStrikes: 0, whiffs: 0, swings: 0, strikes: 0 };
               const tSt = st.typeStats[type]; tSt.total++;
 
-              if (!['ボール','ウエスト','死球'].includes(p.result)) { st.strikes++; tSt.strikes++; }
+              const batterSide = p.batterBats === '左' ? 'vsLeft' : 'vsRight';
+              const countState = p.countState || 'even'; 
+              const targetCountObj = st.counts[batterSide][countState];
+              targetCountObj.total++;
+              if (!targetCountObj.types[type]) targetCountObj.types[type] = 0;
+              targetCountObj.types[type]++;
+
+              if (!['ボール','ウエスト','死球'].includes(p.result)) { 
+                  st.strikes++; tSt.strikes++; targetCountObj.strikes++; 
+              }
+
               let isSwing = false, isStrike = false;
               if (p.result.includes('見逃し') || p.result === 'ストライク') { st.calledStrikes++; tSt.calledStrikes++; isStrike = true; }
               else if (p.result.includes('空振り')) { st.whiffs++; tSt.whiffs++; isSwing = true; isStrike = true; }
@@ -837,8 +894,19 @@
               if (p.pitchNumber === 1) { st.firstPitches++; if (isStrike) st.firstStrikes++; }
 
               if (p.course !== null) {
-                 if (!st.pitchTypeHeatmaps[type]) st.pitchTypeHeatmaps[type] = { all: {}, max: {all:0} };
-                 const ptH = st.pitchTypeHeatmaps[type]; ptH.all[p.course] = (ptH.all[p.course] || 0) + 1; if (ptH.all[p.course] > ptH.max.all) ptH.max.all = ptH.all[p.course];
+                 const isFast = p.type && (p.type.includes('ストレート') || p.type.includes('シュート'));
+                 const typeKey = isFast ? 'fastball' : 'breaking';
+                 
+                 st.heatmaps[typeKey].all[p.course] = (st.heatmaps[typeKey].all[p.course] || 0) + 1;
+                 if (st.heatmaps[typeKey].all[p.course] > st.heatmaps[typeKey].max.all) st.heatmaps[typeKey].max.all = st.heatmaps[typeKey].all[p.course];
+
+                 st.heatmaps[typeKey][countState][p.course] = (st.heatmaps[typeKey][countState][p.course] || 0) + 1;
+                 if (st.heatmaps[typeKey][countState][p.course] > st.heatmaps[typeKey].max[countState]) st.heatmaps[typeKey].max[countState] = st.heatmaps[typeKey][countState][p.course];
+
+                 if (!st.pitchTypeHeatmaps[type]) st.pitchTypeHeatmaps[type] = { all: {}, ahead: {}, even: {}, behind: {}, max: {all:0, ahead:0, even:0, behind:0} };
+                 const ptH = st.pitchTypeHeatmaps[type]; 
+                 ptH.all[p.course] = (ptH.all[p.course] || 0) + 1; if (ptH.all[p.course] > ptH.max.all) ptH.max.all = ptH.all[p.course];
+                 ptH[countState][p.course] = (ptH[countState][p.course] || 0) + 1; if (ptH[countState][p.course] > ptH.max[countState]) ptH.max[countState] = ptH[countState][p.course];
               }
             });
 
@@ -892,7 +960,6 @@
         reader.readAsText(file);
       };
 
-      // 欠落していた結果テキストコピー機能の復元
       const copyShareText = () => {
         try {
           const topTotal = gameState.runs.top.reduce((a,b)=>a+b,0), bottomTotal = gameState.runs.bottom.reduce((a,b)=>a+b,0);
@@ -1800,9 +1867,6 @@
                       </div>
 
                       {[{ team: 'top', name: gameInfo.teamTop, batting: advancedStats.topBatting, pitching: advancedStats.pitchingBottom }, { team: 'bottom', name: gameInfo.teamBottom, batting: advancedStats.bottomBatting, pitching: advancedStats.pitchingTop }].map((t, idx) => {
-                        const isExpandedB = expandedBatter === t.team;
-                        const isExpandedP = expandedPitcher === t.team;
-                        
                         return (
                       <div key={idx} className="print-break flex flex-col gap-4 md:gap-6">
                         <div className="flex items-center gap-3">
@@ -1811,51 +1875,81 @@
                         </div>
 
                       <div className="bg-slate-800 rounded-2xl shadow-xl border border-slate-700 overflow-hidden print-section">
-                        <div className="bg-slate-900/80 p-3 md:p-4 border-b border-slate-700 flex justify-between items-center cursor-pointer md:cursor-default" onClick={() => setExpandedBatter(isExpandedB ? null : t.team)}>
+                        <div className="bg-slate-900/80 p-3 md:p-4 border-b border-slate-700 flex justify-between items-center">
                           <h4 className="text-emerald-400 font-black text-sm md:text-base flex items-center gap-2">🏏 打者成績</h4>
-                          <span className="text-slate-400 text-xs md:hidden">{isExpandedB ? '▲ 閉じる' : '▼ 開く'}</span>
+                          <span className="text-slate-500 text-xs font-bold bg-slate-900 px-2 py-1 rounded">タップで打球方向を表示</span>
                         </div>
-                        <div className={`overflow-x-auto ${!isExpandedB && 'hidden md:block'}`}>
+                        <div className="overflow-x-auto">
                         <table className="w-full text-[10px] md:text-xs text-right whitespace-nowrap table-fixed md:table-auto">
                           <thead className="bg-slate-900 text-slate-400 border-b border-slate-700">
                             <tr><th className="py-3 px-3 md:px-4 text-left w-12 font-bold tracking-widest">順</th><th className="py-3 px-3 md:px-4 text-left w-24 md:w-auto font-bold tracking-widest">選手</th><th className="py-3 px-2 w-10">打数</th><th className="py-3 px-2 w-10">安打</th><th className="py-3 px-2 w-10">四死</th><th className="py-3 px-2 md:px-4 text-emerald-400 font-black w-14">打率</th><th className="py-3 px-2 md:px-4 text-amber-400 font-black w-14">OPS</th><th className="py-3 px-2 w-12">K%</th><th className="py-3 px-3 md:px-4 text-left font-bold tracking-widest">打席結果</th></tr>
                           </thead>
                           <tbody className="divide-y divide-slate-700/50">
-                            {t.batting.players.map((p, pIdx) => (
-                              <tr key={pIdx} className="hover:bg-slate-700/30 transition-colors">
-                                <td className="py-2.5 px-3 md:px-4 text-left text-slate-500 font-mono font-bold">{p.order}</td>
-                                <td className="py-2.5 px-3 md:px-4 text-left font-bold text-slate-200 truncate"><span className="text-[9px] text-slate-500 mr-1 bg-slate-900 px-1 rounded border border-slate-700">{p.pos}</span>{p.name}</td>
-                                <td className="py-2.5 px-2 text-slate-400 font-mono">{p.AB}</td><td className="py-2.5 px-2 text-slate-300 font-mono">{p.H}</td><td className="py-2.5 px-2 text-slate-300 font-mono">{p.BB_HBP}</td>
-                                <td className="py-2.5 px-2 md:px-4 text-emerald-400 font-black font-mono bg-emerald-900/10">{p.AVG}</td><td className="py-2.5 px-2 md:px-4 text-amber-400 font-black font-mono bg-amber-900/10">{p.OPS}</td>
-                                <td className="py-2.5 px-2 text-rose-400 font-mono">{p.KPct}%</td>
-                                <td className="py-2.5 px-3 md:px-4 text-left text-[9px] md:text-[10px] text-slate-400 truncate max-w-[120px] md:max-w-[300px]">
-                                  <div className="flex gap-1 overflow-x-auto custom-scrollbar pb-1">
-                                    {p.results.length === 0 ? '-' : p.results.map((r, i) => (
-                                      <span key={i} className={`shrink-0 px-1.5 py-0.5 rounded border ${['安','塁打','本塁打'].some(w=>r.includes(w)) ? 'bg-blue-900/30 border-blue-700 text-blue-300' : ['四球','死球'].some(w=>r.includes(w)) ? 'bg-green-900/30 border-green-700 text-green-300' : r==='三振' ? 'bg-red-900/30 border-red-700 text-red-300' : 'bg-slate-800 border-slate-600 text-slate-300'}`}>{r}</span>
-                                    ))}
-                                  </div>
-                                </td>
-                              </tr>
-                            ))}
+                            {t.batting.players.map((p, pIdx) => {
+                              const bId = `${t.team}-${pIdx}`;
+                              const isExpanded = expandedBatterId === bId;
+                              return (
+                              <React.Fragment key={pIdx}>
+                                <tr onClick={() => setExpandedBatterId(isExpanded ? null : bId)} className={`transition-colors cursor-pointer ${isExpanded ? 'bg-slate-700/50' : 'hover:bg-slate-700/30'}`}>
+                                  <td className="py-2.5 px-3 md:px-4 text-left text-slate-500 font-mono font-bold">{p.order}</td>
+                                  <td className="py-2.5 px-3 md:px-4 text-left font-bold text-slate-200 truncate"><span className="text-[9px] text-slate-500 mr-1 bg-slate-900 px-1 rounded border border-slate-700">{p.pos}</span>{p.name}</td>
+                                  <td className="py-2.5 px-2 text-slate-400 font-mono">{p.AB}</td><td className="py-2.5 px-2 text-slate-300 font-mono">{p.H}</td><td className="py-2.5 px-2 text-slate-300 font-mono">{p.BB_HBP}</td>
+                                  <td className="py-2.5 px-2 md:px-4 text-emerald-400 font-black font-mono bg-emerald-900/10">{p.AVG}</td><td className="py-2.5 px-2 md:px-4 text-amber-400 font-black font-mono bg-amber-900/10">{p.OPS}</td>
+                                  <td className="py-2.5 px-2 text-rose-400 font-mono">{p.KPct}%</td>
+                                  <td className="py-2.5 px-3 md:px-4 text-left text-[9px] md:text-[10px] text-slate-400 truncate max-w-[120px] md:max-w-[300px]">
+                                    <div className="flex gap-1 overflow-x-auto custom-scrollbar pb-1">
+                                      {p.results.length === 0 ? '-' : p.results.map((r, i) => (
+                                        <span key={i} className={`shrink-0 px-1.5 py-0.5 rounded border ${['安','塁打','本塁打'].some(w=>r.includes(w)) ? 'bg-blue-900/30 border-blue-700 text-blue-300' : ['四球','死球'].some(w=>r.includes(w)) ? 'bg-green-900/30 border-green-700 text-green-300' : r==='三振' ? 'bg-red-900/30 border-red-700 text-red-300' : 'bg-slate-800 border-slate-600 text-slate-300'}`}>{r}</span>
+                                      ))}
+                                    </div>
+                                  </td>
+                                </tr>
+                                {isExpanded && (
+                                  <tr>
+                                    <td colSpan="9" className="p-4 bg-slate-900/50 border-t border-slate-700/30 shadow-inner">
+                                      <div className="flex flex-col md:flex-row gap-6 items-center md:items-start justify-center text-left max-w-2xl mx-auto w-full">
+                                        <SprayChart hits={p.sprayHits} title="個人の打球方向" size={160} />
+                                        <div className="flex-1 space-y-2 text-sm w-full md:w-auto">
+                                          <div className="font-bold text-slate-300 bg-slate-800 p-3 rounded border border-slate-700 flex justify-between">
+                                            <span>打率: {p.AVG}</span><span>OPS: {p.OPS}</span>
+                                          </div>
+                                          <div className="grid grid-cols-4 gap-2 text-center text-xs">
+                                            <div className="bg-slate-800 p-2 rounded">打数<br/>{p.AB}</div>
+                                            <div className="bg-slate-800 p-2 rounded">安打<br/>{p.H}</div>
+                                            <div className="bg-slate-800 p-2 rounded">四死<br/>{p.BB_HBP}</div>
+                                            <div className="bg-slate-800 p-2 rounded">三振<br/>{p.K}</div>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                )}
+                              </React.Fragment>
+                              );
+                            })}
                           </tbody>
                         </table>
                         </div>
                       </div>
 
+                      {/* --- 投手成績詳細（タップで展開） --- */}
                       <div className="bg-slate-800 rounded-2xl shadow-xl border border-slate-700 overflow-hidden print-section">
-                        <div className="bg-slate-900/80 p-3 md:p-4 border-b border-slate-700 flex justify-between items-center cursor-pointer md:cursor-default" onClick={() => setExpandedPitcher(isExpandedP ? null : t.team)}>
+                        <div className="bg-slate-900/80 p-3 md:p-4 border-b border-slate-700 flex justify-between items-center">
                           <h4 className="text-blue-400 font-black text-sm md:text-base flex items-center gap-2">⚾ 投手成績 <span className="text-slate-500 text-xs font-normal">（対戦相手の攻撃から算出）</span></h4>
-                          <span className="text-slate-400 text-xs md:hidden">{isExpandedP ? '▲ 閉じる' : '▼ 開く'}</span>
+                          <span className="text-slate-500 text-xs font-bold bg-slate-900 px-2 py-1 rounded">タップで詳細データを表示</span>
                         </div>
-                        <div className={`overflow-x-auto ${!isExpandedP && 'hidden md:block'}`}>
+                        <div className="overflow-x-auto">
                         <table className="w-full text-[10px] md:text-xs text-right whitespace-nowrap table-fixed md:table-auto">
                           <thead className="bg-slate-900 text-slate-400 border-b border-slate-700">
                             <tr><th className="py-3 px-3 md:px-4 text-left font-bold tracking-widest w-24 md:w-auto">投手</th><th className="py-3 px-2 w-10">球数</th><th className="py-3 px-2 w-10">対打</th><th className="py-3 px-2 w-10">被安</th><th className="py-3 px-2 w-10">奪K</th><th className="py-3 px-2 w-10">与四</th><th className="py-3 px-2 md:px-4 text-amber-400 font-black w-14">CSW%</th><th className="py-3 px-2 text-rose-400 font-bold w-12">Whiff%</th><th className="py-3 px-2 text-emerald-400 font-bold w-12">P/PA</th><th className="py-3 px-2 text-blue-400 font-bold w-12">F-S%</th></tr>
                           </thead>
                           <tbody className="divide-y divide-slate-700/50">
-                            {t.pitching.pitchers.map((p, pIdx) => (
+                            {t.pitching.pitchers.map((p, pIdx) => {
+                              const pId = `${t.team}-${pIdx}`;
+                              const isExpanded = expandedPitcherId === pId;
+                              return (
                               <React.Fragment key={pIdx}>
-                                <tr className="hover:bg-slate-700/30 transition-colors">
+                                <tr onClick={() => setExpandedPitcherId(isExpanded ? null : pId)} className={`transition-colors cursor-pointer ${isExpanded ? 'bg-slate-700/50' : 'hover:bg-slate-700/30'}`}>
                                   <td className="py-3 px-3 md:px-4 text-left font-bold text-slate-200 truncate"><span className="text-[9px] text-slate-500 mr-1 bg-slate-900 px-1 rounded border border-slate-700">{p.throws}投</span>{p.name}</td>
                                   <td className="py-3 px-2 text-slate-300 font-mono">{p.total}</td><td className="py-3 px-2 text-slate-400 font-mono">{p.PA}</td><td className="py-3 px-2 text-slate-300 font-mono">{p.H}</td><td className="py-3 px-2 text-slate-300 font-mono">{p.K}</td><td className="py-3 px-2 text-slate-300 font-mono">{p.BB}</td>
                                   <td className="py-3 px-2 md:px-4 text-amber-400 font-black font-mono bg-amber-900/10">{p.csw}%</td>
@@ -1863,65 +1957,36 @@
                                   <td className="py-3 px-2 text-emerald-400 font-mono">{p.pPa}</td>
                                   <td className="py-3 px-2 text-blue-400 font-mono">{p.fStrikePct}%</td>
                                 </tr>
-                                {p.types && p.types.length > 0 && (
+                                {/* 展開される詳細ヒートマップ */}
+                                {isExpanded && (
                                   <tr>
-                                    <td colSpan="10" className="p-0 border-t border-slate-700/30 bg-slate-800/50">
-                                      <div className="flex flex-col md:flex-row gap-4 p-3 md:p-4 w-full">
-                                        <div className="flex-1 min-w-0">
-                                          <div className="flex justify-between items-center mb-2"><div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Pitch Usage</div></div>
-                                          <div className="space-y-1.5 w-full">
-                                            {p.types.map((pt, ptIdx) => {
-                                              const pct = Math.round((pt.total / p.total) * 100);
-                                              const isFast = pt.type.includes('ストレート') || pt.type.includes('シュート');
-                                              const barColor = isFast ? 'bg-rose-500' : 'bg-indigo-500';
-                                              return (
-                                                <div key={ptIdx} className="flex items-center gap-2 text-[10px]">
-                                                  <div className="w-16 truncate font-bold text-slate-300 text-left">{pt.type}</div>
-                                                  <div className="flex-1 bg-slate-900 h-2 rounded-full overflow-hidden border border-slate-700 flex"><div className={`${barColor} h-full`} style={{ width: `${pct}%` }}></div></div>
-                                                  <div className="w-6 text-right text-slate-400 font-mono">{pct}%</div>
-                                                  <div className="w-12 text-right text-amber-400 font-mono bg-amber-900/20 px-1 rounded" title="CSW%">CSW:{pt.csw}%</div>
-                                                </div>
-                                              );
-                                            })}
-                                          </div>
+                                    <td colSpan="10" className="p-0 border-t border-slate-700/30 bg-slate-800/50 shadow-inner">
+                                      <div className="flex flex-col gap-4 p-4 w-full">
+                                        {/* カウント別配球 */}
+                                        <div className="flex flex-col md:flex-row gap-4">
+                                            {renderCountStats(p.counts.vsRight, "対 右打者")}
+                                            {renderCountStats(p.counts.vsLeft, "対 左打者")}
                                         </div>
-                                        <div className="w-full md:w-auto shrink-0 flex gap-4 overflow-x-auto custom-scrollbar pb-2 md:pb-0">
-                                          <div className="flex flex-col w-[100px] shrink-0">
-                                            <div className="text-[10px] font-bold text-slate-400 mb-1 text-center uppercase tracking-widest bg-slate-900 py-1 rounded">All</div>
-                                            <div className="grid grid-cols-7 grid-rows-7 w-[100px] h-[100px] gap-[1px] relative bg-slate-900 p-1 rounded-lg border border-slate-700 shadow-inner">
-                                              <div className="absolute top-[28.6%] left-[28.6%] w-[42.8%] h-[42.8%] border border-slate-500 z-10 pointer-events-none rounded-sm"></div>
-                                              {courses.map(i => {
-                                                let c = 0; Object.values(p.pitchTypeHeatmaps||{}).forEach(th => { c += (th.all[i]||0); });
-                                                let mx = 0; Object.values(p.pitchTypeHeatmaps||{}).forEach(th => { if(th.max.all>mx) mx=th.max.all; });
-                                                const op = mx>0?c/mx:0;
-                                                return <div key={i} className="bg-slate-800 relative flex items-center justify-center text-[8px] text-white font-mono">{c > 0 && <div className="absolute inset-0 bg-blue-500 transition-opacity" style={{opacity: op*0.8}}></div>}<span className="relative z-20">{c>0?c:''}</span></div>;
-                                              })}
-                                            </div>
-                                          </div>
-                                          {Object.entries(p.pitchTypeHeatmaps||{}).sort((a,b)=> { let ta=0; Object.values(a[1].all).forEach(v=>ta+=v); let tb=0; Object.values(b[1].all).forEach(v=>tb+=v); return tb-ta; }).slice(0,3).map(([typeName, th], idx) => {
-                                            const isFast = typeName.includes('ストレート') || typeName.includes('シュート');
-                                            const colorCls = isFast ? 'bg-rose-500' : 'bg-indigo-500';
-                                            let count=0; Object.values(th.all).forEach(v=>count+=v);
-                                            return (
-                                              <div key={idx} className="flex flex-col w-[100px] shrink-0">
-                                                <div className="text-[10px] font-bold text-slate-300 mb-1 text-center truncate bg-slate-900 py-1 rounded" title={`${typeName}(${count}球)`}>{typeName}</div>
-                                                <div className="grid grid-cols-7 grid-rows-7 w-[100px] h-[100px] gap-[1px] relative bg-slate-900 p-1 rounded-lg border border-slate-700 shadow-inner">
-                                                  <div className="absolute top-[28.6%] left-[28.6%] w-[42.8%] h-[42.8%] border border-slate-500 z-10 pointer-events-none rounded-sm"></div>
-                                                  {courses.map(i => {
-                                                    const c = th.all[i]||0; const op = th.max.all>0?c/th.max.all:0;
-                                                    return <div key={i} className="bg-slate-800 relative flex items-center justify-center text-[8px] text-white font-mono">{c > 0 && <div className={`absolute inset-0 ${colorCls} transition-opacity`} style={{opacity: op*0.8}}></div>}<span className="relative z-20">{c>0?c:''}</span></div>
-                                                  })}
-                                                </div>
-                                              </div>
-                                            );
-                                          })}
+                                        {/* 球種別ヒートマップ */}
+                                        <div className="flex flex-wrap gap-4 justify-center md:justify-start">
+                                            <MiniHeatmap data={p.heatmaps.fastball.all} max={p.heatmaps.fastball.max.all} title="直球(全)" colorCls="bg-rose-500" />
+                                            <MiniHeatmap data={p.heatmaps.breaking.all} max={p.heatmaps.breaking.max.all} title="変化球(全)" colorCls="bg-indigo-500" />
+                                            <div className="w-px bg-slate-700 mx-2"></div>
+                                            {Object.entries(p.pitchTypeHeatmaps||{}).sort((a,b)=> { let ta=0; Object.values(a[1].all).forEach(v=>ta+=v); let tb=0; Object.values(b[1].all).forEach(v=>tb+=v); return tb-ta; }).map(([typeName, th], idx) => {
+                                                const isFast = typeName.includes('ストレート') || typeName.includes('シュート');
+                                                const colorCls = isFast ? 'bg-rose-500' : 'bg-indigo-500';
+                                                let count=0; Object.values(th.all).forEach(v=>count+=v);
+                                                if(count === 0) return null;
+                                                return <MiniHeatmap key={idx} data={th.all} max={th.max.all} title={`${typeName}(${count})`} colorCls={colorCls} />
+                                            })}
                                         </div>
                                       </div>
                                     </td>
                                   </tr>
                                 )}
                               </React.Fragment>
-                            ))}
+                              );
+                            })}
                           </tbody>
                         </table>
                       </div>
@@ -1931,7 +1996,6 @@
                       })}
                     </div>
                   )}
-
                 </div>
               </div>
             </div>
