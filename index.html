@@ -137,7 +137,19 @@
         const saved = localStorage.getItem('baseball_myTeam');
         return saved ? JSON.parse(saved) : null;
       });
+      const [registeredTeams, setRegisteredTeams] = useState(() => {
+        const saved = localStorage.getItem('baseball_registeredTeams');
+        if (saved) return JSON.parse(saved);
+        // myTeamからの移行
+        const mt = localStorage.getItem('baseball_myTeam');
+        if (mt) {
+          const parsed = JSON.parse(mt);
+          if (parsed?.name) return [{ ...parsed, isMyTeam: true, players: (parsed.players || []).map(p => typeof p === 'string' ? { name: p, throws: '右', bats: '右' } : p) }];
+        }
+        return [];
+      });
       const [showTeamManager, setShowTeamManager] = useState(false);
+      const [editingTeamIndex, setEditingTeamIndex] = useState(null);
       const [showCrossGameStats, setShowCrossGameStats] = useState(false);
 
       const [showSettings, setShowSettings] = useState(false);
@@ -176,13 +188,33 @@
         setTimeout(() => setToast(null), 3000);
       };
 
+      const findRegisteredTeam = (name) => registeredTeams.find(t => t.name === name);
+      
+      const applyTeamToLineup = (teamData, side) => {
+        if (!teamData?.players || teamData.players.length === 0) return;
+        const players = teamData.players.map(p => typeof p === 'string' ? { name: p, throws: '右', bats: '右' } : p);
+        const newLineup = lineups[side].map((slot, i) => {
+          if (i < players.length) {
+            return { ...slot, name: players[i].name, throws: players[i].throws, bats: players[i].bats };
+          }
+          return slot;
+        });
+        setLineups(prev => ({ ...prev, [side]: newLineup }));
+      };
+
       // --- 永続化 (個別分割で不要な再書き込みを防止) ---
       useEffect(() => { localStorage.setItem('baseball_gameState', JSON.stringify(gameState)); }, [gameState]);
       useEffect(() => { localStorage.setItem('baseball_gameInfo', JSON.stringify(gameInfo)); }, [gameInfo]);
       useEffect(() => { localStorage.setItem('baseball_lineups', JSON.stringify(lineups)); }, [lineups]);
       useEffect(() => { localStorage.setItem('baseball_pitches', JSON.stringify(pitches)); }, [pitches]);
       useEffect(() => { localStorage.setItem('baseball_savedGames', JSON.stringify(savedGames)); }, [savedGames]);
-      useEffect(() => { if (myTeam) localStorage.setItem('baseball_myTeam', JSON.stringify(myTeam)); }, [myTeam]);
+      useEffect(() => { localStorage.setItem('baseball_registeredTeams', JSON.stringify(registeredTeams)); }, [registeredTeams]);
+      // myTeamはregisteredTeamsから導出して同期
+      useEffect(() => {
+        const mt = registeredTeams.find(t => t.isMyTeam);
+        setMyTeam(mt || null);
+        if (mt) localStorage.setItem('baseball_myTeam', JSON.stringify(mt));
+      }, [registeredTeams]);
 
       // --- 履歴管理 ---
       const createSnapshot = () => ({
@@ -1843,10 +1875,28 @@
             </div>
           )}
 
-          <header className="bg-white shadow-sm border-b border-slate-300 p-4 flex items-center justify-between shrink-0">
-            <div className="flex items-center gap-2 text-xl font-bold text-blue-700 tracking-tighter">⚾ 配球分析</div>
+          <header className="bg-white shadow-sm border-b border-slate-300 p-2 md:p-4 flex flex-col md:flex-row md:items-center md:justify-between shrink-0 gap-2">
+            <div className="flex items-center justify-between md:justify-start gap-2">
+              <div className="flex items-center gap-1 text-lg md:text-xl font-bold text-blue-700 tracking-tighter">⚾ 配球分析</div>
+              
+              {/* スマホ用: 簡易スコア表示 */}
+              <div className="flex md:hidden items-center gap-2 text-xs font-bold">
+                <span className="bg-slate-100 px-2 py-1 rounded border border-slate-300">{gameState.inning}回{gameState.isTop?'表':'裏'}</span>
+                <span className="text-slate-800">{gameInfo.teamTop} <span className="text-blue-700 font-black">{gameState.runs.top.reduce((a,b)=>a+b,0)}</span> - <span className="text-blue-700 font-black">{gameState.runs.bottom.reduce((a,b)=>a+b,0)}</span> {gameInfo.teamBottom}</span>
+              </div>
+
+              {/* スマホ用: アクションボタン群 */}
+              <div className="flex md:hidden gap-1">
+                <button onClick={()=>setShowSettings(true)} className="bg-slate-200 px-2 py-1 rounded text-[10px] font-bold border border-slate-300">⚙️</button>
+                <button onClick={()=>setShowArchiveModal(true)} className="bg-emerald-600 text-white px-2 py-1 rounded text-[10px] font-bold">📂</button>
+                <button onClick={()=>setShowExport(true)} className="bg-blue-600 text-white px-2 py-1 rounded text-[10px] font-bold">📤</button>
+                <button onClick={()=>{ setEditingTeamIndex(null); setShowTeamManager(true); }} className="bg-amber-600 text-white px-2 py-1 rounded text-[10px] font-bold">👥</button>
+                <button onClick={() => setShowPostGameAnalysis(true)} className="bg-yellow-100 text-yellow-800 px-2 py-1 rounded text-[10px] font-bold border border-yellow-300">🏁</button>
+              </div>
+            </div>
             
-            <div className="flex flex-col bg-white border border-slate-400 rounded-lg overflow-hidden text-sm shadow-sm">
+            {/* PC用: フルスコアボード */}
+            <div className="hidden md:flex flex-col bg-white border border-slate-400 rounded-lg overflow-hidden text-sm shadow-sm">
               <div className="flex bg-slate-200 border-b border-slate-400 font-bold text-[10px] text-slate-600">
                 <div className="w-24 border-r border-slate-400 flex items-center justify-center py-0.5">TEAM</div>
                 {[1,2,3,4,5,6,7,8,9].map(i => (
@@ -1856,8 +1906,14 @@
               </div>
               <div className="flex">
                 <div className="flex flex-col bg-slate-100 font-bold border-r border-slate-400 w-24">
-                  <input type="text" value={gameInfo.teamTop} onChange={e=>setGameInfo({...gameInfo, teamTop: e.target.value})} className="h-7 bg-transparent text-center outline-none border-b border-slate-400 px-1 font-bold text-[11px]" />
-                  <input type="text" value={gameInfo.teamBottom} onChange={e=>setGameInfo({...gameInfo, teamBottom: e.target.value})} className="h-7 bg-transparent text-center outline-none px-1 font-bold text-[11px]" />
+                  <div className="h-7 border-b border-slate-400 flex items-center">
+                    <input type="text" value={gameInfo.teamTop} onChange={e=>setGameInfo({...gameInfo, teamTop: e.target.value})} className="flex-1 h-full bg-transparent text-center outline-none px-1 font-bold text-[11px] min-w-0" />
+                    {registeredTeams.length > 0 && <select value="" onChange={e => { if (!e.target.value) return; setGameInfo({...gameInfo, teamTop: e.target.value}); const t = findRegisteredTeam(e.target.value); if (t) applyTeamToLineup(t, 'top'); }} className="w-5 h-full bg-transparent text-[8px] outline-none cursor-pointer opacity-50 shrink-0"><option value="">▼</option>{registeredTeams.map((t,i) => <option key={i} value={t.name}>{t.name}</option>)}</select>}
+                  </div>
+                  <div className="h-7 flex items-center">
+                    <input type="text" value={gameInfo.teamBottom} onChange={e=>setGameInfo({...gameInfo, teamBottom: e.target.value})} className="flex-1 h-full bg-transparent text-center outline-none px-1 font-bold text-[11px] min-w-0" />
+                    {registeredTeams.length > 0 && <select value="" onChange={e => { if (!e.target.value) return; setGameInfo({...gameInfo, teamBottom: e.target.value}); const t = findRegisteredTeam(e.target.value); if (t) applyTeamToLineup(t, 'bottom'); }} className="w-5 h-full bg-transparent text-[8px] outline-none cursor-pointer opacity-50 shrink-0"><option value="">▼</option>{registeredTeams.map((t,i) => <option key={i} value={t.name}>{t.name}</option>)}</select>}
+                  </div>
                 </div>
                 <div className="flex">
                   {[1,2,3,4,5,6,7,8,9].map(i => (
@@ -1878,7 +1934,7 @@
               </div>
             </div>
 
-            <div className="flex gap-4 items-center">
+            <div className="hidden md:flex gap-4 items-center">
               <div className="flex flex-col items-center mr-2">
                 <div className="text-[9px] font-bold text-slate-500 mb-0.5 tracking-widest">現在のランナー</div>
                 <div className="relative w-8 h-8 mb-1">
@@ -1906,15 +1962,51 @@
                   <button onClick={()=>setShowSettings(true)} className="bg-slate-200 px-2 py-0.5 rounded text-[10px] font-bold border border-slate-300 shadow-sm">⚙️ オーダー</button>
                   <button onClick={()=>setShowArchiveModal(true)} className="bg-emerald-600 text-white px-2 py-0.5 rounded text-[10px] font-bold shadow-sm">📂 保存/読込</button>
                   <button onClick={()=>setShowExport(true)} className="bg-blue-600 text-white px-2 py-0.5 rounded text-[10px] font-bold shadow-sm">📤 出力</button>
-                  <button onClick={()=>setShowTeamManager(true)} className="bg-amber-600 text-white px-2 py-0.5 rounded text-[10px] font-bold shadow-sm">👥 自チーム</button>
+                  <button onClick={()=>{ setEditingTeamIndex(null); setShowTeamManager(true); }} className="bg-amber-600 text-white px-2 py-0.5 rounded text-[10px] font-bold shadow-sm">👥 チーム</button>
                 </div>
               </div>
             </div>
           </header>
 
-          <main className="flex-1 flex p-4 gap-4 max-w-7xl mx-auto w-full overflow-hidden">
-            <div className="w-[55%] flex flex-col gap-4 overflow-y-auto pr-1">
-              <div className="bg-white rounded-xl shadow-sm p-4 flex justify-between items-center border border-slate-300 shrink-0">
+          {/* スマホ用: BSO・ランナー・投手打者バー */}
+          <div className="md:hidden bg-white border-b border-slate-300 px-3 py-2 flex items-center justify-between gap-2 shrink-0">
+            <div className="flex items-center gap-3">
+              {/* BSO */}
+              <div className="flex flex-col gap-0.5 font-mono">
+                <div className="flex items-center gap-0.5"><span className="text-[10px] w-2 text-green-600">B</span>{[0,1,2].map(i=><div key={i} className={`w-3 h-3 rounded-full border-2 border-green-600 ${i<gameState.balls?'bg-green-500':'bg-slate-200'}`}></div>)}</div>
+                <div className="flex items-center gap-0.5"><span className="text-[10px] w-2 text-yellow-500">S</span>{[0,1].map(i=><div key={i} className={`w-3 h-3 rounded-full border-2 border-yellow-500 ${i<gameState.strikes?'bg-yellow-400':'bg-slate-200'}`}></div>)}</div>
+                <div className="flex items-center gap-0.5"><span className="text-[10px] w-2 text-red-600">O</span>{[0,1].map(i=><div key={i} className={`w-3 h-3 rounded-full border-2 border-red-600 ${i<gameState.outs?'bg-red-500':'bg-slate-200'}`}></div>)}</div>
+              </div>
+              {/* ランナー */}
+              <div className="relative w-7 h-7">
+                <button onClick={() => toggleRunner('second')} className={`absolute top-0 left-1/2 -translate-x-1/2 w-3 h-3 transform rotate-45 border-2 border-slate-400 ${gameState.runners.second ? 'bg-blue-600' : 'bg-white'}`}></button>
+                <button onClick={() => toggleRunner('third')} className={`absolute top-1/2 left-0 -translate-y-1/2 w-3 h-3 transform rotate-45 border-2 border-slate-400 ${gameState.runners.third ? 'bg-blue-600' : 'bg-white'}`}></button>
+                <button onClick={() => toggleRunner('first')} className={`absolute top-1/2 right-0 -translate-y-1/2 w-3 h-3 transform rotate-45 border-2 border-slate-400 ${gameState.runners.first ? 'bg-blue-600' : 'bg-white'}`}></button>
+                <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-3 h-3 transform rotate-45 border border-slate-400 bg-slate-200"></div>
+              </div>
+            </div>
+            {/* 投手・打者 */}
+            <div className="flex-1 flex items-center gap-1 text-[10px] font-bold truncate min-w-0">
+              <span className="text-red-700">投:</span><span className="truncate">{currentPitcherObj.name}</span>
+              <span className="text-slate-300 mx-0.5">|</span>
+              <span className="text-blue-700">打:</span>
+              <select value={gameState.isTop ? gameState.batterTop : gameState.batterBottom} onChange={(e) => manuallyChangeBatter(Number(e.target.value))} className="bg-white border border-blue-400 text-blue-700 rounded px-0.5 outline-none font-black cursor-pointer text-[10px] w-10">
+                {[1,2,3,4,5,6,7,8,9].map(n => <option key={n} value={n}>{n}番</option>)}
+              </select>
+              <span className="truncate text-blue-700">{currentBatterObj.name}</span>
+            </div>
+            {/* アクション */}
+            <div className="flex gap-1 shrink-0">
+              <button onClick={() => setShowAdvanceModal(true)} className="text-[9px] bg-blue-100 text-blue-700 px-1.5 py-1 rounded font-bold border border-blue-200">進塁</button>
+              <button onClick={() => { setOutRunnerData({ runner: '', reason: '盗塁死' }); setShowOutRunnerModal(true); }} className="text-[9px] bg-rose-100 text-rose-700 px-1.5 py-1 rounded font-bold border border-rose-200">走OUT</button>
+              <button onClick={handleUndo} disabled={undoStack.length === 0} className={`text-[9px] px-1.5 py-1 rounded font-bold border ${undoStack.length > 0 ? 'bg-white border-slate-400 text-slate-700' : 'bg-slate-50 border-slate-200 text-slate-300'}`}>↩️</button>
+            </div>
+          </div>
+
+          <main className="flex-1 flex flex-col md:flex-row p-2 md:p-4 gap-2 md:gap-4 max-w-7xl mx-auto w-full overflow-hidden">
+            <div className="w-full md:w-[55%] flex flex-col gap-2 md:gap-4 overflow-y-auto md:pr-1 flex-1 md:flex-none">
+              {/* PC用: 回・投手・打者バー */}
+              <div className="hidden md:flex bg-white rounded-xl shadow-sm p-4 justify-between items-center border border-slate-300 shrink-0">
                 <div className="text-xl font-black text-slate-800">{gameState.inning}回{gameState.isTop?'表':'裏'}</div>
                 <div className="flex items-center gap-2">
                   <div className="text-[11px] font-bold bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-300 flex items-center gap-3">
@@ -1941,10 +2033,10 @@
               </div>
 
               {!showInPlayResult ? (
-                <div className="bg-white rounded-2xl shadow-sm p-6 border border-slate-300 flex-1 flex flex-col min-h-fit">
-                  <div className="flex gap-8 flex-1">
+                <div className="bg-white rounded-2xl shadow-sm p-3 md:p-6 border border-slate-300 flex-1 flex flex-col min-h-fit">
+                  <div className="flex flex-col md:flex-row gap-4 md:gap-8 flex-1">
                     <div className="flex-1 flex flex-col items-center justify-center">
-                      <div className="grid grid-cols-5 grid-rows-5 w-64 h-64 gap-1 relative bg-slate-200 p-2 rounded-lg border border-slate-400 shadow-inner">
+                      <div className="grid grid-cols-5 grid-rows-5 w-48 h-48 md:w-64 md:h-64 gap-0.5 md:gap-1 relative bg-slate-200 p-1.5 md:p-2 rounded-lg border border-slate-400 shadow-inner">
                         <div className="absolute top-[20%] left-[20%] w-[60%] h-[60%] border-4 border-slate-800 pointer-events-none rounded-sm z-10"></div>
                         {courses.map(i => (
                           <button key={i} onClick={() => setCurrentPitch({ ...currentPitch, course: i })} className={`rounded-sm relative ${isStrikeZone(i) ? 'bg-white' : 'bg-slate-50'} ${currentPitch.course === i ? 'ring-4 ring-blue-500 bg-blue-100 z-20 scale-110 shadow-lg' : 'border border-slate-400 hover:bg-white/50'}`}>
@@ -1973,7 +2065,7 @@
                         </div>
                         <button onClick={() => recordPitch('インプレー')} className="w-full bg-blue-600 text-white py-3.5 rounded-xl font-black text-base shadow-lg active:scale-95 transition-transform font-bold mt-1">打った！ (インプレー)</button>
                         
-                        <div className="grid grid-cols-2 gap-3 mt-2 border-t pt-3">
+                        <div className="hidden md:grid grid-cols-2 gap-3 mt-2 border-t pt-3">
                           <button onClick={handleUndo} disabled={undoStack.length === 0} className={`py-3 rounded-xl font-black text-xs flex items-center justify-center gap-2 border-2 transition-all ${undoStack.length > 0 ? 'bg-white border-slate-800 text-slate-800 active:bg-slate-100' : 'bg-slate-50 border-slate-200 text-slate-200 cursor-not-allowed'}`}>
                             <span>↩️ 戻る</span>{undoStack.length > 0 && <span className="bg-slate-800 text-white text-[9px] px-1.5 rounded-full font-mono">{undoStack.length}</span>}
                           </button>
@@ -2004,7 +2096,7 @@
                         )}
                       </div>
                       
-                      <div className="relative w-[320px] h-[320px] mb-4 mx-auto">
+                      <div className="relative w-[260px] md:w-[320px] h-[260px] md:h-[320px] mb-4 mx-auto">
                         {/* グラウンド背景 */}
                         <div className="absolute inset-0 bg-green-50 border-2 border-slate-300 rounded-t-[160px] overflow-hidden shadow-inner pointer-events-none">
                           <div className="absolute bottom-[-50px] left-1/2 -translate-x-1/2 w-[180px] h-[180px] bg-amber-50 rounded-full border border-amber-200/50"></div>
@@ -2029,7 +2121,7 @@
                             return (
                               <div 
                                 key={pos.id} 
-                                className={`absolute w-12 h-12 -translate-x-1/2 -translate-y-1/2 transition-all duration-300 ${isDimmed ? 'opacity-20 pointer-events-none' : 'opacity-100 z-20'}`} 
+                                className={`absolute w-10 h-10 md:w-12 md:h-12 -translate-x-1/2 -translate-y-1/2 transition-all duration-300 ${isDimmed ? 'opacity-20 pointer-events-none' : 'opacity-100 z-20'}`} 
                                 style={{ top: pos.top, left: pos.left }}
                               >
                                 {/* 野手のメインボタン */}
@@ -2062,7 +2154,7 @@
                                       { label: '⬇', angle: Math.PI * 0.5 },
                                       { label: '↘', angle: Math.PI * 0.25 },
                                     ].map(arr => {
-                                      const radius = 58;
+                                      const radius = 48;
                                       const top = Math.sin(arr.angle) * radius;
                                       const left = Math.cos(arr.angle) * radius;
                                       return (
@@ -2074,7 +2166,7 @@
                                             setSelectedPosition(`${pos.name}${arr.label}`); // 矢印付きで記録
                                             setSelectedFielder(null);
                                           }}
-                                          className="absolute w-10 h-10 bg-white rounded-full border-[2px] border-blue-400 shadow-xl text-blue-600 font-black text-lg flex items-center justify-center hover:bg-blue-50 hover:scale-110 transition-transform -translate-x-1/2 -translate-y-1/2 animate-in zoom-in duration-200"
+                                          className="absolute w-8 h-8 md:w-10 md:h-10 bg-white rounded-full border-[2px] border-blue-400 shadow-xl text-blue-600 font-black text-base md:text-lg flex items-center justify-center hover:bg-blue-50 hover:scale-110 transition-transform -translate-x-1/2 -translate-y-1/2 animate-in zoom-in duration-200"
                                           style={{ marginTop: top, marginLeft: left }}
                                         >
                                           {arr.label}
@@ -2091,18 +2183,18 @@
                     </div>
                   ) : (
                     <div className="flex-1 flex flex-col items-center animate-in slide-in-from-right duration-150 w-full">
-                      <p className="text-slate-600 font-bold mb-6 text-lg">② <span className="text-blue-700 text-2xl font-black px-2">{selectedPosition}</span> の結果は？</p>
-                      <div className="w-full space-y-4 max-w-md">
-                        <div className="bg-white p-4 rounded-xl border border-red-100 shadow-sm"><div className="grid grid-cols-3 gap-3">
-                          <button onClick={() => handleInPlayFinalResult('ゴロ', 1)} className="bg-red-50 text-red-700 py-4 rounded-xl font-bold active:bg-red-100 transition-colors">ゴロ</button>
-                          <button onClick={() => handleInPlayFinalResult('飛', 1)} className="bg-orange-50 text-orange-700 py-4 rounded-xl font-bold active:bg-orange-100 transition-colors">飛/直</button>
-                          <button onClick={() => handleInPlayFinalResult('併殺打', 2)} className="bg-red-600 text-white py-4 rounded-xl font-bold shadow-md active:bg-red-700 transition-colors">併殺打</button>
+                      <p className="text-slate-600 font-bold mb-3 md:mb-6 text-base md:text-lg">② <span className="text-blue-700 text-xl md:text-2xl font-black px-2">{selectedPosition}</span> の結果は？</p>
+                      <div className="w-full space-y-3 md:space-y-4 max-w-md">
+                        <div className="bg-white p-3 md:p-4 rounded-xl border border-red-100 shadow-sm"><div className="grid grid-cols-3 gap-2 md:gap-3">
+                          <button onClick={() => handleInPlayFinalResult('ゴロ', 1)} className="bg-red-50 text-red-700 py-3 md:py-4 rounded-xl font-bold active:bg-red-100 transition-colors">ゴロ</button>
+                          <button onClick={() => handleInPlayFinalResult('飛', 1)} className="bg-orange-50 text-orange-700 py-3 md:py-4 rounded-xl font-bold active:bg-orange-100 transition-colors">飛/直</button>
+                          <button onClick={() => handleInPlayFinalResult('併殺打', 2)} className="bg-red-600 text-white py-3 md:py-4 rounded-xl font-bold shadow-md active:bg-red-700 transition-colors">併殺打</button>
                         </div></div>
-                        <div className="bg-white p-4 rounded-xl border border-blue-100 shadow-sm"><div className="grid grid-cols-4 gap-2 mb-2">
-                          <button onClick={() => handleInPlayFinalResult('安', 0)} className="bg-blue-50 text-blue-700 py-4 rounded-xl font-bold active:bg-blue-100 transition-colors">単打</button>
-                          <button onClick={() => handleInPlayFinalResult('二塁打', 0)} className="bg-indigo-50 text-indigo-700 py-4 rounded-xl font-bold active:bg-indigo-100 transition-colors">二塁</button>
-                          <button onClick={() => handleInPlayFinalResult('三塁打', 0)} className="bg-purple-50 text-purple-700 py-4 rounded-xl font-bold active:bg-purple-100 transition-colors">三塁</button>
-                          <button onClick={() => handleInPlayFinalResult('本塁打', 0)} className="bg-pink-100 text-pink-700 py-4 rounded-xl font-bold shadow-sm active:bg-pink-200 transition-colors">本塁打</button>
+                        <div className="bg-white p-3 md:p-4 rounded-xl border border-blue-100 shadow-sm"><div className="grid grid-cols-4 gap-2 mb-2">
+                          <button onClick={() => handleInPlayFinalResult('安', 0)} className="bg-blue-50 text-blue-700 py-3 md:py-4 rounded-xl font-bold active:bg-blue-100 transition-colors text-sm">単打</button>
+                          <button onClick={() => handleInPlayFinalResult('二塁打', 0)} className="bg-indigo-50 text-indigo-700 py-3 md:py-4 rounded-xl font-bold active:bg-indigo-100 transition-colors text-sm">二塁</button>
+                          <button onClick={() => handleInPlayFinalResult('三塁打', 0)} className="bg-purple-50 text-purple-700 py-3 md:py-4 rounded-xl font-bold active:bg-purple-100 transition-colors text-sm">三塁</button>
+                          <button onClick={() => handleInPlayFinalResult('本塁打', 0)} className="bg-pink-100 text-pink-700 py-3 md:py-4 rounded-xl font-bold shadow-sm active:bg-pink-200 transition-colors text-sm">本塁打</button>
                         </div></div>
                         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm"><div className="grid grid-cols-4 gap-2">
                           <button onClick={() => handleInPlayFinalResult('エラー', 0)} className="bg-slate-100 text-slate-700 py-3 rounded-xl font-bold text-xs hover:bg-slate-200 transition-colors">エラー</button>
@@ -2118,8 +2210,8 @@
               )}
             </div>
 
-            <div className="w-[45%] flex flex-col gap-4 overflow-hidden font-sans">
-              <div className="bg-white rounded-2xl shadow-sm p-4 border border-slate-300 shrink-0">
+            <div className="w-full md:w-[45%] flex flex-col gap-2 md:gap-4 overflow-hidden font-sans">
+              <div className="hidden md:block bg-white rounded-2xl shadow-sm p-4 border border-slate-300 shrink-0">
                 <div className="flex justify-between items-center mb-3 border-b border-slate-300 pb-2">
                   <h2 className="text-[11px] font-bold uppercase tracking-wider text-slate-500 italic font-bold tracking-widest font-sans uppercase">📊 Stats <span className="font-mono ml-2">Pitches:{analysisData.totalPitches}</span></h2>
                   <div className="flex gap-1.5 font-bold">
@@ -2193,11 +2285,11 @@
                 </div>
               </div>
 
-              <div className="bg-white rounded-2xl shadow-sm border border-slate-300 flex-1 flex flex-col overflow-hidden">
-                 <h2 className="text-xs font-bold bg-slate-200 p-3 border-b border-slate-400 text-slate-800 flex justify-between items-center shrink-0 tracking-tight font-sans">
+              <div className="bg-white rounded-2xl shadow-sm border border-slate-300 flex-1 flex flex-col overflow-hidden max-h-[200px] md:max-h-none">
+                 <h2 className="text-xs font-bold bg-slate-200 p-2 md:p-3 border-b border-slate-400 text-slate-800 flex justify-between items-center shrink-0 tracking-tight font-sans">
                   <span>打席履歴（{currentBatterObj.name}）</span>
                   <div className="flex items-center gap-2">
-                    <span className="text-[9px] text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full font-bold">💡タップして修正</span>
+                    <span className="hidden md:inline text-[9px] text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full font-bold">💡タップして修正</span>
                     <span className="text-[10px] bg-white border border-slate-400 px-2 py-0.5 rounded-full shadow-sm font-mono font-bold">{currentAtBatPitches.filter(p => !p.isEvent).length} 球</span>
                   </div>
                 </h2>
@@ -2434,6 +2526,18 @@
                       <div className={`p-4 font-black flex items-center gap-3 ${team==='top'?'bg-blue-100 text-blue-800':'bg-red-100 text-red-800'}`}>
                         <span className="text-sm px-2 py-0.5 bg-white/50 rounded-lg font-bold">{team==='top'?'先攻':'後攻'}</span>
                         <input type="text" value={gameInfo[team==='top'?'teamTop':'teamBottom']} onChange={e=>setGameInfo({...gameInfo, [team==='top'?'teamTop':'teamBottom']: e.target.value})} className="flex-1 rounded-xl px-3 py-1 outline-none border border-transparent focus:bg-white/80 transition-all font-black shadow-sm" />
+                        {registeredTeams.length > 0 && (
+                          <select value="" onChange={e => {
+                            if (!e.target.value) return;
+                            const infoKey = team==='top' ? 'teamTop' : 'teamBottom';
+                            setGameInfo({...gameInfo, [infoKey]: e.target.value});
+                            const t = findRegisteredTeam(e.target.value);
+                            if (t) applyTeamToLineup(t, team);
+                          }} className="bg-white/80 border border-slate-300 rounded-lg px-2 py-1 text-xs font-bold outline-none cursor-pointer shadow-sm">
+                            <option value="">👥 登録チーム</option>
+                            {registeredTeams.map((t,i) => <option key={i} value={t.name}>{t.name}{t.isMyTeam ? ' ⭐' : ''} ({(t.players||[]).length}名)</option>)}
+                          </select>
+                        )}
                       </div>
                       <table className="w-full text-[11px] text-center table-fixed font-sans">
                         <thead className="bg-slate-200 text-slate-600 tracking-widest font-black uppercase tracking-widest border-b border-slate-300"><tr><th className="py-2 w-8">順</th><th className="py-2 w-12">守備</th><th className="py-2 text-left px-3">選手名</th><th className="w-16">投/打</th></tr></thead>
@@ -2466,18 +2570,19 @@
                               </td>
                               <td className="px-3">
                                 {(() => {
-                                  const isMyTeamSide = myTeam?.name && ((team === 'top' && gameInfo.teamTop === myTeam.name) || (team === 'bottom' && gameInfo.teamBottom === myTeam.name));
-                                  const myPlayers = isMyTeamSide ? (myTeam.players || []).map(pl => typeof pl === 'string' ? { name: pl, throws: '右', bats: '右' } : pl) : [];
+                                  const teamName = team === 'top' ? gameInfo.teamTop : gameInfo.teamBottom;
+                                  const matchedTeam = registeredTeams.find(t => t.name === teamName);
+                                  const teamPlayers = matchedTeam ? (matchedTeam.players || []).map(pl => typeof pl === 'string' ? { name: pl, throws: '右', bats: '右' } : pl) : [];
                                   return (
                                     <div className="flex gap-1">
-                                      <input type="text" value={p.name} onChange={e => { recordAction(); const newL = [...lineups[team]]; newL[i].name = e.target.value; setLineups({...lineups, [team]: newL}); }} className={`flex-1 border border-slate-400 rounded-lg px-2 py-1 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 shadow-inner font-bold text-slate-700 ${isMyTeamSide ? 'w-0 min-w-0' : 'w-full'}`} placeholder={i === 9 ? "DH制の先発投手" : "交代時はここを変更"} />
-                                      {isMyTeamSide && myPlayers.length > 0 && (
+                                      <input type="text" value={p.name} onChange={e => { recordAction(); const newL = [...lineups[team]]; newL[i].name = e.target.value; setLineups({...lineups, [team]: newL}); }} className={`flex-1 border border-slate-400 rounded-lg px-2 py-1 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 shadow-inner font-bold text-slate-700 ${teamPlayers.length > 0 ? 'w-0 min-w-0' : 'w-full'}`} placeholder={i === 9 ? "DH制の先発投手" : "交代時はここを変更"} />
+                                      {teamPlayers.length > 0 && (
                                         <select 
                                           value="" 
                                           onChange={e => {
                                             if (!e.target.value) return;
                                             recordAction();
-                                            const selected = myPlayers.find(mp => mp.name === e.target.value);
+                                            const selected = teamPlayers.find(mp => mp.name === e.target.value);
                                             const newL = [...lineups[team]];
                                             newL[i] = { ...newL[i], name: selected.name, throws: selected.throws, bats: selected.bats };
                                             setLineups({...lineups, [team]: newL});
@@ -2486,7 +2591,7 @@
                                           title="登録メンバーから選択"
                                         >
                                           <option value="">👥</option>
-                                          {myPlayers.map((mp, mi) => (
+                                          {teamPlayers.map((mp, mi) => (
                                             <option key={mi} value={mp.name}>{mp.name} ({mp.throws}投{mp.bats}打)</option>
                                           ))}
                                         </select>
@@ -2630,115 +2735,145 @@
           {showTeamManager && (
             <div className="fixed inset-0 bg-slate-100 z-[200] flex flex-col font-sans overflow-hidden animate-in fade-in duration-200">
               <div className="p-4 border-b border-slate-300 bg-white flex justify-between items-center shadow-sm shrink-0">
-                <h2 className="text-xl font-black text-amber-800 flex items-center gap-2">👥 自チーム管理</h2>
-                <button onClick={() => setShowTeamManager(false)} className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-6 py-2 rounded-full font-bold transition-colors shadow-sm">閉じる</button>
+                <h2 className="text-xl font-black text-amber-800 flex items-center gap-2">👥 チーム管理</h2>
+                <div className="flex gap-2">
+                  {myTeam?.name && (
+                    <button onClick={() => { setShowCrossGameStats(true); setShowTeamManager(false); setPostGameTab('crossBatting'); }} className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-full font-bold text-sm shadow-sm">📊 累積スタッツ</button>
+                  )}
+                  <button onClick={() => setShowTeamManager(false)} className="bg-slate-200 hover:bg-slate-300 text-slate-700 px-6 py-2 rounded-full font-bold transition-colors shadow-sm">閉じる</button>
+                </div>
               </div>
               <div className="flex-1 overflow-y-auto p-6" style={{WebkitOverflowScrolling: 'touch'}}>
-                <div className="max-w-xl mx-auto flex flex-col gap-4">
-                  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                    <label className="text-xs font-bold text-slate-500 mb-1 block">自チーム名（スコアボードのチーム名と完全一致させてください）</label>
-                    <input 
-                      type="text" 
-                      value={myTeam?.name || ''} 
-                      onChange={e => setMyTeam(prev => ({ ...(prev || { players: [] }), name: e.target.value }))}
-                      className="w-full border-2 border-slate-300 rounded-xl px-4 py-3 font-bold text-lg outline-none focus:border-amber-500 shadow-inner"
-                      placeholder="例：○○中学校"
-                    />
-                  </div>
-                  
-                  {myTeam?.name && (
-                    <>
-                      <div className="bg-amber-50 p-3 rounded-xl border border-amber-200 text-xs text-amber-800 font-bold">
-                        💡 チーム名「{myTeam.name}」が先攻 or 後攻として保存されている試合のデータを横断集計します。
-                        保存済み試合: {savedGames.filter(g => {
-                          const gi = g.data?.gameInfo || { teamTop: g.teamTop, teamBottom: g.teamBottom };
-                          return gi.teamTop === myTeam.name || gi.teamBottom === myTeam.name;
-                        }).length}件が該当
-                      </div>
-                      <button 
-                        onClick={() => { setShowCrossGameStats(true); setShowTeamManager(false); setPostGameTab('crossBatting'); }}
-                        className="bg-amber-600 hover:bg-amber-700 text-white py-4 rounded-xl font-black shadow-lg active:scale-95 transition-all text-base"
-                        disabled={savedGames.filter(g => {
-                          const gi = g.data?.gameInfo || { teamTop: g.teamTop, teamBottom: g.teamBottom };
-                          return gi.teamTop === myTeam?.name || gi.teamBottom === myTeam?.name;
-                        }).length === 0}
-                      >
-                        📊 累積スタッツを表示
-                      </button>
+                <div className="max-w-2xl mx-auto flex flex-col gap-4">
 
-                      {/* 選手登録テーブル */}
-                      <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
-                        <div className="bg-slate-100 px-4 py-2 border-b border-slate-200 flex justify-between items-center rounded-t-xl">
-                          <span className="text-xs font-bold text-slate-600">登録メンバー ({(myTeam.players || []).length}名)</span>
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => {
-                                const targetKey = gameInfo.teamTop === myTeam.name ? 'top' : gameInfo.teamBottom === myTeam.name ? 'bottom' : null;
-                                if (targetKey) {
-                                  const imported = lineups[targetKey].map(p => ({ name: p.name, throws: p.throws, bats: p.bats })).filter(p => p.name && !p.name.startsWith('先攻') && !p.name.startsWith('後攻') && !p.name.startsWith('先発投手'));
-                                  const existing = (myTeam.players || []).map(p => typeof p === 'string' ? p : p.name);
-                                  const newPlayers = [...(myTeam.players || []).map(p => typeof p === 'string' ? { name: p, throws: '右', bats: '右' } : p)];
-                                  imported.forEach(imp => { if (!existing.includes(imp.name)) newPlayers.push(imp); });
-                                  setMyTeam(prev => ({ ...prev, players: newPlayers }));
-                                  showToast(`オーダーから取り込みました`, 'success');
-                                } else {
-                                  showToast('チーム名が一致するチームがありません', 'error');
-                                }
-                              }}
-                              className="text-[10px] bg-amber-100 text-amber-700 px-2 py-1 rounded font-bold border border-amber-200 hover:bg-amber-200"
-                            >📋 オーダーから取込</button>
-                            <button
-                              onClick={() => setMyTeam(prev => ({ ...prev, players: [...(prev.players || []).map(p => typeof p === 'string' ? { name: p, throws: '右', bats: '右' } : p), { name: '', throws: '右', bats: '右' }] }))}
-                              className="text-[10px] bg-blue-100 text-blue-700 px-2 py-1 rounded font-bold border border-blue-200 hover:bg-blue-200"
-                            >＋ 追加</button>
-                          </div>
-                        </div>
-                        <table className="w-full text-[11px]">
-                          <thead className="bg-slate-50 text-slate-500 border-b border-slate-200">
-                            <tr><th className="py-1.5 w-8 text-center">#</th><th className="py-1.5 text-left px-2">選手名</th><th className="py-1.5 w-16 text-center">投/打</th><th className="py-1.5 w-8"></th></tr>
-                          </thead>
-                          <tbody>
-                            {(myTeam.players || []).map((pl, i) => {
-                              const player = typeof pl === 'string' ? { name: pl, throws: '右', bats: '右' } : pl;
-                              return (
-                                <tr key={i} className="border-b border-slate-100 last:border-0">
-                                  <td className="py-1.5 text-center text-slate-400 font-mono">{i + 1}</td>
-                                  <td className="py-1.5 px-2">
-                                    <input type="text" value={player.name} onChange={e => {
-                                      const newPlayers = [...(myTeam.players || [])].map(p => typeof p === 'string' ? { name: p, throws: '右', bats: '右' } : { ...p });
-                                      newPlayers[i] = { ...newPlayers[i], name: e.target.value };
-                                      setMyTeam(prev => ({ ...prev, players: newPlayers }));
-                                    }} className="w-full border border-slate-300 rounded px-2 py-1 outline-none focus:border-amber-500 font-bold text-slate-700" placeholder="選手名" />
-                                  </td>
-                                  <td className="py-1.5 text-center">
-                                    <select value={`${player.throws}${player.bats}`} onChange={e => {
-                                      const val = e.target.value;
-                                      const newPlayers = [...(myTeam.players || [])].map(p => typeof p === 'string' ? { name: p, throws: '右', bats: '右' } : { ...p });
-                                      newPlayers[i] = { ...newPlayers[i], throws: val[0], bats: val[1] };
-                                      setMyTeam(prev => ({ ...prev, players: newPlayers }));
-                                    }} className="border border-slate-300 rounded py-0.5 text-[9px] font-bold outline-none bg-slate-50 cursor-pointer">
-                                      <option value="右右">右/右</option><option value="右左">右/左</option><option value="左右">左/右</option><option value="左左">左/左</option>
-                                    </select>
-                                  </td>
-                                  <td className="py-1.5 text-center">
-                                    <button onClick={() => {
-                                      const newPlayers = [...(myTeam.players || [])].filter((_, idx) => idx !== i);
-                                      setMyTeam(prev => ({ ...prev, players: newPlayers }));
-                                    }} className="text-red-400 hover:text-red-600 text-xs">✕</button>
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                        {(myTeam.players || []).length === 0 && (
-                          <div className="p-4 text-center text-slate-400 text-xs">「＋追加」か「オーダーから取込」で選手を登録してください</div>
-                        )}
+                  {/* チーム一覧とチーム編集 */}
+                  {editingTeamIndex === null ? (
+                    <>
+                      <div className="flex justify-between items-center">
+                        <div className="text-sm font-bold text-slate-600">登録チーム ({registeredTeams.length}チーム)</div>
+                        <button onClick={() => {
+                          setRegisteredTeams(prev => [...prev, { name: '', players: [], isMyTeam: !prev.some(t => t.isMyTeam) }]);
+                          setEditingTeamIndex(registeredTeams.length);
+                        }} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl font-bold text-sm shadow-sm active:scale-95 transition-all">＋ 新しいチームを追加</button>
                       </div>
+
+                      {registeredTeams.length === 0 ? (
+                        <div className="bg-white p-8 rounded-xl border-2 border-dashed border-slate-300 text-center text-slate-400 text-sm">
+                          チームが登録されていません。「＋ 新しいチームを追加」で始めましょう。
+                        </div>
+                      ) : (
+                        <div className="flex flex-col gap-3">
+                          {registeredTeams.map((team, idx) => (
+                            <div key={idx} className={`bg-white p-4 rounded-xl border shadow-sm flex items-center justify-between ${team.isMyTeam ? 'border-amber-300 ring-1 ring-amber-200' : 'border-slate-200'}`}>
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2 mb-1">
+                                  {team.isMyTeam && <span className="bg-amber-100 text-amber-700 text-[10px] font-bold px-2 py-0.5 rounded border border-amber-200">⭐ 自チーム</span>}
+                                  <span className="font-black text-lg text-slate-800">{team.name || '(未入力)'}</span>
+                                </div>
+                                <div className="text-xs text-slate-500">{(team.players || []).length}名登録</div>
+                              </div>
+                              <div className="flex gap-2">
+                                <button onClick={() => setEditingTeamIndex(idx)} className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg font-bold text-xs transition-colors">✏️ 編集</button>
+                                <button onClick={() => {
+                                  setConfirmDialog({
+                                    title: '🗑️ チームの削除', message: `「${team.name}」を削除しますか？`, subMessage: '※選手登録も消えます', isDanger: true,
+                                    onConfirm: () => { setRegisteredTeams(prev => prev.filter((_, i) => i !== idx)); setConfirmDialog(null); }
+                                  });
+                                }} className="bg-red-50 hover:bg-red-100 text-red-500 px-3 py-2 rounded-lg font-bold text-xs transition-colors">🗑️</button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </>
+                  ) : (
+                    /* チーム編集画面 */
+                    (() => {
+                      const team = registeredTeams[editingTeamIndex] || { name: '', players: [], isMyTeam: false };
+                      const updateTeam = (updates) => {
+                        setRegisteredTeams(prev => prev.map((t, i) => i === editingTeamIndex ? { ...t, ...updates } : t));
+                      };
+                      const updatePlayer = (playerIdx, updates) => {
+                        const newPlayers = [...(team.players || [])].map(p => typeof p === 'string' ? { name: p, throws: '右', bats: '右' } : { ...p });
+                        newPlayers[playerIdx] = { ...newPlayers[playerIdx], ...updates };
+                        updateTeam({ players: newPlayers });
+                      };
+                      return (
+                        <>
+                          <button onClick={() => setEditingTeamIndex(null)} className="self-start bg-slate-200 hover:bg-slate-300 text-slate-700 px-4 py-2 rounded-lg font-bold text-sm mb-2">← チーム一覧に戻る</button>
+
+                          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col gap-3">
+                            <div>
+                              <label className="text-xs font-bold text-slate-500 mb-1 block">チーム名</label>
+                              <input type="text" value={team.name} onChange={e => updateTeam({ name: e.target.value })} className="w-full border-2 border-slate-300 rounded-xl px-4 py-3 font-bold text-lg outline-none focus:border-amber-500 shadow-inner" placeholder="例：○○中学校" />
+                            </div>
+                            <label className="flex items-center gap-2 cursor-pointer">
+                              <input type="checkbox" checked={team.isMyTeam || false} onChange={e => {
+                                if (e.target.checked) {
+                                  setRegisteredTeams(prev => prev.map((t, i) => ({ ...t, isMyTeam: i === editingTeamIndex })));
+                                } else {
+                                  updateTeam({ isMyTeam: false });
+                                }
+                              }} className="w-4 h-4 accent-amber-500" />
+                              <span className="text-sm font-bold text-amber-700">⭐ これを自チームに設定（累積スタッツの対象）</span>
+                            </label>
+                          </div>
+
+                          <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
+                            <div className="bg-slate-100 px-4 py-2 border-b border-slate-200 flex justify-between items-center rounded-t-xl">
+                              <span className="text-xs font-bold text-slate-600">登録メンバー ({(team.players || []).length}名)</span>
+                              <div className="flex gap-2">
+                                <button onClick={() => {
+                                  const targetKey = gameInfo.teamTop === team.name ? 'top' : gameInfo.teamBottom === team.name ? 'bottom' : null;
+                                  if (targetKey) {
+                                    const imported = lineups[targetKey].map(p => ({ name: p.name, throws: p.throws, bats: p.bats })).filter(p => p.name && !p.name.startsWith('先攻') && !p.name.startsWith('後攻') && !p.name.startsWith('先発投手'));
+                                    const existing = (team.players || []).map(p => typeof p === 'string' ? p : p.name);
+                                    const newPlayers = [...(team.players || [])].map(p => typeof p === 'string' ? { name: p, throws: '右', bats: '右' } : p);
+                                    imported.forEach(imp => { if (!existing.includes(imp.name)) newPlayers.push(imp); });
+                                    updateTeam({ players: newPlayers });
+                                    showToast(`オーダーから取り込みました`, 'success');
+                                  } else {
+                                    showToast('現在の試合にこのチーム名がありません', 'error');
+                                  }
+                                }} className="text-[10px] bg-amber-100 text-amber-700 px-2 py-1 rounded font-bold border border-amber-200 hover:bg-amber-200">📋 オーダーから取込</button>
+                                <button onClick={() => updateTeam({ players: [...(team.players || []).map(p => typeof p === 'string' ? { name: p, throws: '右', bats: '右' } : p), { name: '', throws: '右', bats: '右' }] })} className="text-[10px] bg-blue-100 text-blue-700 px-2 py-1 rounded font-bold border border-blue-200 hover:bg-blue-200">＋ 追加</button>
+                              </div>
+                            </div>
+                            <table className="w-full text-[11px]">
+                              <thead className="bg-slate-50 text-slate-500 border-b border-slate-200">
+                                <tr><th className="py-1.5 w-8 text-center">#</th><th className="py-1.5 text-left px-2">選手名</th><th className="py-1.5 w-16 text-center">投/打</th><th className="py-1.5 w-8"></th></tr>
+                              </thead>
+                              <tbody>
+                                {(team.players || []).map((pl, i) => {
+                                  const player = typeof pl === 'string' ? { name: pl, throws: '右', bats: '右' } : pl;
+                                  return (
+                                    <tr key={i} className="border-b border-slate-100 last:border-0">
+                                      <td className="py-1.5 text-center text-slate-400 font-mono">{i + 1}</td>
+                                      <td className="py-1.5 px-2">
+                                        <input type="text" value={player.name} onChange={e => updatePlayer(i, { name: e.target.value })} className="w-full border border-slate-300 rounded px-2 py-1 outline-none focus:border-amber-500 font-bold text-slate-700" placeholder="選手名" />
+                                      </td>
+                                      <td className="py-1.5 text-center">
+                                        <select value={`${player.throws}${player.bats}`} onChange={e => { const v = e.target.value; updatePlayer(i, { throws: v[0], bats: v[1] }); }} className="border border-slate-300 rounded py-0.5 text-[9px] font-bold outline-none bg-slate-50 cursor-pointer">
+                                          <option value="右右">右/右</option><option value="右左">右/左</option><option value="左右">左/右</option><option value="左左">左/左</option>
+                                        </select>
+                                      </td>
+                                      <td className="py-1.5 text-center">
+                                        <button onClick={() => updateTeam({ players: (team.players || []).filter((_, idx) => idx !== i) })} className="text-red-400 hover:text-red-600 text-xs">✕</button>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                            {(team.players || []).length === 0 && (
+                              <div className="p-4 text-center text-slate-400 text-xs">「＋追加」か「オーダーから取込」で選手を登録してください</div>
+                            )}
+                          </div>
+                        </>
+                      );
+                    })()
                   )}
 
-                  {/* 下部の余白 (スクロールの余裕) */}
                   <div className="h-20 shrink-0"></div>
                 </div>
               </div>
@@ -2767,7 +2902,7 @@
                   {/* 打者累積 */}
                   {postGameTab === 'crossBatting' && (
                     <div className="animate-in fade-in duration-300">
-                      <div className="bg-slate-800 rounded-2xl border border-slate-700 shadow-2xl overflow-hidden">
+                      <div className="bg-slate-800 rounded-2xl border border-slate-700 shadow-2xl overflow-hidden overflow-x-auto">
                         <table className="w-full text-left text-sm whitespace-nowrap">
                           <thead className="bg-slate-900 text-slate-400 border-b-2 border-slate-700">
                             <tr>
@@ -2951,16 +3086,16 @@
               </div>
               
               {/* タブナビゲーション */}
-              <div className="flex bg-slate-800 border-b border-slate-700 text-sm font-bold shrink-0 overflow-x-auto">
-                <button onClick={() => setPostGameTab('tendency')} className={`px-6 py-4 transition-colors whitespace-nowrap ${postGameTab === 'tendency' ? 'border-b-2 border-yellow-400 text-yellow-400 bg-slate-800/50' : 'text-slate-400 hover:text-slate-200'}`}>チーム特徴・傾向</button>
-                <button onClick={() => setPostGameTab('team')} className={`px-6 py-4 transition-colors whitespace-nowrap ${postGameTab === 'team' ? 'border-b-2 border-blue-400 text-blue-400 bg-slate-800/50' : 'text-slate-400 hover:text-slate-200'}`}>全体サマリー</button>
-                <button onClick={() => setPostGameTab('battingTop')} className={`px-6 py-4 transition-colors whitespace-nowrap ${postGameTab === 'battingTop' ? 'border-b-2 border-blue-400 text-blue-400 bg-slate-800/50' : 'text-slate-400 hover:text-slate-200'}`}>打者成績 ({gameInfo.teamTop})</button>
-                <button onClick={() => setPostGameTab('battingBottom')} className={`px-6 py-4 transition-colors whitespace-nowrap ${postGameTab === 'battingBottom' ? 'border-b-2 border-red-400 text-red-400 bg-slate-800/50' : 'text-slate-400 hover:text-slate-200'}`}>打者成績 ({gameInfo.teamBottom})</button>
-                <button onClick={() => setPostGameTab('pitchingTop')} className={`px-6 py-4 transition-colors whitespace-nowrap ${postGameTab === 'pitchingTop' ? 'border-b-2 border-green-400 text-green-400 bg-slate-800/50' : 'text-slate-400 hover:text-slate-200'}`}>投手成績 ({gameInfo.teamTop})</button>
-                <button onClick={() => setPostGameTab('pitchingBottom')} className={`px-6 py-4 transition-colors whitespace-nowrap ${postGameTab === 'pitchingBottom' ? 'border-b-2 border-green-400 text-green-400 bg-slate-800/50' : 'text-slate-400 hover:text-slate-200'}`}>投手成績 ({gameInfo.teamBottom})</button>
+              <div className="flex flex-wrap md:flex-nowrap bg-slate-800 border-b border-slate-700 text-xs md:text-sm font-bold shrink-0 overflow-x-auto">
+                <button onClick={() => setPostGameTab('tendency')} className={`px-3 md:px-6 py-2.5 md:py-4 transition-colors whitespace-nowrap ${postGameTab === 'tendency' ? 'border-b-2 border-yellow-400 text-yellow-400 bg-slate-800/50' : 'text-slate-400 hover:text-slate-200'}`}>傾向</button>
+                <button onClick={() => setPostGameTab('team')} className={`px-3 md:px-6 py-2.5 md:py-4 transition-colors whitespace-nowrap ${postGameTab === 'team' ? 'border-b-2 border-blue-400 text-blue-400 bg-slate-800/50' : 'text-slate-400 hover:text-slate-200'}`}>サマリー</button>
+                <button onClick={() => setPostGameTab('battingTop')} className={`px-3 md:px-6 py-2.5 md:py-4 transition-colors whitespace-nowrap ${postGameTab === 'battingTop' ? 'border-b-2 border-blue-400 text-blue-400 bg-slate-800/50' : 'text-slate-400 hover:text-slate-200'}`}>打:{gameInfo.teamTop}</button>
+                <button onClick={() => setPostGameTab('battingBottom')} className={`px-3 md:px-6 py-2.5 md:py-4 transition-colors whitespace-nowrap ${postGameTab === 'battingBottom' ? 'border-b-2 border-red-400 text-red-400 bg-slate-800/50' : 'text-slate-400 hover:text-slate-200'}`}>打:{gameInfo.teamBottom}</button>
+                <button onClick={() => setPostGameTab('pitchingTop')} className={`px-3 md:px-6 py-2.5 md:py-4 transition-colors whitespace-nowrap ${postGameTab === 'pitchingTop' ? 'border-b-2 border-green-400 text-green-400 bg-slate-800/50' : 'text-slate-400 hover:text-slate-200'}`}>投:{gameInfo.teamTop}</button>
+                <button onClick={() => setPostGameTab('pitchingBottom')} className={`px-3 md:px-6 py-2.5 md:py-4 transition-colors whitespace-nowrap ${postGameTab === 'pitchingBottom' ? 'border-b-2 border-green-400 text-green-400 bg-slate-800/50' : 'text-slate-400 hover:text-slate-200'}`}>投:{gameInfo.teamBottom}</button>
               </div>
 
-              <div className="flex-1 overflow-y-auto p-6 md:p-10 bg-slate-900">
+              <div className="flex-1 overflow-y-auto p-4 md:p-10 bg-slate-900">
                 <div className="max-w-6xl mx-auto">
 
                   {/* --- タブ: チーム特徴・傾向 --- */}
@@ -2970,14 +3105,14 @@
                         <span className="text-slate-500">🔍</span> Team Tendency Analysis
                       </h3>
                       
-                      <div className="grid grid-cols-2 gap-8 mb-8">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-8 mb-8">
                         {/* 先攻の傾向 */}
                         <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-xl">
                           <h4 className="text-lg font-black text-blue-400 mb-4">{gameInfo.teamTop} の攻撃傾向</h4>
                           
                           <div className="mb-6">
                             <div className="text-xs text-slate-400 font-bold mb-2 tracking-widest">打球方向 (インプレー)</div>
-                            <div className="flex gap-6 items-start">
+                            <div className="flex flex-col md:flex-row gap-4 md:gap-6 items-center md:items-start">
                               <SprayChart hits={advancedStats.topBatting.team.sprayHits} size={180} />
                               <div className="flex flex-col gap-2 flex-1 pt-2">
                                 {['left', 'center', 'right'].map((dir, idx) => {
@@ -3026,7 +3161,7 @@
                           
                           <div className="mb-6">
                             <div className="text-xs text-slate-400 font-bold mb-2 tracking-widest">打球方向 (インプレー)</div>
-                            <div className="flex gap-6 items-start">
+                            <div className="flex flex-col md:flex-row gap-4 md:gap-6 items-center md:items-start">
                               <SprayChart hits={advancedStats.bottomBatting.team.sprayHits} size={180} />
                               <div className="flex flex-col gap-2 flex-1 pt-2">
                                 {['left', 'center', 'right'].map((dir, idx) => {
@@ -3163,7 +3298,7 @@
                   {/* --- タブ: 打者成績（先攻・後攻） --- */}
                   {(postGameTab === 'battingTop' || postGameTab === 'battingBottom') && (
                     <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
-                      <div className="bg-slate-800 rounded-2xl border border-slate-700 shadow-2xl overflow-hidden">
+                      <div className="bg-slate-800 rounded-2xl border border-slate-700 shadow-2xl overflow-hidden overflow-x-auto">
                         <table className="w-full text-left text-sm whitespace-nowrap">
                           <thead className="bg-slate-900 text-slate-400 border-b-2 border-slate-700">
                             <tr>
