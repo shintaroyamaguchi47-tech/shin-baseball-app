@@ -193,7 +193,6 @@
     const { useState, useMemo, useEffect } = React;
 
     function App() {
-      // --- ステート管理 ---
       const [gameState, setGameState] = useState(() => {
         const saved = localStorage.getItem('baseball_gameState');
         const initial = { inning: 1, isTop: true, outs: 0, balls: 0, strikes: 0, batterTop: 1, batterBottom: 1, runners: { first: false, second: false, third: false }, runs: { top: [0,0,0,0,0,0,0,0,0], bottom: [0,0,0,0,0,0,0,0,0] } };
@@ -240,25 +239,15 @@
 
       const [undoStack, setUndoStack] = useState([]);
       const [redoStack, setRedoStack] = useState([]);
-
-      const [savedGames, setSavedGames] = useState(() => {
-        const saved = localStorage.getItem('baseball_savedGames');
-        return saved ? JSON.parse(saved) : [];
-      });
+      const [savedGames, setSavedGames] = useState(() => { const saved = localStorage.getItem('baseball_savedGames'); return saved ? JSON.parse(saved) : []; });
       const [showArchiveModal, setShowArchiveModal] = useState(false);
       
-      const [myTeam, setMyTeam] = useState(() => {
-        const saved = localStorage.getItem('baseball_myTeam');
-        return saved ? JSON.parse(saved) : null;
-      });
+      const [myTeam, setMyTeam] = useState(() => { const saved = localStorage.getItem('baseball_myTeam'); return saved ? JSON.parse(saved) : null; });
       const [registeredTeams, setRegisteredTeams] = useState(() => {
         const saved = localStorage.getItem('baseball_registeredTeams');
         if (saved) return JSON.parse(saved);
         const mt = localStorage.getItem('baseball_myTeam');
-        if (mt) {
-          const parsed = JSON.parse(mt);
-          if (parsed?.name) return [{ ...parsed, isMyTeam: true, players: (parsed.players || []).map(p => typeof p === 'string' ? { name: p, throws: '右', bats: '右' } : p) }];
-        }
+        if (mt) { const parsed = JSON.parse(mt); if (parsed?.name) return [{ ...parsed, isMyTeam: true, players: (parsed.players || []).map(p => typeof p === 'string' ? { name: p, throws: '右', bats: '右' } : p) }]; }
         return [];
       });
       const [showTeamManager, setShowTeamManager] = useState(false);
@@ -267,25 +256,19 @@
       const [showSettings, setShowSettings] = useState(false);
       const [showExport, setShowExport] = useState(false);
       const [showInPlayResult, setShowInPlayResult] = useState(false);
-      
       const [showAdvanceModal, setShowAdvanceModal] = useState(false);
       const [advanceData, setAdvanceData] = useState({ runner: '', reason: '', to: '' });
-
       const [showOutRunnerModal, setShowOutRunnerModal] = useState(false);
       const [outRunnerData, setOutRunnerData] = useState({ runner: '', reason: '盗塁死' });
-
       const [showPostGameAnalysis, setShowPostGameAnalysis] = useState(false);
 
       const [heatmapTab, setHeatmapTab] = useState('all'); 
       const [heatmapCountTab, setHeatmapCountTab] = useState('all'); 
       const [rightPanelMode, setRightPanelMode] = useState('current'); 
       const [printMode, setPrintMode] = useState(false);
-      
-      // 個人詳細展開用
       const [expandedPitcherId, setExpandedPitcherId] = useState(null);
       const [expandedBatterId, setExpandedBatterId] = useState(null);
       
-      // --- テキスト共有用 State ---
       const [showShareModal, setShowShareModal] = useState(false);
       const [shareTextData, setShareTextData] = useState(null);
       const [showImportTextModal, setShowImportTextModal] = useState(false);
@@ -316,7 +299,6 @@
         setLineups(prev => ({ ...prev, [side]: newLineup }));
       };
 
-      // --- 永続化 ---
       useEffect(() => { localStorage.setItem('baseball_gameState', JSON.stringify(gameState)); }, [gameState]);
       useEffect(() => { localStorage.setItem('baseball_gameInfo', JSON.stringify(gameInfo)); }, [gameInfo]);
       useEffect(() => { localStorage.setItem('baseball_lineups', JSON.stringify(lineups)); }, [lineups]);
@@ -324,12 +306,10 @@
       useEffect(() => { localStorage.setItem('baseball_savedGames', JSON.stringify(savedGames)); }, [savedGames]);
       useEffect(() => { localStorage.setItem('baseball_registeredTeams', JSON.stringify(registeredTeams)); }, [registeredTeams]);
       useEffect(() => {
-        const mt = registeredTeams.find(t => t.isMyTeam);
-        setMyTeam(mt || null);
+        const mt = registeredTeams.find(t => t.isMyTeam); setMyTeam(mt || null);
         if (mt) localStorage.setItem('baseball_myTeam', JSON.stringify(mt));
       }, [registeredTeams]);
 
-      // --- テキスト共有機能 ---
       const compressData = (obj) => btoa(encodeURIComponent(JSON.stringify(obj)));
       const decompressData = (str) => { try { return JSON.parse(decodeURIComponent(atob(str))); } catch(e) { return null; } };
 
@@ -367,7 +347,6 @@
         setShowImportTextModal(false); setImportText('');
       };
 
-      // --- 履歴管理 ---
       const createSnapshot = () => ({ gameState: JSON.parse(JSON.stringify(gameState)), lineups: JSON.parse(JSON.stringify(lineups)), pitches: JSON.parse(JSON.stringify(pitches)), showInPlayResult, selectedPosition });
       const recordAction = () => { const snapshot = createSnapshot(); setUndoStack(prev => [...prev, snapshot].slice(-20)); setRedoStack([]); };
       const handleUndo = () => {
@@ -379,7 +358,6 @@
         const next = redoStack[redoStack.length - 1]; setGameState(next.gameState); setLineups(next.lineups); setPitches(next.pitches); setShowInPlayResult(next.showInPlayResult); setSelectedPosition(next.selectedPosition); setRedoStack(prev => prev.slice(0, -1));
       };
 
-      // --- 各種アクション ---
       const handleNewGame = () => {
         setConfirmDialog({
           title: '🔄 新試合の開始', message: '現在の試合データをすべて消去して、新しい試合を開始しますか？', subMessage: '※この操作は取り消せません', isDanger: true,
@@ -795,7 +773,23 @@
         if (!showPostGameAnalysis) return null;
         
         const sprayCoordMap = { '左翼線':{x:20,y:75},'レフト':{x:38,y:45},'左中間':{x:65,y:22},'センター':{x:120,y:12},'右中間':{x:175,y:22},'ライト':{x:202,y:45},'右翼線':{x:220,y:75},'三遊間':{x:60,y:130},'ショート':{x:78,y:118},'二遊間':{x:120,y:108},'セカンド':{x:162,y:118},'一二間':{x:180,y:130},'サード':{x:68,y:152},'ピッチャー':{x:120,y:148},'ファースト':{x:172,y:152},'キャッチャー':{x:120,y:178} };
-        const getSprayPosition = (res) => { for(const [k,v] of Object.entries(sprayCoordMap)){ if(res.includes(k)) return v; } if(res.match(/左/))return sprayCoordMap['レフト']; if(res.match(/右/))return sprayCoordMap['ライト']; if(res.match(/中/))return sprayCoordMap['センター']; return null; };
+        
+        const getSprayPosition = (res) => { 
+          if (res.includes('サード➡') || res.includes('ショート⬅')) return sprayCoordMap['三遊間'];
+          if (res.includes('ショート➡') || res.includes('セカンド⬅')) return sprayCoordMap['二遊間'];
+          if (res.includes('セカンド➡') || res.includes('ファースト⬅')) return sprayCoordMap['一二間'];
+          if (res.includes('サード⬅')) return {x:40, y:152}; 
+          if (res.includes('ファースト➡')) return {x:200, y:152}; 
+          if (res.includes('レフト➡') || res.includes('センター⬅')) return sprayCoordMap['左中間'];
+          if (res.includes('センター➡') || res.includes('ライト⬅')) return sprayCoordMap['右中間'];
+          if (res.includes('レフト⬅')) return {x:20, y:45}; 
+          if (res.includes('ライト➡')) return {x:220, y:45}; 
+          if (res.includes('ピッチャー⬆')) return sprayCoordMap['二遊間']; 
+          for(const [k,v] of Object.entries(sprayCoordMap)){ if(res.includes(k)) return v; } 
+          if(res.match(/左/))return sprayCoordMap['レフト']; if(res.match(/右/))return sprayCoordMap['ライト']; if(res.match(/中/))return sprayCoordMap['センター']; 
+          return null; 
+        };
+
         const getSprayResultType = (res) => ['安','塁打','本塁打'].some(w=>res.includes(w))?'hit':['エラー','野手選択'].some(w=>res.includes(w))?'error':res.includes('ファウル')?'foul':'out';
         const getBallFlight = (res) => res.includes('本塁打')?'hr':['ゴロ','併殺打'].some(w=>res.includes(w))?'grounder':['直','ライナー','安','二塁打','三塁打'].some(w=>res.includes(w))?'liner':'fly';
 
@@ -852,15 +846,9 @@
               const pName = p.pitcherName || '不明';
               if (!pStats[pName]) pStats[pName] = { 
                   name: pName, total: 0, calledStrikes: 0, whiffs: 0, swings: 0, strikes: 0, firstPitches: 0, firstStrikes: 0, PA: 0, H: 0, K: 0, BB: 0, throws: p.pitcherThrows || '右', typeStats: {}, 
-                  heatmaps: {
-                      fastball: { all: {}, ahead: {}, even: {}, behind: {}, max: {all:0, ahead:0, even:0, behind:0} },
-                      breaking: { all: {}, ahead: {}, even: {}, behind: {}, max: {all:0, ahead:0, even:0, behind:0} }
-                  },
+                  heatmaps: { fastball: { all: {}, ahead: {}, even: {}, behind: {}, max: {all:0, ahead:0, even:0, behind:0} }, breaking: { all: {}, ahead: {}, even: {}, behind: {}, max: {all:0, ahead:0, even:0, behind:0} } },
                   pitchTypeHeatmaps: {},
-                  counts: {
-                    vsRight: { ahead: { total: 0, strikes: 0, types: {} }, even: { total: 0, strikes: 0, types: {} }, behind: { total: 0, strikes: 0, types: {} } },
-                    vsLeft: { ahead: { total: 0, strikes: 0, types: {} }, even: { total: 0, strikes: 0, types: {} }, behind: { total: 0, strikes: 0, types: {} } }
-                  }
+                  counts: { vsRight: { ahead: { total: 0, strikes: 0, types: {} }, even: { total: 0, strikes: 0, types: {} }, behind: { total: 0, strikes: 0, types: {} } }, vsLeft: { ahead: { total: 0, strikes: 0, types: {} }, even: { total: 0, strikes: 0, types: {} }, behind: { total: 0, strikes: 0, types: {} } } }
               };
           });
 
@@ -882,9 +870,7 @@
               if (!targetCountObj.types[type]) targetCountObj.types[type] = 0;
               targetCountObj.types[type]++;
 
-              if (!['ボール','ウエスト','死球'].includes(p.result)) { 
-                  st.strikes++; tSt.strikes++; targetCountObj.strikes++; 
-              }
+              if (!['ボール','ウエスト','死球'].includes(p.result)) { st.strikes++; tSt.strikes++; targetCountObj.strikes++; }
 
               let isSwing = false, isStrike = false;
               if (p.result.includes('見逃し') || p.result === 'ストライク') { st.calledStrikes++; tSt.calledStrikes++; isStrike = true; }
@@ -899,7 +885,6 @@
                  
                  st.heatmaps[typeKey].all[p.course] = (st.heatmaps[typeKey].all[p.course] || 0) + 1;
                  if (st.heatmaps[typeKey].all[p.course] > st.heatmaps[typeKey].max.all) st.heatmaps[typeKey].max.all = st.heatmaps[typeKey].all[p.course];
-
                  st.heatmaps[typeKey][countState][p.course] = (st.heatmaps[typeKey][countState][p.course] || 0) + 1;
                  if (st.heatmaps[typeKey][countState][p.course] > st.heatmaps[typeKey].max[countState]) st.heatmaps[typeKey].max[countState] = st.heatmaps[typeKey][countState][p.course];
 
@@ -1423,7 +1408,7 @@
             </div>
           </main>
 
-          {/* 各種モーダル */}
+          {/* 各種モーダル - 以下は1回のみ記述 */}
           {editingPitchIndex !== null && editPitchData && (
             <div className="fixed inset-0 bg-black/70 z-[110] flex items-center justify-center p-4 backdrop-blur-md animate-in fade-in zoom-in duration-200 font-sans">
               <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col border border-slate-300">
@@ -1664,7 +1649,6 @@
                       <span className="text-[9px] text-cyan-500 font-normal mt-1">他の端末へまとめて送信</span>
                     </button>
                   </div>
-                  
                   <div className="border-t border-slate-300 pt-6">
                     <h3 className="font-bold text-slate-600 mb-3 text-sm text-center">端末の引継ぎ・バックアップ（ファイル保存）</h3>
                     <div className="flex flex-col gap-3">
@@ -1689,7 +1673,6 @@
                   <h2 className="text-lg font-bold flex items-center gap-2 text-amber-800">👥 チーム・選手管理</h2>
                   <button onClick={() => setShowTeamManager(false)} className="text-slate-400 hover:text-black font-bold text-xl px-2">✕</button>
                 </div>
-                
                 <div className="flex-1 flex overflow-hidden">
                   <div className="w-1/3 bg-slate-50 border-r border-slate-200 flex flex-col">
                     <div className="p-3 border-b border-slate-200 flex justify-between items-center bg-white shadow-sm z-10">
@@ -1715,7 +1698,6 @@
                       {registeredTeams.length === 0 && <div className="text-center py-6 text-slate-400 font-bold text-xs">登録チームなし</div>}
                     </div>
                   </div>
-
                   <div className="w-2/3 bg-slate-100 flex flex-col">
                     {editingTeamIndex !== null && registeredTeams[editingTeamIndex] ? (
                       <div className="flex-1 flex flex-col h-full overflow-hidden">
@@ -1753,7 +1735,6 @@
                              }} className="text-[10px] text-red-500 font-bold px-3 py-1.5 rounded-lg hover:bg-red-50 transition-colors">🗑️ 削除</button>
                            </div>
                         </div>
-                        
                         <div className="flex-1 overflow-y-auto p-4 bg-slate-50/50">
                           <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
                             <table className="w-full text-xs text-center table-fixed">
@@ -1801,7 +1782,6 @@
                   <button onClick={() => setShowPostGameAnalysis(false)} className="bg-slate-700 hover:bg-slate-600 text-white px-3 md:px-5 py-2 rounded-xl font-bold shadow-md transition-colors text-xs md:text-sm">閉じる ✕</button>
                 </div>
               </div>
-
               <div className="flex-1 overflow-y-auto bg-slate-900 print-target">
                 <div className="max-w-[1000px] mx-auto p-3 md:p-6 pb-20">
                   <div className="bg-slate-800 rounded-2xl p-4 md:p-6 mb-4 md:mb-6 shadow-xl border border-slate-700 print-section relative overflow-hidden">
@@ -1932,7 +1912,6 @@
                         </div>
                       </div>
 
-                      {/* --- 投手成績詳細（タップで展開） --- */}
                       <div className="bg-slate-800 rounded-2xl shadow-xl border border-slate-700 overflow-hidden print-section">
                         <div className="bg-slate-900/80 p-3 md:p-4 border-b border-slate-700 flex justify-between items-center">
                           <h4 className="text-blue-400 font-black text-sm md:text-base flex items-center gap-2">⚾ 投手成績 <span className="text-slate-500 text-xs font-normal">（対戦相手の攻撃から算出）</span></h4>
@@ -1957,17 +1936,14 @@
                                   <td className="py-3 px-2 text-emerald-400 font-mono">{p.pPa}</td>
                                   <td className="py-3 px-2 text-blue-400 font-mono">{p.fStrikePct}%</td>
                                 </tr>
-                                {/* 展開される詳細ヒートマップ */}
                                 {isExpanded && (
                                   <tr>
                                     <td colSpan="10" className="p-0 border-t border-slate-700/30 bg-slate-800/50 shadow-inner">
                                       <div className="flex flex-col gap-4 p-4 w-full">
-                                        {/* カウント別配球 */}
                                         <div className="flex flex-col md:flex-row gap-4">
                                             {renderCountStats(p.counts.vsRight, "対 右打者")}
                                             {renderCountStats(p.counts.vsLeft, "対 左打者")}
                                         </div>
-                                        {/* 球種別ヒートマップ */}
                                         <div className="flex flex-wrap gap-4 justify-center md:justify-start">
                                             <MiniHeatmap data={p.heatmaps.fastball.all} max={p.heatmaps.fastball.max.all} title="直球(全)" colorCls="bg-rose-500" />
                                             <MiniHeatmap data={p.heatmaps.breaking.all} max={p.heatmaps.breaking.max.all} title="変化球(全)" colorCls="bg-indigo-500" />
@@ -2001,7 +1977,6 @@
             </div>
           )}
           
-          {/* データ共有モーダル (テキスト) */}
           {showShareModal && (
             <div className="fixed inset-0 bg-black/60 z-[200] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
               <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col">
@@ -2028,7 +2003,6 @@
             </div>
           )}
 
-          {/* データ受信モーダル */}
           {showImportTextModal && (
             <div className="fixed inset-0 bg-black/60 z-[200] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
               <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col">
@@ -2047,7 +2021,6 @@
               </div>
             </div>
           )}
-
         </div>
       );
     }
