@@ -418,7 +418,7 @@
           const lastPitch = inningPitches[inningPitches.length - 1];
           targetBatter = lastPitch.batter; newRunners = lastPitch.runners || newRunners; newOuts = lastPitch.outs || 0;
           for (let p of inningPitches.filter(p => p.batter === targetBatter && !p.isEvent)) {
-            if (p.result === 'ボール' || p.result === 'ウエスト') newBalls++; else if (p.result === 'ストライク' || p.result === '空振り') newStrikes++; else if (p.result === 'ファウル' && newStrikes < 2) newStrikes++;
+            if (p.result === 'ボール' || p.result === 'ウエスト') newBalls++; else if (p.result === 'ストライク' || p.result === '空振り' || p.result === 'バント空振り') newStrikes++; else if (['ファウル','バントファウル'].includes(p.result) && newStrikes < 2) newStrikes++;
           }
         }
         setGameState(prev => ({ ...prev, inning, isTop, ...(isTop ? { batterTop: targetBatter } : { batterBottom: targetBatter }), runners: newRunners, outs: newOuts, balls: newBalls, strikes: newStrikes }));
@@ -432,7 +432,7 @@
           let newRunners = { first: false, second: false, third: false }, newOuts = prev.outs, newBalls = 0, newStrikes = 0;
           if (targetPitches.length > 0) {
             const lastPitch = targetPitches[targetPitches.length - 1]; newRunners = lastPitch.runners || newRunners; newOuts = lastPitch.outs || 0;
-            for (let p of targetPitches.filter(p => !p.isEvent)) { if (p.result === 'ボール' || p.result === 'ウエスト') newBalls++; else if (p.result === 'ストライク' || p.result === '空振り') newStrikes++; else if (p.result === 'ファウル' && newStrikes < 2) newStrikes++; }
+            for (let p of targetPitches.filter(p => !p.isEvent)) { if (p.result === 'ボール' || p.result === 'ウエスト') newBalls++; else if (p.result === 'ストライク' || p.result === '空振り' || p.result === 'バント空振り') newStrikes++; else if (['ファウル','バントファウル'].includes(p.result) && newStrikes < 2) newStrikes++; }
           }
           return { ...prev, ...(prev.isTop ? { batterTop: newBatterNum } : { batterBottom: newBatterNum }), runners: newRunners, outs: newOuts, balls: newBalls, strikes: newStrikes };
         });
@@ -489,22 +489,34 @@
         const currentBatterObj = lineups[gameState.isTop ? 'top' : 'bottom'][currentBatterIndex] || { name: '打者未設定', bats: '右' };
         const currentBatterPitches = pitches.filter(p => p.inning === gameState.inning && p.isTop === gameState.isTop && p.batter === currentBatterIndex + 1 && !p.isEvent);
 
+        const isThreeBunt = result === 'バントファウル' && gameState.strikes === 2;
+        const actualResult = isThreeBunt ? 'スリーバント失敗' : detailedResult || result;
+
         setPitches([...pitches, {
-          ...currentPitch, course: ['牽制','その他出塁','ウエスト'].includes(result) ? null : currentPitch.course, type: ['牽制','その他出塁'].includes(result) ? '-' : currentPitch.type, result: detailedResult || result, inning: gameState.inning, isTop: gameState.isTop, batter: currentBatterIndex + 1, pitchNumber: currentBatterPitches.length + 1, pitcherName: currentPitcherObj.name, pitcherThrows: currentPitcherObj.throws, batterName: currentBatterObj.name, batterBats: currentBatterObj.bats, isEvent: false, runners: { ...gameState.runners }, outs: gameState.outs
+          ...currentPitch, course: ['牽制','その他出塁','ウエスト'].includes(result) ? null : currentPitch.course, type: ['牽制','その他出塁'].includes(result) ? '-' : currentPitch.type, result: actualResult, inning: gameState.inning, isTop: gameState.isTop, batter: currentBatterIndex + 1, pitchNumber: currentBatterPitches.length + 1, pitcherName: currentPitcherObj.name, pitcherThrows: currentPitcherObj.throws, batterName: currentBatterObj.name, batterBats: currentBatterObj.bats, isEvent: false, runners: { ...gameState.runners }, outs: gameState.outs
         }]);
 
         if (result === '牽制') { setCurrentPitch(p => ({ ...p, course: null })); return; }
-        if (result === 'ストライク' || result === '空振り') { if (gameState.strikes === 2) handleAdvanceAndNextBatter('out', 1); else setGameState(prev => ({ ...prev, strikes: prev.strikes + 1 })); }
-        else if (result === 'ファウル') { if (gameState.strikes < 2) setGameState(prev => ({ ...prev, strikes: prev.strikes + 1 })); }
+        
+        if (isThreeBunt) { handleAdvanceAndNextBatter('out', 1); }
+        else if (result === 'ストライク' || result === '空振り' || result === 'バント空振り') { if (gameState.strikes === 2) handleAdvanceAndNextBatter('out', 1); else setGameState(prev => ({ ...prev, strikes: prev.strikes + 1 })); }
+        else if (result === 'ファウル' || result === 'バントファウル') { if (gameState.strikes < 2) setGameState(prev => ({ ...prev, strikes: prev.strikes + 1 })); }
         else if (result === 'ボール' || result === 'ウエスト') { if (gameState.balls === 3) handleAdvanceAndNextBatter('walk', 0); else setGameState(prev => ({ ...prev, balls: prev.balls + 1 })); }
         else if (result === '死球' || result === 'その他出塁') { handleAdvanceAndNextBatter(result === 'その他出塁' ? 'other' : 'walk', 0); }
-        else if (result === 'インプレー') { setShowInPlayResult(true); }
+        else if (result === 'インプレー' || result === 'バント') { setShowInPlayResult(true); }
+        
         setCurrentPitch(p => ({ ...p, course: null }));
       };
 
       const handleInPlayFinalResult = (typeLabel, outCount) => {
         recordAction();
-        setPitches(prev => { const newPitches = [...prev]; if (newPitches.length > 0) newPitches[newPitches.length - 1].result = `${selectedPosition}${typeLabel}`; return newPitches; });
+        setPitches(prev => { 
+          const newPitches = [...prev]; 
+          if (newPitches.length > 0) {
+            newPitches[newPitches.length - 1].result = `${selectedPosition}${typeLabel}`; 
+          }
+          return newPitches; 
+        });
         let eventType = 'out';
         if (typeLabel === '安') eventType = 'single'; else if (typeLabel === '二塁打') eventType = 'double'; else if (typeLabel === '三塁打') eventType = 'triple'; else if (typeLabel === '本塁打') eventType = 'homerun'; else if (['エラー','敵失(エラー)','野手選択'].includes(typeLabel)) eventType = 'error';
         handleAdvanceAndNextBatter(eventType, outCount);
@@ -574,8 +586,8 @@
                 let newBalls = 0, newStrikes = 0;
                 for (let p of targetPitches.filter(p => !p.isEvent)) {
                   if (p.result === 'ボール' || p.result === 'ウエスト') newBalls++;
-                  else if (p.result === 'ストライク' || p.result === '空振り') newStrikes++;
-                  else if (p.result === 'ファウル' && newStrikes < 2) newStrikes++;
+                  else if (p.result === 'ストライク' || p.result === '空振り' || p.result === 'バント空振り') newStrikes++;
+                  else if (['ファウル','バントファウル'].includes(p.result) && newStrikes < 2) newStrikes++;
                 }
                 setGameState(prev => ({...prev, balls: newBalls, strikes: newStrikes}));
             }
@@ -690,12 +702,12 @@
             const last = noEv[noEv.length-1];
             const pName = last.pitcherName || '不明';
             if (!pStats[pName]) pStats[pName] = { p: 0, k: 0, bb: 0, h: 0 };
-            let s=0, b=0; noEv.forEach(p => { if(['ボール','ウエスト'].includes(p.result)) b++; else if(['ストライク','空振り'].includes(p.result)) s++; else if(p.result==='ファウル'&&s<2) s++; });
+            let s=0, b=0; noEv.forEach(p => { if(['ボール','ウエスト'].includes(p.result)) b++; else if(['ストライク','空振り','バント空振り'].includes(p.result)) s++; else if(['ファウル','バントファウル'].includes(p.result)&&s<2) s++; });
             const res = last.result;
             let finalRes = res;
             if (['安','塁打','本塁打'].some(w=>res.includes(w))) { pStats[pName].h++; }
             else if (['死球','四球','ウエスト'].includes(res) || b>=4) { pStats[pName].bb++; finalRes = res==='死球'?'死球':'四球'; }
-            else if (res==='三振' || s>=3) { pStats[pName].k++; finalRes = '三振'; }
+            else if (res==='三振' || res==='スリーバント失敗' || s>=3) { pStats[pName].k++; finalRes = res==='スリーバント失敗'?'スリーバント失敗':'三振'; }
             else if (res==='その他出塁') { finalRes = '他出塁'; }
             
             if (!['牽制','盗塁死'].includes(finalRes)) {
@@ -725,7 +737,7 @@
              if (currentAbKey !== key) { currentAbKey = key; b = 0; s = 0; }
              let countState = 'even'; if (s > b) countState = 'ahead'; else if (b > s) countState = 'behind';
              result.push({...p, countState});
-             if (['ボール','ウエスト'].includes(p.result)) b++; else if (['ストライク','空振り'].includes(p.result)) s++; else if (p.result === 'ファウル' && s < 2) s++;
+             if (['ボール','ウエスト'].includes(p.result)) b++; else if (['ストライク','空振り','バント空振り'].includes(p.result)) s++; else if (['ファウル','バントファウル'].includes(p.result) && s < 2) s++;
          });
          return result;
       }, [pitches]);
@@ -786,7 +798,7 @@
         };
 
         const getSprayResultType = (res) => ['安','塁打','本塁打'].some(w=>res.includes(w))?'hit':['エラー','野手選択'].some(w=>res.includes(w))?'error':res.includes('ファウル')?'foul':'out';
-        const getBallFlight = (res) => res.includes('本塁打')?'hr':['ゴロ','併殺打'].some(w=>res.includes(w))?'grounder':['直','ライナー','安','二塁打','三塁打'].some(w=>res.includes(w))?'liner':'fly';
+        const getBallFlight = (res) => res.includes('本塁打')?'hr':['ゴロ','併殺打','バント'].some(w=>res.includes(w))?'grounder':['直','ライナー','安','二塁打','三塁打'].some(w=>res.includes(w))?'liner':'fly';
 
         const calcBatting = (isTopQuery) => {
           const teamPitches = pitchesWithCountState.filter(p => p.isTop === isTopQuery && !p.isEvent && !['牽制','盗塁死','その他出塁'].includes(p.result));
@@ -805,16 +817,16 @@
             const pStat = playerStats[bKey], res = lastPitch.result;
             teamStats.PA++; pStat.PA++;
 
-            let s=0, b=0; ab.forEach(p => { if(['ボール','ウエスト'].includes(p.result)) b++; else if(['ストライク','空振り'].includes(p.result)) s++; else if(p.result==='ファウル'&&s<2) s++; });
+            let s=0, b=0; ab.forEach(p => { if(['ボール','ウエスト'].includes(p.result)) b++; else if(['ストライク','空振り','バント空振り'].includes(p.result)) s++; else if(['ファウル','バントファウル'].includes(p.result)&&s<2) s++; });
             const isHitPlay = ['安','塁打','本塁打'].some(w=>res.includes(w));
             let isAB = true, tbAdded = 0;
             if (isHitPlay) { teamStats.H++; pStat.H++; tbAdded = res.includes('二塁打')?2:res.includes('三塁打')?3:res.includes('本塁打')?4:1; teamStats.TB+=tbAdded; pStat.TB+=tbAdded; }
             else if (['死球','四球','ウエスト'].includes(res)||b>=4) { teamStats.BB_HBP++; pStat.BB_HBP++; isAB = false; }
             else if (['犠打','犠飛'].some(w=>res.includes(w))) { isAB = false; }
-            else if (res==='三振'||s>=3) { teamStats.K++; pStat.K++; }
+            else if (res==='三振'||res==='スリーバント失敗'||s>=3) { teamStats.K++; pStat.K++; }
             if (isAB) { teamStats.AB++; pStat.AB++; }
 
-            if (isHitPlay || ['ゴロ','飛','直','エラー'].some(w=>res.includes(w))) {
+            if (isHitPlay || ['ゴロ','飛','直','エラー','バント'].some(w=>res.includes(w))) {
               const sp = getSprayPosition(res);
               if (sp) {
                 const sEnt = { ...sp, type: getSprayResultType(res), flight: getBallFlight(res), result: res };
@@ -869,8 +881,8 @@
 
               let isSwing = false, isStrike = false;
               if (p.result.includes('見逃し') || p.result === 'ストライク') { st.calledStrikes++; tSt.calledStrikes++; isStrike = true; }
-              else if (p.result.includes('空振り')) { st.whiffs++; tSt.whiffs++; isSwing = true; isStrike = true; }
-              else if (['ファウル','インプレー','ゴロ','飛','安','塁打','エラー','犠','直'].some(w => p.result.includes(w))) { isSwing = true; isStrike = true; }
+              else if (p.result.includes('空振り') || p.result === 'バント空振り') { st.whiffs++; tSt.whiffs++; isSwing = true; isStrike = true; }
+              else if (['ファウル','バントファウル','スリーバント失敗','インプレー','バント','ゴロ','飛','安','塁打','エラー','犠','直'].some(w => p.result.includes(w))) { isSwing = true; isStrike = true; }
               if (isSwing) { st.swings++; tSt.swings++; }
               if (p.pitchNumber === 1) { st.firstPitches++; if (isStrike) st.firstStrikes++; }
 
@@ -893,8 +905,8 @@
             const lastP = ab[ab.length - 1]; if (!lastP) return;
             const st = pStats[lastP.pitcherName || '不明'];
             st.PA++; const res = lastP.result;
-            let fB=0, fS=0; ab.forEach(p => { if(['ボール','ウエスト'].includes(p.result)) fB++; else if(['ストライク','空振り'].includes(p.result)) fS++; else if(p.result==='ファウル'&&fS<2) fS++; });
-            if (['安','塁打','本塁打'].some(w=>res.includes(w))) st.H++; else if (['死球','四球','ウエスト'].includes(res) || fB>=4) st.BB++; else if (res==='三振' || fS>=3) st.K++;
+            let fB=0, fS=0; ab.forEach(p => { if(['ボール','ウエスト'].includes(p.result)) fB++; else if(['ストライク','空振り','バント空振り'].includes(p.result)) fS++; else if(['ファウル','バントファウル'].includes(p.result)&&fS<2) fS++; });
+            if (['安','塁打','本塁打'].some(w=>res.includes(w))) st.H++; else if (['死球','四球','ウエスト'].includes(res) || fB>=4) st.BB++; else if (res==='三振' || res==='スリーバント失敗' || fS>=3) st.K++;
           });
 
           return { pitchers: Object.values(pStats).map(st => ({
@@ -918,11 +930,11 @@
           let result = '';
           if (lastPitch) {
             const res = lastPitch.result;
-            if (['安', '塁打', '本塁打', 'インプレー'].some(w => res.includes(w))) result = res;
+            if (['安', '塁打', '本塁打', 'インプレー', 'バント'].some(w => res.includes(w))) result = res;
             else {
               let b = 0, s = 0;
-              nonEvent.forEach(p => { if (['ボール','ウエスト'].includes(p.result)) b++; else if (['ストライク','空振り'].includes(p.result)) s++; else if (p.result === 'ファウル' && s < 2) s++; });
-              if (s >= 3 || res === '三振') result = '三振'; else if (b >= 4 || ['四球','ウエスト'].includes(res)) result = '四球'; else if (res === '死球') result = '死球'; else result = res;
+              nonEvent.forEach(p => { if (['ボール','ウエスト'].includes(p.result)) b++; else if (['ストライク','空振り','バント空振り'].includes(p.result)) s++; else if (['ファウル','バントファウル'].includes(p.result) && s < 2) s++; });
+              if (s >= 3 || res === '三振' || res === 'スリーバント失敗') result = res === 'スリーバント失敗' ? 'スリーバント失敗' : '三振'; else if (b >= 4 || ['四球','ウエスト'].includes(res)) result = '四球'; else if (res === '死球') result = '死球'; else result = res;
             }
           }
           innings[key].atBats.push({ batter: first.batter, batterName: first.batterName, pitcherName: first.pitcherName, pitchCount: nonEvent.length, result, events: events.map(e => e.result), pitches: currentAb });
@@ -1098,10 +1110,10 @@
             </div>
 
             <div className="hidden md:flex gap-4 items-center">
-              <div className="flex flex-col gap-1 items-start px-4 border-l border-r border-slate-200 font-mono w-32 shrink-0">
-                <div className="flex items-center justify-between w-full"><span className="text-[13px] font-black text-emerald-600">B</span><div className="flex gap-1">{[0,1,2].map(i=><div key={i} className={`w-4 h-4 rounded-full border-2 border-emerald-600 ${i<gameState.balls?'bg-emerald-500 shadow-inner':'bg-slate-100'}`}></div>)}</div></div>
-                <div className="flex items-center justify-between w-full"><span className="text-[13px] font-black text-amber-500">S</span><div className="flex gap-1">{[0,1].map(i=><div key={i} className={`w-4 h-4 rounded-full border-2 border-amber-500 ${i<gameState.strikes?'bg-amber-400 shadow-inner':'bg-slate-100'}`}></div>)}</div></div>
-                <div className="flex items-center justify-between w-full"><span className="text-[13px] font-black text-rose-600">O</span><div className="flex gap-1">{[0,1].map(i=><div key={i} className={`w-4 h-4 rounded-full border-2 border-rose-600 ${i<gameState.outs?'bg-rose-500 shadow-inner':'bg-slate-100'}`}></div>)}</div></div>
+              <div className="flex flex-col gap-1 items-start px-4 border-l border-r border-slate-200 font-mono w-36 shrink-0">
+                <div className="flex items-center gap-2 w-full"><span className="text-[13px] font-black text-emerald-600 w-3">B</span><div className="flex gap-1">{[0,1,2].map(i=><div key={i} className={`w-4 h-4 rounded-full border-2 border-emerald-600 ${i<gameState.balls?'bg-emerald-500 shadow-inner':'bg-slate-100'}`}></div>)}</div></div>
+                <div className="flex items-center gap-2 w-full"><span className="text-[13px] font-black text-amber-500 w-3">S</span><div className="flex gap-1">{[0,1].map(i=><div key={i} className={`w-4 h-4 rounded-full border-2 border-amber-500 ${i<gameState.strikes?'bg-amber-400 shadow-inner':'bg-slate-100'}`}></div>)}</div></div>
+                <div className="flex items-center gap-2 w-full"><span className="text-[13px] font-black text-rose-600 w-3">O</span><div className="flex gap-1">{[0,1].map(i=><div key={i} className={`w-4 h-4 rounded-full border-2 border-rose-600 ${i<gameState.outs?'bg-rose-500 shadow-inner':'bg-slate-100'}`}></div>)}</div></div>
               </div>
               <div className="flex flex-col gap-2 font-sans shrink-0">
                 <div className="flex gap-2">
@@ -1122,9 +1134,9 @@
           <div className="md:hidden bg-white border-b border-slate-200 px-3 py-2 flex flex-col gap-2 shrink-0 shadow-sm z-0">
             <div className="flex items-center justify-between">
               <div className="flex flex-col gap-1 font-mono shrink-0">
-                <div className="flex items-center gap-1.5"><span className="text-[11px] font-black text-emerald-600 w-2">B</span>{[0,1,2].map(i=><div key={i} className={`w-3.5 h-3.5 rounded-full border-[1.5px] border-emerald-600 ${i<gameState.balls?'bg-emerald-500':'bg-slate-100'}`}></div>)}</div>
-                <div className="flex items-center gap-1.5"><span className="text-[11px] font-black text-amber-500 w-2">S</span>{[0,1].map(i=><div key={i} className={`w-3.5 h-3.5 rounded-full border-[1.5px] border-amber-500 ${i<gameState.strikes?'bg-amber-400':'bg-slate-100'}`}></div>)}</div>
-                <div className="flex items-center gap-1.5"><span className="text-[11px] font-black text-rose-600 w-2">O</span>{[0,1].map(i=><div key={i} className={`w-3.5 h-3.5 rounded-full border-[1.5px] border-rose-600 ${i<gameState.outs?'bg-rose-500':'bg-slate-100'}`}></div>)}</div>
+                <div className="flex items-center gap-1.5"><span className="text-[11px] font-black text-emerald-600 w-2.5">B</span>{[0,1,2].map(i=><div key={i} className={`w-3.5 h-3.5 rounded-full border-[1.5px] border-emerald-600 ${i<gameState.balls?'bg-emerald-500':'bg-slate-100'}`}></div>)}</div>
+                <div className="flex items-center gap-1.5"><span className="text-[11px] font-black text-amber-500 w-2.5">S</span>{[0,1].map(i=><div key={i} className={`w-3.5 h-3.5 rounded-full border-[1.5px] border-amber-500 ${i<gameState.strikes?'bg-amber-400':'bg-slate-100'}`}></div>)}</div>
+                <div className="flex items-center gap-1.5"><span className="text-[11px] font-black text-rose-600 w-2.5">O</span>{[0,1].map(i=><div key={i} className={`w-3.5 h-3.5 rounded-full border-[1.5px] border-rose-600 ${i<gameState.outs?'bg-rose-500':'bg-slate-100'}`}></div>)}</div>
               </div>
               <div className="flex flex-col items-center">
                 <span className="text-[9px] font-bold text-slate-400 mb-1">ランナー</span>
@@ -1209,20 +1221,36 @@
                     <div className="flex-1 flex flex-col justify-between py-2 w-full max-w-sm mx-auto">
                       <div className="space-y-4">
                         <PawapuroPitchGrid throwsRight={currentPitcherObj.throws === '右' || currentPitcherObj.throws === '右右' || currentPitcherObj.throws === '右左'} />
-                        <div className="grid grid-cols-3 gap-2">
-                          <button onClick={() => recordPitch('ストライク')} className="bg-slate-800 hover:bg-slate-900 text-white py-3.5 rounded-xl font-bold text-xs shadow-md active:scale-95 transition-all">見逃しS</button>
-                          <button onClick={() => recordPitch('空振り')} className="bg-slate-600 hover:bg-slate-700 text-white py-3.5 rounded-xl font-bold text-xs shadow-md active:scale-95 transition-all">空振りS</button>
-                          <button onClick={() => recordPitch('ファウル')} className="bg-amber-500 hover:bg-amber-600 text-white py-3.5 rounded-xl font-bold text-xs shadow-md active:scale-95 transition-all">ファウル</button>
-                          <button onClick={() => recordPitch('ボール')} className="col-span-2 bg-emerald-500 hover:bg-emerald-600 text-white py-3.5 rounded-xl font-bold text-sm shadow-md active:scale-95 transition-all">ボール</button>
-                          <button onClick={() => recordPitch('ウエスト')} className="bg-teal-600 hover:bg-teal-700 text-white py-3.5 rounded-xl font-bold text-xs shadow-md active:scale-95 transition-all tracking-tighter">ウエスト</button>
+                        <div className="space-y-3">
+                          {/* 最もよく使う投球結果 */}
+                          <div className="grid grid-cols-4 gap-2">
+                            <button onClick={() => recordPitch('ボール')} className="col-span-2 bg-emerald-500 hover:bg-emerald-600 text-white py-4 rounded-xl font-black text-lg shadow-md active:scale-95 transition-all">ボール</button>
+                            <button onClick={() => recordPitch('ストライク')} className="col-span-1 bg-slate-800 hover:bg-slate-900 text-white py-4 rounded-xl font-bold text-sm shadow-md active:scale-95 transition-all">見逃しS</button>
+                            <button onClick={() => recordPitch('空振り')} className="col-span-1 bg-slate-600 hover:bg-slate-700 text-white py-4 rounded-xl font-bold text-sm shadow-md active:scale-95 transition-all">空振りS</button>
+                          </div>
+                          
+                          {/* ファウルとバント系 */}
+                          <div className="grid grid-cols-4 gap-2">
+                            <button onClick={() => recordPitch('ファウル')} className="col-span-2 bg-amber-500 hover:bg-amber-600 text-white py-3 rounded-xl font-bold text-base shadow-md active:scale-95 transition-all">ファウル</button>
+                            <button onClick={() => recordPitch('バントファウル')} className="col-span-1 bg-amber-600 hover:bg-amber-700 text-white py-3 rounded-xl font-bold text-[11px] shadow-md active:scale-95 transition-all leading-tight">バント<br/>ﾌｧｳﾙ</button>
+                            <button onClick={() => recordPitch('バント空振り')} className="col-span-1 bg-slate-500 hover:bg-slate-600 text-white py-3 rounded-xl font-bold text-[11px] shadow-md active:scale-95 transition-all leading-tight">バント<br/>空振S</button>
+                          </div>
+
+                          {/* インプレー */}
+                          <div className="grid grid-cols-3 gap-2 mt-2">
+                            <button onClick={() => recordPitch('インプレー')} className="col-span-2 bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-xl font-black text-xl shadow-lg active:scale-95 transition-all">打った！</button>
+                            <button onClick={() => recordPitch('バント')} className="col-span-1 bg-indigo-600 hover:bg-indigo-700 text-white py-4 rounded-xl font-black text-lg shadow-lg active:scale-95 transition-all">バント</button>
+                          </div>
+
+                          {/* その他の結果 */}
+                          <div className="grid grid-cols-5 gap-1.5 pt-2 border-t border-slate-200">
+                            <button onClick={() => recordPitch('死球')} className="bg-purple-600 hover:bg-purple-700 text-white py-2.5 rounded-lg font-bold text-[10px] shadow-sm active:scale-95 transition-all tracking-tighter">死球</button>
+                            <button onClick={() => recordPitch('ウエスト')} className="bg-teal-600 hover:bg-teal-700 text-white py-2.5 rounded-lg font-bold text-[10px] shadow-sm active:scale-95 transition-all tracking-tighter">ｳｴｽﾄ</button>
+                            <button onClick={() => recordPitch('牽制')} className="bg-orange-500 hover:bg-orange-600 text-white py-2.5 rounded-lg font-bold text-[10px] shadow-sm active:scale-95 transition-all tracking-tighter">牽制</button>
+                            <button onClick={() => { setOutRunnerData({ runner: '', reason: '盗塁死' }); setShowOutRunnerModal(true); }} className="bg-rose-600 hover:bg-rose-700 text-white py-2.5 rounded-lg font-bold text-[10px] shadow-sm active:scale-95 transition-all tracking-tighter">走者ｱｳﾄ</button>
+                            <button onClick={() => recordPitch('その他出塁')} className="bg-cyan-600 hover:bg-cyan-700 text-white py-2.5 rounded-lg font-bold text-[10px] shadow-sm active:scale-95 transition-all tracking-tighter">他出塁</button>
+                          </div>
                         </div>
-                        <div className="grid grid-cols-4 gap-2">
-                          <button onClick={() => recordPitch('死球')} className="bg-purple-600 hover:bg-purple-700 text-white py-3 rounded-xl font-bold text-[10px] shadow-sm active:scale-95 transition-all tracking-tighter">死球</button>
-                          <button onClick={() => recordPitch('牽制')} className="bg-orange-500 hover:bg-orange-600 text-white py-3 rounded-xl font-bold text-[10px] shadow-sm active:scale-95 transition-all tracking-tighter">牽制</button>
-                          <button onClick={() => { setOutRunnerData({ runner: '', reason: '盗塁死' }); setShowOutRunnerModal(true); }} className="bg-rose-600 hover:bg-rose-700 text-white py-3 rounded-xl font-bold text-[10px] shadow-sm active:scale-95 transition-all tracking-tighter">走者ｱｳﾄ</button>
-                          <button onClick={() => recordPitch('その他出塁')} className="bg-cyan-600 hover:bg-cyan-700 text-white py-3 rounded-xl font-bold text-[10px] shadow-sm active:scale-95 transition-all tracking-tighter">他出塁</button>
-                        </div>
-                        <button onClick={() => recordPitch('インプレー')} className="w-full bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-xl font-black text-lg shadow-lg active:scale-95 transition-all mt-2">打った！ (インプレー)</button>
                         <div className="hidden md:grid grid-cols-2 gap-3 mt-4 pt-4 border-t border-slate-100">
                           <button onClick={handleUndo} disabled={undoStack.length === 0} className={`py-3 rounded-xl font-black text-xs flex items-center justify-center gap-2 transition-all ${undoStack.length > 0 ? 'bg-white border-2 border-slate-300 text-slate-600 hover:bg-slate-50 active:bg-slate-100' : 'bg-slate-50 border-2 border-transparent text-slate-300 cursor-not-allowed'}`}><span>↩️ 戻る</span>{undoStack.length > 0 && <span className="bg-slate-200 text-slate-600 text-[10px] px-2 rounded-full font-mono">{undoStack.length}</span>}</button>
                           <button onClick={handleRedo} disabled={redoStack.length === 0} className={`py-3 rounded-xl font-black text-xs flex items-center justify-center gap-2 transition-all ${redoStack.length > 0 ? 'bg-blue-50 border-2 border-blue-200 text-blue-700 hover:bg-blue-100 active:scale-95' : 'bg-slate-50 border-2 border-transparent text-slate-300 cursor-not-allowed'}`}><span>進む ↪️</span>{redoStack.length > 0 && <span className="bg-blue-200 text-blue-800 text-[10px] px-2 rounded-full font-mono">{redoStack.length}</span>}</button>
@@ -1429,7 +1457,7 @@
                                {p.runners?.first ? '1' : '-'} {p.runners?.second ? '2' : '-'} {p.runners?.third ? '3' : '-'}塁
                             </div>
                           </div>
-                          <div className={`text-white text-[10px] font-black px-3 py-1.5 rounded-lg shadow-sm whitespace-nowrap shrink-0 ${p.result.includes('ストライク')?'bg-amber-500':p.result==='ボール'?'bg-emerald-500':p.result==='ウエスト'?'bg-teal-600':p.result==='死球'?'bg-purple-600':p.result==='その他出塁'?'bg-cyan-600':['安','塁打','本塁打'].some(w=>p.result.includes(w))?'bg-blue-600':p.result==='牽制'?'bg-orange-500':p.result==='盗塁死'?'bg-rose-600':'bg-rose-500'}`}>{p.result}</div>
+                          <div className={`text-white text-[10px] font-black px-3 py-1.5 rounded-lg shadow-sm whitespace-nowrap shrink-0 ${p.result.includes('ストライク')||p.result.includes('空振')||p.result==='スリーバント失敗'?'bg-amber-500':p.result==='ボール'?'bg-emerald-500':p.result==='ウエスト'?'bg-teal-600':p.result==='死球'?'bg-purple-600':p.result==='その他出塁'?'bg-cyan-600':['安','塁打','本塁打'].some(w=>p.result.includes(w))?'bg-blue-600':p.result.includes('ファウル')?'bg-orange-500':p.result==='バント'?'bg-indigo-600':p.result==='牽制'?'bg-orange-500':p.result==='盗塁死'?'bg-rose-600':'bg-rose-500'}`}>{p.result}</div>
                         </div>
                       )
                     ))
@@ -1456,7 +1484,7 @@
                           {inningData.atBats.map((ab, abIdx) => {
                             const isHit = ['安', '塁打', '本塁打'].some(w => ab.result.includes(w));
                             const isBB = ['四球', '死球'].some(w => ab.result.includes(w));
-                            const isK = ab.result === '三振';
+                            const isK = ab.result === '三振' || ab.result === 'スリーバント失敗';
                             const resultColor = isHit ? 'text-blue-300 bg-blue-900/40 border-l-2 border-blue-400' : isBB ? 'text-emerald-300 bg-emerald-900/20 border-l-2 border-emerald-500' : isK ? 'text-rose-300 border-l-2 border-transparent' : 'text-slate-300 border-l-2 border-transparent';
                             return (
                               <div key={abIdx} className={`px-3 py-2.5 flex items-center gap-3 text-[11px] md:text-xs hover:bg-slate-700/50 cursor-pointer transition-colors ${resultColor}`}
@@ -1480,7 +1508,214 @@
             </div>
           </main>
 
-          {/* 各種モーダル - UI改善 */}
+          {/* 分析モーダル (復元) */}
+          {showPostGameAnalysis && (
+            <div className={`fixed inset-0 bg-slate-900 z-[400] flex flex-col font-sans transition-all duration-300 ${printMode ? 'printing' : 'animate-in fade-in slide-in-from-bottom-4'}`}>
+              <div className="bg-slate-800 border-b border-slate-700 p-2 md:p-4 flex justify-between items-center shrink-0 no-print shadow-md">
+                <div className="flex items-center gap-4">
+                  <h2 className="text-white font-black text-lg md:text-xl flex items-center gap-2"><span className="text-2xl">🏁</span> 試合分析レポート</h2>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={handlePrintDashboard} className="bg-blue-600 hover:bg-blue-500 text-white px-3 md:px-5 py-2 rounded-xl font-bold shadow-lg transition-colors flex items-center gap-2 text-xs md:text-sm">🖨️ <span className="hidden md:inline">PDF保存 / 印刷</span></button>
+                  <button onClick={() => setShowPostGameAnalysis(false)} className="bg-slate-700 hover:bg-slate-600 text-white px-3 md:px-5 py-2 rounded-xl font-bold shadow-md transition-colors text-xs md:text-sm">閉じる ✕</button>
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto bg-slate-900 print-target">
+                <div className="max-w-[1000px] mx-auto p-3 md:p-6 pb-20">
+                  <div className="bg-slate-800 rounded-2xl p-4 md:p-6 mb-4 md:mb-6 shadow-xl border border-slate-700 print-section relative overflow-hidden">
+                    <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/4 pointer-events-none"></div>
+                    <div className="flex flex-col md:flex-row justify-between items-center gap-4 relative z-10">
+                      <div className="flex flex-col text-center md:text-left">
+                        <span className="text-slate-400 font-bold text-xs md:text-sm tracking-widest uppercase mb-1">{gameInfo.date}</span>
+                        <h3 className="text-2xl md:text-3xl font-black text-white">{gameInfo.teamTop} <span className="text-slate-500 mx-2">vs</span> {gameInfo.teamBottom}</h3>
+                        <p className="text-slate-400 font-bold mt-2 flex items-center justify-center md:justify-start gap-3">
+                          <span className="bg-slate-900 px-3 py-1 rounded-lg border border-slate-700">総投球数: <span className="text-white font-mono">{pitches.filter(p => !p.isEvent).length}</span> 球</span>
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-4 md:gap-8 bg-slate-900/80 px-6 py-4 rounded-2xl border border-slate-700 shadow-inner">
+                        <div className="flex flex-col items-center">
+                          <span className="text-slate-400 font-bold text-xs mb-1 truncate max-w-[80px]">{gameInfo.teamTop}</span>
+                          <span className="text-4xl md:text-5xl font-black text-blue-400 leading-none font-mono">{gameState.runs.top.reduce((a,b)=>a+b,0)}</span>
+                        </div>
+                        <div className="text-2xl font-black text-slate-600">-</div>
+                        <div className="flex flex-col items-center">
+                          <span className="text-slate-400 font-bold text-xs mb-1 truncate max-w-[80px]">{gameInfo.teamBottom}</span>
+                          <span className="text-4xl md:text-5xl font-black text-blue-400 leading-none font-mono">{gameState.runs.bottom.reduce((a,b)=>a+b,0)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {!advancedStats ? (
+                    <div className="text-center py-20 text-slate-500 font-bold">データがありません</div>
+                  ) : (
+                    <div className="flex flex-col gap-4 md:gap-6">
+                      <div className="bg-slate-800 rounded-2xl p-4 md:p-6 shadow-xl border border-slate-700 print-section">
+                        <h4 className="text-white font-black text-lg mb-4 flex items-center gap-2 border-b border-slate-700 pb-2"><span className="text-xl">📊</span> チーム総合比較</h4>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+                          {[
+                            { label: 'チーム打率', top: advancedStats.topBatting.team.AVG, bottom: advancedStats.bottomBatting.team.AVG, higherIsBetter: true },
+                            { label: 'OPS', top: advancedStats.topBatting.team.OPS, bottom: advancedStats.bottomBatting.team.OPS, higherIsBetter: true },
+                            { label: '三振率 (K%)', top: advancedStats.topBatting.team.KPct + '%', bottom: advancedStats.bottomBatting.team.KPct + '%', higherIsBetter: false },
+                            { label: '四死球率 (BB%)', top: advancedStats.topBatting.team.BBPct + '%', bottom: advancedStats.bottomBatting.team.BBPct + '%', higherIsBetter: true },
+                          ].map((stat, idx) => (
+                            <div key={idx} className="bg-slate-900 rounded-xl p-3 border border-slate-700 flex flex-col justify-between shadow-inner">
+                              <span className="text-slate-400 text-[10px] font-bold text-center mb-2 uppercase tracking-widest">{stat.label}</span>
+                              <div className="flex justify-between items-end mt-auto">
+                                <div className="flex flex-col items-center flex-1">
+                                  <span className={`font-mono text-lg font-black ${parseFloat(stat.top) > parseFloat(stat.bottom) ? (stat.higherIsBetter ? 'text-emerald-400' : 'text-rose-400') : 'text-slate-300'}`}>{stat.top}</span>
+                                </div>
+                                <div className="w-px h-6 bg-slate-700 mx-2"></div>
+                                <div className="flex flex-col items-center flex-1">
+                                  <span className={`font-mono text-lg font-black ${parseFloat(stat.bottom) > parseFloat(stat.top) ? (stat.higherIsBetter ? 'text-emerald-400' : 'text-rose-400') : 'text-slate-300'}`}>{stat.bottom}</span>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 print-break">
+                        <div className="bg-slate-800 rounded-2xl p-4 shadow-xl border border-slate-700 print-section">
+                          <SprayChart hits={advancedStats.topBatting.team.sprayHits} title={`${gameInfo.teamTop} 打球方向 (${advancedStats.topBatting.team.sprayHits.length}打球)`} />
+                        </div>
+                        <div className="bg-slate-800 rounded-2xl p-4 shadow-xl border border-slate-700 print-section">
+                          <SprayChart hits={advancedStats.bottomBatting.team.sprayHits} title={`${gameInfo.teamBottom} 打球方向 (${advancedStats.bottomBatting.team.sprayHits.length}打球)`} />
+                        </div>
+                      </div>
+
+                      {[{ team: 'top', name: gameInfo.teamTop, batting: advancedStats.topBatting, pitching: advancedStats.pitchingBottom }, { team: 'bottom', name: gameInfo.teamBottom, batting: advancedStats.bottomBatting, pitching: advancedStats.pitchingTop }].map((t, idx) => {
+                        return (
+                      <div key={idx} className="print-break flex flex-col gap-4 md:gap-6">
+                        <div className="flex items-center gap-3 mt-4">
+                          <div className={`w-3 h-8 rounded-full ${t.team === 'top' ? 'bg-blue-500' : 'bg-red-500'}`}></div>
+                          <h3 className="text-xl md:text-2xl font-black text-white">{t.name} <span className="text-slate-400 font-bold text-sm md:text-base ml-2 font-normal">の成績</span></h3>
+                        </div>
+
+                      <div className="bg-slate-800 rounded-2xl shadow-xl border border-slate-700 overflow-hidden print-section">
+                        <div className="bg-slate-900/80 p-3 md:p-4 border-b border-slate-700 flex justify-between items-center">
+                          <h4 className="text-emerald-400 font-black text-sm md:text-base flex items-center gap-2">🏏 打者成績</h4>
+                          <span className="text-slate-500 text-xs font-bold bg-slate-900 px-2 py-1 rounded">タップで打球方向を表示</span>
+                        </div>
+                        <div className="overflow-x-auto">
+                        <table className="w-full text-[10px] md:text-xs text-right whitespace-nowrap table-fixed md:table-auto">
+                          <thead className="bg-slate-900 text-slate-400 border-b border-slate-700">
+                            <tr><th className="py-3 px-3 md:px-4 text-left w-12 font-bold tracking-widest">順</th><th className="py-3 px-3 md:px-4 text-left w-24 md:w-auto font-bold tracking-widest">選手</th><th className="py-3 px-2 w-10">打数</th><th className="py-3 px-2 w-10">安打</th><th className="py-3 px-2 w-10">四死</th><th className="py-3 px-2 md:px-4 text-emerald-400 font-black w-14">打率</th><th className="py-3 px-2 md:px-4 text-amber-400 font-black w-14">OPS</th><th className="py-3 px-2 w-12">K%</th><th className="py-3 px-3 md:px-4 text-left font-bold tracking-widest">打席結果</th></tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-700/50">
+                            {t.batting.players.map((p, pIdx) => {
+                              const bId = `${t.team}-${pIdx}`;
+                              const isExpanded = expandedBatterId === bId;
+                              return (
+                              <React.Fragment key={pIdx}>
+                                <tr onClick={() => setExpandedBatterId(isExpanded ? null : bId)} className={`transition-colors cursor-pointer ${isExpanded ? 'bg-slate-700/50' : 'hover:bg-slate-700/30'}`}>
+                                  <td className="py-2.5 px-3 md:px-4 text-left text-slate-500 font-mono font-bold">{p.order}</td>
+                                  <td className="py-2.5 px-3 md:px-4 text-left font-bold text-slate-200 truncate"><span className="text-[9px] text-slate-500 mr-1 bg-slate-900 px-1 rounded border border-slate-700">{p.pos}</span>{p.name}</td>
+                                  <td className="py-2.5 px-2 text-slate-400 font-mono">{p.AB}</td><td className="py-2.5 px-2 text-slate-300 font-mono">{p.H}</td><td className="py-2.5 px-2 text-slate-300 font-mono">{p.BB_HBP}</td>
+                                  <td className="py-2.5 px-2 md:px-4 text-emerald-400 font-black font-mono bg-emerald-900/10">{p.AVG}</td><td className="py-2.5 px-2 md:px-4 text-amber-400 font-black font-mono bg-amber-900/10">{p.OPS}</td>
+                                  <td className="py-2.5 px-2 text-rose-400 font-mono">{p.KPct}%</td>
+                                  <td className="py-2.5 px-3 md:px-4 text-left text-[9px] md:text-[10px] text-slate-400 truncate max-w-[120px] md:max-w-[300px]">
+                                    <div className="flex gap-1 overflow-x-auto custom-scrollbar pb-1">
+                                      {p.results.length === 0 ? '-' : p.results.map((r, i) => (
+                                        <span key={i} className={`shrink-0 px-1.5 py-0.5 rounded border ${['安','塁打','本塁打'].some(w=>r.includes(w)) ? 'bg-blue-900/30 border-blue-700 text-blue-300' : ['四球','死球'].some(w=>r.includes(w)) ? 'bg-green-900/30 border-green-700 text-green-300' : r==='三振'||r==='スリーバント失敗' ? 'bg-red-900/30 border-red-700 text-red-300' : 'bg-slate-800 border-slate-600 text-slate-300'}`}>{r}</span>
+                                      ))}
+                                    </div>
+                                  </td>
+                                </tr>
+                                {isExpanded && (
+                                  <tr>
+                                    <td colSpan="9" className="p-4 bg-slate-900/50 border-t border-slate-700/30 shadow-inner">
+                                      <div className="flex flex-col md:flex-row gap-6 items-center md:items-start justify-center text-left max-w-2xl mx-auto w-full">
+                                        <SprayChart hits={p.sprayHits} title="個人の打球方向" size={160} />
+                                        <div className="flex-1 space-y-2 text-sm w-full md:w-auto">
+                                          <div className="font-bold text-slate-300 bg-slate-800 p-3 rounded border border-slate-700 flex justify-between">
+                                            <span>打率: {p.AVG}</span><span>OPS: {p.OPS}</span>
+                                          </div>
+                                          <div className="grid grid-cols-4 gap-2 text-center text-xs">
+                                            <div className="bg-slate-800 p-2 rounded">打数<br/>{p.AB}</div>
+                                            <div className="bg-slate-800 p-2 rounded">安打<br/>{p.H}</div>
+                                            <div className="bg-slate-800 p-2 rounded">四死<br/>{p.BB_HBP}</div>
+                                            <div className="bg-slate-800 p-2 rounded">三振<br/>{p.K}</div>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                )}
+                              </React.Fragment>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                        </div>
+                      </div>
+
+                      <div className="bg-slate-800 rounded-2xl shadow-xl border border-slate-700 overflow-hidden print-section">
+                        <div className="bg-slate-900/80 p-3 md:p-4 border-b border-slate-700 flex justify-between items-center">
+                          <h4 className="text-blue-400 font-black text-sm md:text-base flex items-center gap-2">⚾ 投手成績 <span className="text-slate-500 text-xs font-normal">（対戦相手の攻撃から算出）</span></h4>
+                          <span className="text-slate-500 text-xs font-bold bg-slate-900 px-2 py-1 rounded">タップで詳細データを表示</span>
+                        </div>
+                        <div className="overflow-x-auto">
+                        <table className="w-full text-[10px] md:text-xs text-right whitespace-nowrap table-fixed md:table-auto">
+                          <thead className="bg-slate-900 text-slate-400 border-b border-slate-700">
+                            <tr><th className="py-3 px-3 md:px-4 text-left font-bold tracking-widest w-24 md:w-auto">投手</th><th className="py-3 px-2 w-10">球数</th><th className="py-3 px-2 w-10">対打</th><th className="py-3 px-2 w-10">被安</th><th className="py-3 px-2 w-10">奪K</th><th className="py-3 px-2 w-10">与四</th><th className="py-3 px-2 md:px-4 text-amber-400 font-black w-14">CSW%</th><th className="py-3 px-2 text-rose-400 font-bold w-12">Whiff%</th><th className="py-3 px-2 text-emerald-400 font-bold w-12">P/PA</th><th className="py-3 px-2 text-blue-400 font-bold w-12">F-S%</th></tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-700/50">
+                            {t.pitching.pitchers.map((p, pIdx) => {
+                              const pId = `${t.team}-${pIdx}`;
+                              const isExpanded = expandedPitcherId === pId;
+                              return (
+                              <React.Fragment key={pIdx}>
+                                <tr onClick={() => setExpandedPitcherId(isExpanded ? null : pId)} className={`transition-colors cursor-pointer ${isExpanded ? 'bg-slate-700/50' : 'hover:bg-slate-700/30'}`}>
+                                  <td className="py-3 px-3 md:px-4 text-left font-bold text-slate-200 truncate"><span className="text-[9px] text-slate-500 mr-1 bg-slate-900 px-1 rounded border border-slate-700">{p.throws}投</span>{p.name}</td>
+                                  <td className="py-3 px-2 text-slate-300 font-mono">{p.total}</td><td className="py-3 px-2 text-slate-400 font-mono">{p.PA}</td><td className="py-3 px-2 text-slate-300 font-mono">{p.H}</td><td className="py-3 px-2 text-slate-300 font-mono">{p.K}</td><td className="py-3 px-2 text-slate-300 font-mono">{p.BB}</td>
+                                  <td className="py-3 px-2 md:px-4 text-amber-400 font-black font-mono bg-amber-900/10">{p.csw}%</td>
+                                  <td className="py-3 px-2 text-rose-400 font-mono">{p.whiff}%</td>
+                                  <td className="py-3 px-2 text-emerald-400 font-mono">{p.pPa}</td>
+                                  <td className="py-3 px-2 text-blue-400 font-mono">{p.fStrikePct}%</td>
+                                </tr>
+                                {isExpanded && (
+                                  <tr>
+                                    <td colSpan="10" className="p-0 border-t border-slate-700/30 bg-slate-800/50 shadow-inner">
+                                      <div className="flex flex-col gap-4 p-4 w-full">
+                                        <div className="flex flex-col md:flex-row gap-4">
+                                            {renderCountStats(p.counts.vsRight, "対 右打者")}
+                                            {renderCountStats(p.counts.vsLeft, "対 左打者")}
+                                        </div>
+                                        <div className="flex flex-wrap gap-4 justify-center md:justify-start">
+                                            <MiniHeatmap data={p.heatmaps.fastball.all} max={p.heatmaps.fastball.max.all} title="直球(全)" colorCls="bg-rose-500" />
+                                            <MiniHeatmap data={p.heatmaps.breaking.all} max={p.heatmaps.breaking.max.all} title="変化球(全)" colorCls="bg-indigo-500" />
+                                            <div className="w-px bg-slate-700 mx-2"></div>
+                                            {Object.entries(p.pitchTypeHeatmaps||{}).sort((a,b)=> { let ta=0; Object.values(a[1].all).forEach(v=>ta+=v); let tb=0; Object.values(b[1].all).forEach(v=>tb+=v); return tb-ta; }).map(([typeName, th], idx) => {
+                                                const isFast = typeName.includes('ストレート') || typeName.includes('シュート');
+                                                const colorCls = isFast ? 'bg-rose-500' : 'bg-indigo-500';
+                                                let count=0; Object.values(th.all).forEach(v=>count+=v);
+                                                if(count === 0) return null;
+                                                return <MiniHeatmap key={idx} data={th.all} max={th.max.all} title={`${typeName}(${count})`} colorCls={colorCls} />
+                                            })}
+                                        </div>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                )}
+                              </React.Fragment>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                        </div>
+                      </div>
+                      </div>
+                      );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 各種モーダルUI (編集・管理) */}
           {editingPitchIndex !== null && editPitchData && (
             <div className="fixed inset-0 bg-slate-900/70 z-[400] flex items-center justify-center p-4 backdrop-blur-md animate-in fade-in zoom-in-95 duration-200 font-sans">
               <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col border border-slate-200">
@@ -1527,13 +1762,23 @@
                        <div className="flex flex-col items-center w-full">
                          <PawapuroPitchGrid isEditing={true} throwsRight={editPitchData.pitcherThrows === '右' || editPitchData.pitcherThrows === '右右' || editPitchData.pitcherThrows === '右左'} />
                        </div>
-                       <div className="grid grid-cols-3 gap-2 w-full">
-                         <button onClick={() => setEditPitchData({...editPitchData, result: 'ストライク'})} className="bg-slate-800 hover:bg-slate-900 text-white py-3 rounded-xl font-bold text-xs shadow-sm transition-colors">見逃しS</button>
-                         <button onClick={() => setEditPitchData({...editPitchData, result: '空振り'})} className="bg-slate-600 hover:bg-slate-700 text-white py-3 rounded-xl font-bold text-xs shadow-sm transition-colors">空振りS</button>
-                         <button onClick={() => setEditPitchData({...editPitchData, result: 'ファウル'})} className="bg-amber-500 hover:bg-amber-600 text-white py-3 rounded-xl font-bold text-xs shadow-sm transition-colors">ファウル</button>
-                         <button onClick={() => setEditPitchData({...editPitchData, result: 'ボール'})} className="bg-emerald-500 hover:bg-emerald-600 text-white py-3 rounded-xl font-bold text-xs shadow-sm transition-colors">ボール</button>
-                         <button onClick={() => setEditPitchData({...editPitchData, result: 'ウエスト'})} className="bg-teal-600 hover:bg-teal-700 text-white py-3 rounded-xl font-bold text-xs shadow-sm transition-colors">ウエスト</button>
-                         <button onClick={() => setEditPitchData({...editPitchData, result: '死球'})} className="bg-purple-600 hover:bg-purple-700 text-white py-3 rounded-xl font-bold text-xs shadow-sm transition-colors">死球</button>
+                       <div className="flex flex-col gap-2 w-full">
+                         <div className="grid grid-cols-4 gap-2">
+                           <button onClick={() => setEditPitchData({...editPitchData, result: 'ボール'})} className="col-span-2 bg-emerald-500 hover:bg-emerald-600 text-white py-3 rounded-xl font-bold text-sm shadow-sm transition-colors">ボール</button>
+                           <button onClick={() => setEditPitchData({...editPitchData, result: 'ストライク'})} className="col-span-1 bg-slate-800 hover:bg-slate-900 text-white py-3 rounded-xl font-bold text-xs shadow-sm transition-colors">見逃しS</button>
+                           <button onClick={() => setEditPitchData({...editPitchData, result: '空振り'})} className="col-span-1 bg-slate-600 hover:bg-slate-700 text-white py-3 rounded-xl font-bold text-xs shadow-sm transition-colors">空振りS</button>
+                         </div>
+                         <div className="grid grid-cols-4 gap-2">
+                           <button onClick={() => setEditPitchData({...editPitchData, result: 'ファウル'})} className="col-span-2 bg-amber-500 hover:bg-amber-600 text-white py-2.5 rounded-xl font-bold text-sm shadow-sm transition-colors">ファウル</button>
+                           <button onClick={() => setEditPitchData({...editPitchData, result: 'バントファウル'})} className="col-span-1 bg-amber-600 hover:bg-amber-700 text-white py-2.5 rounded-xl font-bold text-[10px] shadow-sm transition-colors leading-tight">ﾊﾞﾝﾄ<br/>ﾌｧｳﾙ</button>
+                           <button onClick={() => setEditPitchData({...editPitchData, result: 'バント空振り'})} className="col-span-1 bg-slate-500 hover:bg-slate-600 text-white py-2.5 rounded-xl font-bold text-[10px] shadow-sm transition-colors leading-tight">ﾊﾞﾝﾄ<br/>空振S</button>
+                         </div>
+                         <div className="grid grid-cols-4 gap-1.5 pt-2 border-t border-slate-200">
+                           <button onClick={() => setEditPitchData({...editPitchData, result: '死球'})} className="bg-purple-600 hover:bg-purple-700 text-white py-2 rounded-lg font-bold text-[10px] shadow-sm transition-colors">死球</button>
+                           <button onClick={() => setEditPitchData({...editPitchData, result: 'ウエスト'})} className="bg-teal-600 hover:bg-teal-700 text-white py-2 rounded-lg font-bold text-[10px] shadow-sm transition-colors">ウエスト</button>
+                           <button onClick={() => setEditPitchData({...editPitchData, result: '牽制'})} className="bg-orange-500 hover:bg-orange-600 text-white py-2 rounded-lg font-bold text-[10px] shadow-sm transition-colors">牽制</button>
+                           <button onClick={() => setEditPitchData({...editPitchData, result: 'その他出塁'})} className="bg-cyan-600 hover:bg-cyan-700 text-white py-2 rounded-lg font-bold text-[10px] shadow-sm transition-colors">他出塁</button>
+                         </div>
                        </div>
                        <div className="flex flex-col bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
                          <span className="text-xs font-bold text-slate-500 mb-2 tracking-widest text-center">結果を直接入力</span>
@@ -1550,343 +1795,34 @@
               </div>
             </div>
           )}
-
-          {/* 進塁モーダル */}
-          {showAdvanceModal && (
-            <div className="fixed inset-0 bg-slate-900/60 z-[200] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in zoom-in-95 duration-200 font-sans">
-              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col border border-slate-200">
-                <div className="p-4 border-b border-blue-200 bg-blue-50 flex justify-between items-center text-blue-900">
-                  <h2 className="font-black text-lg flex items-center gap-2"><span className="text-2xl">🏃</span> 進塁の記録</h2>
-                  <button onClick={() => setShowAdvanceModal(false)} className="text-blue-400 hover:text-blue-800 bg-white rounded-full w-8 h-8 flex items-center justify-center shadow-sm font-bold text-lg transition-colors">✕</button>
+          
+          {/* その他共有・インポートモーダル等 */}
+          {showShareModal && (
+            <div className="fixed inset-0 bg-slate-900/80 z-[200] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col">
+                <div className="p-4 border-b border-slate-200 bg-blue-50 flex justify-between items-center">
+                  <h2 className="text-lg font-bold text-blue-800">📤 データの共有</h2>
+                  <button onClick={() => setShowShareModal(false)} className="text-slate-400 hover:text-black font-bold text-xl px-2">✕</button>
                 </div>
-                <div className="p-6 flex flex-col gap-5 bg-white">
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-xs font-bold text-slate-500 tracking-wide">どの走者が？</label>
-                    <select value={advanceData.runner} onChange={e=>setAdvanceData({...advanceData, runner: e.target.value})} className="border border-slate-300 bg-slate-50 p-3 rounded-xl outline-none focus:border-blue-500 focus:bg-white font-bold text-slate-800 text-base shadow-sm cursor-pointer">
-                      <option value="">選択してください</option>
-                      {gameState.runners.first && <option value="first">1塁走者</option>}
-                      {gameState.runners.second && <option value="second">2塁走者</option>}
-                      {gameState.runners.third && <option value="third">3塁走者</option>}
-                    </select>
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-xs font-bold text-slate-500 tracking-wide">理由は？</label>
-                    <select value={advanceData.reason} onChange={e=>setAdvanceData({...advanceData, reason: e.target.value})} className="border border-slate-300 bg-slate-50 p-3 rounded-xl outline-none focus:border-blue-500 focus:bg-white font-bold text-slate-800 text-base shadow-sm cursor-pointer">
-                      <option value="">選択してください</option>
-                      <option value="盗塁">盗塁</option><option value="代走">代走</option><option value="ワイルドピッチ">ワイルドピッチ</option><option value="パスボール">パスボール</option><option value="ボーク">ボーク</option><option value="エラー">エラー</option><option value="打撃妨害">打撃妨害</option><option value="その他">その他</option>
-                    </select>
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-xs font-bold text-slate-500 tracking-wide">どこへ進塁した？</label>
-                    <select value={advanceData.to} onChange={e=>setAdvanceData({...advanceData, to: e.target.value})} className="border border-slate-300 bg-slate-50 p-3 rounded-xl outline-none focus:border-blue-500 focus:bg-white font-bold text-slate-800 text-base shadow-sm cursor-pointer">
-                      <option value="">選択してください</option>
-                      <option value="same">そのままの塁</option><option value="second">2塁へ</option><option value="third">3塁へ</option><option value="home">本塁へ (得点)</option>
-                    </select>
-                  </div>
-                </div>
-                <div className="p-4 border-t border-slate-200 flex gap-3 bg-slate-50">
-                  <button onClick={() => setShowAdvanceModal(false)} className="flex-1 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 py-3.5 rounded-xl font-bold transition-colors shadow-sm">キャンセル</button>
-                  <button onClick={handleAdvanceRecord} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-3.5 rounded-xl font-black shadow-md active:scale-95 transition-all">記録する</button>
+                <div className="p-6 flex flex-col items-center gap-4 bg-slate-50">
+                  <p className="text-sm font-bold text-slate-600 text-center">以下のテキストをコピーして、LINEやメールで送ってください。</p>
+                  <textarea value={shareTextData} readOnly className="w-full h-32 p-3 border-2 border-slate-300 rounded-xl text-[10px] font-mono text-slate-500 bg-white focus:border-blue-500 outline-none" onClick={(e) => e.target.select()} />
+                  <button 
+                    onClick={() => {
+                      navigator.clipboard.writeText(shareTextData).then(() => { showToast('コピーしました！'); })
+                      .catch(() => {
+                        const ta = document.createElement('textarea'); ta.value = shareTextData; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); showToast('コピーしました！');
+                      });
+                    }} 
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl shadow-md active:scale-95 transition-all"
+                  >
+                    テキストをコピーする
+                  </button>
                 </div>
               </div>
             </div>
           )}
 
-          {/* 走者アウトモーダル */}
-          {showOutRunnerModal && (
-            <div className="fixed inset-0 bg-slate-900/60 z-[200] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in zoom-in-95 duration-200 font-sans">
-              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col border border-slate-200">
-                <div className="p-4 border-b border-rose-200 bg-rose-50 flex justify-between items-center text-rose-900">
-                  <h2 className="font-black text-lg flex items-center gap-2"><span className="text-2xl">❌</span> 走者アウトの記録</h2>
-                  <button onClick={() => setShowOutRunnerModal(false)} className="text-rose-400 hover:text-rose-800 bg-white rounded-full w-8 h-8 flex items-center justify-center shadow-sm font-bold text-lg transition-colors">✕</button>
-                </div>
-                <div className="p-6 flex flex-col gap-5 bg-white">
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-xs font-bold text-slate-500 tracking-wide">どの走者が？</label>
-                    <select value={outRunnerData.runner} onChange={e=>setOutRunnerData({...outRunnerData, runner: e.target.value})} className="border border-slate-300 bg-slate-50 p-3 rounded-xl outline-none focus:border-rose-500 focus:bg-white font-bold text-slate-800 text-base shadow-sm cursor-pointer">
-                      <option value="">選択してください</option>
-                      {gameState.runners.first && <option value="first">1塁走者</option>}
-                      {gameState.runners.second && <option value="second">2塁走者</option>}
-                      {gameState.runners.third && <option value="third">3塁走者</option>}
-                    </select>
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <label className="text-xs font-bold text-slate-500 tracking-wide">理由は？</label>
-                    <select value={outRunnerData.reason} onChange={e=>setOutRunnerData({...outRunnerData, reason: e.target.value})} className="border border-slate-300 bg-slate-50 p-3 rounded-xl outline-none focus:border-rose-500 focus:bg-white font-bold text-slate-800 text-base shadow-sm cursor-pointer">
-                      <option value="盗塁死">盗塁死</option><option value="牽制死">牽制死</option><option value="走塁死">走塁死</option>
-                    </select>
-                  </div>
-                </div>
-                <div className="p-4 border-t border-slate-200 flex gap-3 bg-slate-50">
-                  <button onClick={() => setShowOutRunnerModal(false)} className="flex-1 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 py-3.5 rounded-xl font-bold transition-colors shadow-sm">キャンセル</button>
-                  <button onClick={handleOutRunnerRecord} className="flex-1 bg-rose-600 hover:bg-rose-700 text-white py-3.5 rounded-xl font-black shadow-md active:scale-95 transition-all">記録する</button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* オーダー設定モーダル */}
-          {showSettings && (
-            <div className="fixed inset-0 bg-slate-900/80 z-[150] flex items-center justify-center p-2 md:p-6 backdrop-blur-sm animate-in fade-in zoom-in-95 duration-200 font-sans">
-              <div className="bg-slate-50 rounded-3xl shadow-2xl w-full max-w-[1000px] h-full max-h-[90vh] flex flex-col overflow-hidden border border-slate-300">
-                <div className="p-4 md:p-6 border-b border-slate-200 flex justify-between items-center bg-white shadow-sm z-10">
-                  <div className="flex flex-col">
-                    <h2 className="text-xl md:text-2xl font-black text-slate-800 flex items-center gap-2">📋 オーダー設定・選手交代</h2>
-                    <p className="text-[10px] md:text-xs text-slate-500 font-bold mt-1 tracking-wide">DH制の場合は10枠目の「P(DH)」に投手を、DH制なしの場合は1〜9番に投手を配置してください。</p>
-                  </div>
-                  <div className="flex gap-2 md:gap-4">
-                    <button onClick={swapTopAndBottom} className="hidden md:flex bg-white text-slate-700 border-2 border-slate-300 px-5 py-2.5 rounded-xl font-bold hover:bg-slate-50 active:scale-95 transition-all items-center gap-2"><span className="text-xl leading-none">⇅</span> 先攻/後攻を入替</button>
-                    <button onClick={() => setShowSettings(false)} className="bg-blue-600 text-white px-6 md:px-8 py-2.5 rounded-xl font-bold shadow-md hover:bg-blue-700 active:scale-95 transition-all">完了</button>
-                  </div>
-                </div>
-                <div className="bg-amber-50 border-b border-amber-200 px-4 md:px-6 py-3 flex flex-col md:flex-row justify-between items-center shrink-0 gap-3 z-10 shadow-sm">
-                  <div className="text-xs md:text-sm font-bold text-amber-800 flex items-center gap-2"><span>💡 交代の入力忘れ等で、過去の記録の選手名を修正したい場合</span></div>
-                  <button onClick={applyLineupToPast} className="w-full md:w-auto bg-amber-500 hover:bg-amber-600 text-white text-[11px] md:text-xs font-black px-4 py-2.5 rounded-lg shadow-sm transition-all active:scale-95 text-center">現在表示中の【{gameState.inning}回{gameState.isTop?'表':'裏'}】以降の全記録に一括反映</button>
-                </div>
-                <div className="p-3 md:p-6 overflow-y-auto modal-scroll flex-1 flex flex-col lg:flex-row gap-4 md:gap-8 bg-slate-100/50">
-                  {['top', 'bottom'].map(team => (
-                    <div key={team} className="flex-1 border border-slate-300 rounded-2xl overflow-hidden shadow-sm flex flex-col font-bold bg-white">
-                      <div className={`p-3 md:p-4 font-black flex items-center gap-3 border-b border-slate-200 ${team==='top'?'bg-blue-50 text-blue-900':'bg-rose-50 text-rose-900'}`}>
-                        <span className={`text-xs px-2.5 py-1 rounded-lg font-bold shadow-sm ${team==='top'?'bg-blue-600 text-white':'bg-rose-600 text-white'}`}>{team==='top'?'先攻':'後攻'}</span>
-                        <input type="text" value={gameInfo[team==='top'?'teamTop':'teamBottom']} onChange={e=>setGameInfo({...gameInfo, [team==='top'?'teamTop':'teamBottom']: e.target.value})} className="flex-1 rounded-xl px-3 py-1.5 outline-none border border-transparent hover:border-slate-300 focus:border-blue-500 focus:bg-white transition-all font-black text-base shadow-inner bg-white/50" />
-                        {registeredTeams.length > 0 && (
-                          <select value="" onChange={e => {
-                            if (!e.target.value) return; const infoKey = team==='top' ? 'teamTop' : 'teamBottom';
-                            setGameInfo({...gameInfo, [infoKey]: e.target.value}); const t = findRegisteredTeam(e.target.value); if (t) applyTeamToLineup(t, team);
-                          }} className="bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-xs font-bold outline-none cursor-pointer shadow-sm focus:border-blue-500 max-w-[120px] md:max-w-none"><option value="">👥 登録チーム</option>{registeredTeams.map((t,i) => <option key={i} value={t.name}>{t.name}{t.isMyTeam ? ' ⭐' : ''} ({(t.players||[]).length}名)</option>)}</select>
-                        )}
-                      </div>
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-xs text-center table-fixed md:table-auto">
-                          <thead className="bg-slate-100 text-slate-500 text-[10px] uppercase tracking-widest border-b border-slate-200"><tr><th className="py-2.5 w-8">順</th><th className="py-2.5 w-14">守備</th><th className="py-2.5 text-left px-3">選手名</th><th className="w-20 pr-2">投/打</th></tr></thead>
-                          <tbody className="bg-white divide-y divide-slate-100">
-                            {lineups[team].map((p, i) => (
-                              <tr key={`${team}-${i}`} className={`transition-colors ${i === 9 ? 'bg-slate-50/80' : 'hover:bg-slate-50'}`}>
-                                <td className="py-2 text-slate-400 font-mono font-bold text-[10px] md:text-xs">{i < 9 ? i + 1 : <span className="text-[9px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded border border-slate-300">P(DH)</span>}</td>
-                                <td><select value={p.pos} onChange={e => { recordAction(); const newL = [...lineups[team]]; newL[i].pos = e.target.value; setLineups({...lineups, [team]: newL}); }} className="w-12 border border-slate-300 rounded-lg py-1.5 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 shadow-sm font-black bg-white cursor-pointer text-center appearance-none text-slate-700 text-[11px]"><option value="投">投</option><option value="捕">捕</option><option value="一">一</option><option value="二">二</option><option value="三">三</option><option value="遊">遊</option><option value="左">左</option><option value="中">中</option><option value="右">右</option><option value="DH">DH</option><option value="打">打</option><option value="走">走</option><option value="未">未</option></select></td>
-                                <td className="px-2 py-1.5">
-                                  {(() => {
-                                    const teamName = team === 'top' ? gameInfo.teamTop : gameInfo.teamBottom;
-                                    const matchedTeam = registeredTeams.find(t => t.name === teamName);
-                                    const teamPlayers = matchedTeam ? (matchedTeam.players || []).map(pl => typeof pl === 'string' ? { name: pl, throws: '右', bats: '右' } : pl) : [];
-                                    return (
-                                      <div className="flex gap-1.5">
-                                        <input type="text" value={p.name} onChange={e => { recordAction(); const newL = [...lineups[team]]; newL[i].name = e.target.value; setLineups({...lineups, [team]: newL}); }} className={`flex-1 border border-slate-300 rounded-lg px-2.5 py-1.5 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 shadow-inner font-bold text-slate-800 bg-slate-50 focus:bg-white transition-colors ${teamPlayers.length > 0 ? 'w-0 min-w-0' : 'w-full'}`} placeholder={i === 9 ? "DH制の先発投手" : "名前"} />
-                                        {teamPlayers.length > 0 && (
-                                          <select value="" onChange={e => { if (!e.target.value) return; recordAction(); const selected = teamPlayers.find(mp => mp.name === e.target.value); const newL = [...lineups[team]]; newL[i] = { ...newL[i], name: selected.name, throws: selected.throws, bats: selected.bats }; setLineups({...lineups, [team]: newL}); }} className="w-10 border border-slate-300 rounded-lg py-1.5 outline-none bg-white hover:bg-slate-50 font-bold text-slate-600 cursor-pointer text-center text-sm shadow-sm shrink-0"><option value="">👥</option>{teamPlayers.map((mp, mi) => (<option key={mi} value={mp.name}>{mp.name} ({mp.throws}/{mp.bats})</option>))}</select>
-                                        )}
-                                      </div>
-                                    );
-                                  })()}
-                                </td>
-                                <td className="pr-3 py-1.5"><select value={`${p.throws}${p.bats}`} onChange={e => { recordAction(); const val = e.target.value; const newL = [...lineups[team]]; newL[i].throws = val[0]; newL[i].bats = val[1]; setLineups({...lineups, [team]: newL}); }} className="w-full border border-slate-300 rounded-lg py-1.5 outline-none text-[10px] md:text-[11px] bg-white hover:bg-slate-50 font-bold text-center shadow-sm cursor-pointer text-slate-600 focus:border-blue-500"><option value="右右">右/右</option><option value="右左">右/左</option><option value="左右">左/右</option><option value="左左">左/左</option></select></td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* アーカイブモーダル */}
-          {showArchiveModal && (
-            <div className="fixed inset-0 bg-slate-900/80 z-[150] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in zoom-in-95 duration-200 font-sans">
-              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden border border-slate-200">
-                <div className="p-4 md:p-6 border-b border-slate-200 flex justify-between items-center bg-emerald-50">
-                  <h2 className="text-xl font-black flex items-center gap-2 text-emerald-800"><span className="text-2xl">📂</span> 試合データの保存・読込</h2>
-                  <button onClick={() => setShowArchiveModal(false)} className="text-emerald-500 hover:text-emerald-800 bg-white rounded-full w-8 h-8 flex items-center justify-center shadow-sm font-bold text-lg transition-colors">✕</button>
-                </div>
-                <div className="p-4 md:p-8 overflow-y-auto modal-scroll flex-1 bg-slate-50 flex flex-col gap-6 md:gap-8">
-                  <div className="bg-white p-5 md:p-6 rounded-2xl border border-emerald-200 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
-                    <div className="text-center md:text-left"><h3 className="font-black text-emerald-800 text-lg">現在の試合をアーカイブに保存</h3><p className="text-xs font-bold text-slate-500 mt-1">作業中の状態を保存し、後から再開したり分析を見返せます。</p></div>
-                    <button onClick={saveCurrentGame} className="w-full md:w-auto bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-4 rounded-xl font-black shadow-md transition-all active:scale-95 whitespace-nowrap text-base flex items-center justify-center gap-2">💾 保存する</button>
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-slate-500 text-xs tracking-widest uppercase mb-3 px-1 border-b border-slate-200 pb-2">保存済みの試合一覧</h3>
-                    {savedGames.length === 0 ? ( <div className="text-center py-12 text-slate-400 font-bold bg-white rounded-2xl border-2 border-dashed border-slate-200 text-sm">保存されたデータはありません</div> ) : (
-                      <div className="flex flex-col gap-3">
-                        {savedGames.map(game => (
-                          <div key={game.id} className="bg-white border border-slate-200 rounded-2xl p-4 md:p-5 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shadow-sm hover:shadow-md transition-shadow group">
-                            <div className="flex flex-col gap-1.5 w-full md:w-auto">
-                              <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-md w-fit border border-slate-200">{game.date} / 投球数:{game.pitchesCount}球</span>
-                              <div className="text-base md:text-lg font-black text-slate-800 flex items-center gap-2">
-                                <span className="truncate max-w-[120px] md:max-w-none">{game.teamTop}</span>
-                                <span className="bg-slate-100 px-3 py-1 rounded-lg text-blue-700 border border-slate-200 shrink-0">{game.scoreTop} - {game.scoreBottom}</span> 
-                                <span className="truncate max-w-[120px] md:max-w-none">{game.teamBottom}</span>
-                              </div>
-                            </div>
-                            <div className="flex gap-2 w-full md:w-auto">
-                              <button onClick={() => handleShareData('game:' + game.id)} className="flex-1 md:flex-none text-xs bg-white text-blue-600 font-bold px-4 py-2.5 rounded-xl border-2 border-blue-100 hover:border-blue-300 hover:bg-blue-50 transition-colors shadow-sm whitespace-nowrap">テキスト共有</button>
-                              <button onClick={() => loadGame(game.id)} className="flex-[1.5] md:flex-none text-xs bg-slate-800 text-white font-bold px-6 py-2.5 rounded-xl hover:bg-black transition-colors shadow-sm whitespace-nowrap">読込して再開</button>
-                              <button onClick={() => deleteGame(game.id)} className="md:opacity-0 group-hover:opacity-100 text-xs bg-rose-50 text-rose-600 font-bold px-3 py-2.5 rounded-xl hover:bg-rose-100 transition-all border border-rose-100 ml-1">🗑️</button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* エクスポートモーダル */}
-          {showExport && (
-            <div className="fixed inset-0 bg-slate-900/80 z-[150] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in zoom-in-95 duration-200 font-sans">
-              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col border border-slate-200">
-                <div className="p-4 md:p-5 border-b border-slate-200 bg-slate-50 flex justify-between items-center">
-                  <h2 className="text-lg font-black text-slate-800 flex items-center gap-2"><span className="text-2xl">📤</span> データ出力・引継ぎ</h2>
-                  <button onClick={() => setShowExport(false)} className="text-slate-400 hover:text-slate-800 bg-white rounded-full w-8 h-8 flex items-center justify-center shadow-sm font-bold text-lg transition-colors">✕</button>
-                </div>
-                <div className="p-4 md:p-8 flex flex-col gap-8 bg-white">
-                  <div>
-                    <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3">テキスト・CSV出力</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                      <button onClick={exportCSV} className="bg-slate-50 border border-slate-200 hover:border-slate-400 hover:bg-white text-slate-700 py-6 rounded-2xl font-bold shadow-sm transition-all flex flex-col items-center justify-center gap-2 group">
-                        <span className="text-3xl group-hover:scale-110 transition-transform drop-shadow-sm">📊</span><span className="text-sm">CSVで保存</span><span className="text-[10px] text-slate-400 font-normal">Excel等での分析用</span>
-                      </button>
-                      <button onClick={copyForAI} className="bg-indigo-50 border border-indigo-100 hover:border-indigo-300 hover:bg-white text-indigo-700 py-6 rounded-2xl font-bold shadow-sm transition-all flex flex-col items-center justify-center gap-2 group">
-                        <span className="text-3xl group-hover:scale-110 transition-transform drop-shadow-sm">🤖</span><span className="text-sm">AI分析用にコピー</span><span className="text-[10px] text-indigo-400 font-normal">ChatGPT等へ貼付</span>
-                      </button>
-                      <button onClick={copyShareText} className="bg-blue-50 border border-blue-100 hover:border-blue-300 hover:bg-white text-blue-700 py-6 rounded-2xl font-bold shadow-sm transition-all flex flex-col items-center justify-center gap-2 group">
-                        <span className="text-3xl group-hover:scale-110 transition-transform drop-shadow-sm">📋</span><span className="text-sm">結果をコピー</span><span className="text-[10px] text-blue-400 font-normal">LINE等への貼付用</span>
-                      </button>
-                    </div>
-                  </div>
-                  <div className="border-t border-slate-100 pt-6">
-                    <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3">端末間引継ぎ・バックアップ</h3>
-                    <div className="flex flex-col gap-3 bg-slate-50 p-4 rounded-2xl border border-slate-200">
-                      <button onClick={() => handleShareData('all')} className="w-full bg-white border-2 border-slate-300 hover:border-slate-400 text-slate-700 py-3 rounded-xl font-bold shadow-sm transition-all flex items-center justify-center gap-2">
-                        <span>📨 全データをテキストで共有</span>
-                      </button>
-                      <div className="flex gap-3">
-                        <button onClick={exportData} className="flex-1 bg-slate-800 hover:bg-black text-white py-3.5 rounded-xl font-bold shadow-md transition-colors text-sm">💾 ファイルに保存</button>
-                        <label className="flex-1 bg-white border-2 border-dashed border-slate-400 hover:border-blue-500 hover:text-blue-600 hover:bg-blue-50 text-slate-600 py-3.5 rounded-xl font-bold text-center cursor-pointer transition-all text-sm shadow-sm">
-                          📁 ファイルから復元
-                          <input type="file" accept=".json" onChange={importData} className="hidden" />
-                        </label>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* チーム管理モーダル */}
-          {showTeamManager && (
-            <div className="fixed inset-0 bg-slate-900/80 z-[150] flex items-center justify-center p-2 md:p-6 backdrop-blur-sm animate-in fade-in zoom-in-95 duration-200 font-sans">
-              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-5xl h-[90vh] flex flex-col overflow-hidden border border-slate-300">
-                <div className="p-4 md:p-5 border-b border-slate-200 flex justify-between items-center bg-slate-800">
-                  <h2 className="text-lg font-black flex items-center gap-2 text-white"><span className="text-2xl">👥</span> チーム・選手データベース</h2>
-                  <button onClick={() => setShowTeamManager(false)} className="text-slate-400 hover:text-white bg-slate-700 rounded-full w-8 h-8 flex items-center justify-center shadow-sm font-bold text-lg transition-colors border border-slate-600">✕</button>
-                </div>
-                <div className="flex-1 flex flex-col md:flex-row overflow-hidden bg-slate-50">
-                  {/* 左側：チームリスト */}
-                  <div className="w-full md:w-1/3 bg-white border-r border-slate-200 flex flex-col h-1/3 md:h-full z-10 shadow-md md:shadow-none">
-                    <div className="p-3 border-b border-slate-100 flex justify-between items-center bg-slate-50 shrink-0">
-                       <h3 className="font-bold text-slate-500 text-[10px] uppercase tracking-widest">登録チーム</h3>
-                       <div className="flex gap-1.5">
-                         <button onClick={() => setShowImportTextModal(true)} className="text-[10px] bg-white border border-slate-300 text-slate-600 px-2 py-1 rounded-lg font-bold hover:bg-slate-50 shadow-sm transition-colors">受信📥</button>
-                         <button onClick={() => {
-                           const newTeam = { name: `新規チーム${registeredTeams.length + 1}`, isMyTeam: registeredTeams.length === 0, players: Array.from({length: 20}, (_,i)=>({name: '', throws: '右', bats: '右'})) };
-                           setRegisteredTeams([...registeredTeams, newTeam]); setEditingTeamIndex(registeredTeams.length);
-                         }} className="text-[10px] bg-blue-600 text-white px-2 py-1 rounded-lg font-bold shadow-sm hover:bg-blue-700 transition-colors">＋追加</button>
-                       </div>
-                    </div>
-                    <div className="flex-1 overflow-y-auto p-2 space-y-1.5 custom-scrollbar bg-slate-50">
-                      {registeredTeams.map((t, idx) => (
-                        <div key={idx} onClick={() => setEditingTeamIndex(idx)} className={`p-3 rounded-xl cursor-pointer transition-all border ${editingTeamIndex === idx ? 'bg-blue-50 border-blue-300 shadow-sm scale-[1.02]' : 'bg-white border-slate-200 hover:border-blue-200 hover:bg-blue-50/50 shadow-sm'}`}>
-                          <div className="font-black text-slate-800 flex justify-between items-center text-sm">
-                            <span className="truncate pr-2">{t.name}</span>
-                            {t.isMyTeam && <span className="text-[9px] bg-amber-500 text-white px-2 py-0.5 rounded-full shrink-0 shadow-sm">自チーム</span>}
-                          </div>
-                          <div className="text-[10px] text-slate-400 font-bold mt-1.5">登録選手: <span className="text-slate-600">{(t.players || []).filter(p=>p.name).length}</span>名</div>
-                        </div>
-                      ))}
-                      {registeredTeams.length === 0 && <div className="text-center py-10 text-slate-400 font-bold text-xs">チームを登録してください</div>}
-                    </div>
-                  </div>
-                  {/* 右側：チーム編集 */}
-                  <div className="w-full md:w-2/3 bg-slate-100/50 flex flex-col h-2/3 md:h-full">
-                    {editingTeamIndex !== null && registeredTeams[editingTeamIndex] ? (
-                      <div className="flex-1 flex flex-col h-full overflow-hidden animate-in fade-in duration-200">
-                        <div className="p-4 md:p-6 bg-white shadow-sm z-10 border-b border-slate-200 flex flex-col gap-4">
-                           <div className="flex justify-between items-start gap-4">
-                             <div className="flex-1 flex flex-col gap-1.5">
-                               <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">チーム名</label>
-                               <input type="text" value={registeredTeams[editingTeamIndex].name} onChange={e => {
-                                 const newTeams = [...registeredTeams]; newTeams[editingTeamIndex].name = e.target.value; setRegisteredTeams(newTeams);
-                               }} className="w-full text-lg md:text-xl font-black bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-100 transition-all" placeholder="チーム名を入力" />
-                             </div>
-                             <div className="flex flex-col gap-1.5 shrink-0">
-                               <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-1">所属</label>
-                               <button onClick={() => {
-                                 const newTeams = registeredTeams.map((t, i) => ({ ...t, isMyTeam: i === editingTeamIndex }));
-                                 setRegisteredTeams(newTeams);
-                               }} className={`px-4 py-2.5 rounded-xl font-bold text-xs border-2 transition-all ${registeredTeams[editingTeamIndex].isMyTeam ? 'bg-amber-100 border-amber-400 text-amber-800 shadow-sm' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}>
-                                 ⭐ 自チームに設定
-                               </button>
-                             </div>
-                           </div>
-                           <div className="flex justify-between items-center mt-2">
-                             <div className="flex gap-2">
-                               <button onClick={() => handleShareData('teams')} className="text-[10px] bg-white text-blue-600 border border-blue-200 px-3 py-1.5 rounded-lg font-bold hover:bg-blue-50 shadow-sm transition-colors">全チームをテキストで送る</button>
-                             </div>
-                             <button onClick={() => {
-                               setConfirmDialog({
-                                 title: 'チームの削除', message: `${registeredTeams[editingTeamIndex].name} を削除しますか？`, isDanger: true,
-                                 onConfirm: () => { const newTeams = [...registeredTeams]; newTeams.splice(editingTeamIndex, 1); setRegisteredTeams(newTeams); setEditingTeamIndex(null); setConfirmDialog(null); }
-                               });
-                             }} className="text-[10px] text-rose-500 border border-transparent hover:border-rose-200 hover:bg-rose-50 font-bold px-3 py-1.5 rounded-lg transition-colors">🗑️ 削除</button>
-                           </div>
-                        </div>
-                        <div className="flex-1 overflow-y-auto p-4 md:p-6 bg-slate-50/80">
-                          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden max-w-2xl mx-auto">
-                            <table className="w-full text-xs text-center table-fixed">
-                              <thead className="bg-slate-100 text-slate-500 border-b border-slate-200 text-[10px] uppercase tracking-widest">
-                                <tr><th className="py-3 w-12 font-bold">No.</th><th className="py-3 text-left px-4 font-bold">選手名</th><th className="py-3 w-28 font-bold">投/打</th></tr>
-                              </thead>
-                              <tbody className="divide-y divide-slate-100">
-                                {registeredTeams[editingTeamIndex].players.map((p, pIdx) => (
-                                  <tr key={pIdx} className="hover:bg-slate-50 transition-colors">
-                                    <td className="py-2 text-slate-400 font-mono font-bold text-[10px]">{pIdx + 1}</td>
-                                    <td className="px-3">
-                                      <input type="text" value={p.name} onChange={e => {
-                                        const newTeams = [...registeredTeams]; newTeams[editingTeamIndex].players[pIdx].name = e.target.value; setRegisteredTeams(newTeams);
-                                      }} className="w-full border border-slate-200 rounded-lg px-3 py-1.5 outline-none focus:border-blue-400 font-bold text-slate-800 bg-slate-50 focus:bg-white transition-colors" placeholder="名前を入力" />
-                                    </td>
-                                    <td className="px-3">
-                                      <select value={`${p.throws}${p.bats}`} onChange={e => {
-                                        const val = e.target.value; const newTeams = [...registeredTeams]; newTeams[editingTeamIndex].players[pIdx].throws = val[0]; newTeams[editingTeamIndex].players[pIdx].bats = val[1]; setRegisteredTeams(newTeams);
-                                      }} className="w-full border border-slate-200 rounded-lg py-1.5 px-2 text-[11px] outline-none font-bold bg-white cursor-pointer shadow-sm text-slate-600 focus:border-blue-400 transition-colors">
-                                        <option value="右右">右投/右打</option><option value="右左">右投/左打</option><option value="左右">左投/右打</option><option value="左左">左投/左打</option>
-                                      </select>
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex-1 flex flex-col items-center justify-center text-slate-400 font-bold">
-                        <span className="text-4xl mb-4 opacity-50">👈</span>
-                        <span>チームを選択するか、新しく追加してください</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* テキストインポート用モーダル */}
           {showImportTextModal && (
             <div className="fixed inset-0 bg-slate-900/80 z-[300] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200 font-sans">
               <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col border border-slate-200">
