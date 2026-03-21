@@ -772,29 +772,60 @@
         if (!showPostGameAnalysis) return null;
         
         const sprayCoordMap = { 
-          '左翼線':{x:30,y:85},'レフト':{x:60,y:70},'左中間':{x:90,y:55},
-          'センター':{x:120,y:50},'右中間':{x:150,y:55},'ライト':{x:180,y:70},'右翼線':{x:210,y:85},
-          '三遊間':{x:80,y:125},'ショート':{x:95,y:115},'二遊間':{x:120,y:105},
-          'セカンド':{x:145,y:115},'一二間':{x:160,y:125},
-          'サード':{x:88,y:138},'ピッチャー':{x:120,y:135},'ファースト':{x:152,y:138},'キャッチャー':{x:120,y:178} 
+          '左翼線':{x:30,y:85, out:true},'レフト':{x:60,y:70, out:true},'左中間':{x:90,y:55, out:true},
+          'センター':{x:120,y:50, out:true},'右中間':{x:150,y:55, out:true},'ライト':{x:180,y:70, out:true},'右翼線':{x:210,y:85, out:true},
+          '三遊間':{x:80,y:125, out:false},'ショート':{x:95,y:115, out:false},'二遊間':{x:120,y:105, out:false},
+          'セカンド':{x:145,y:115, out:false},'一二間':{x:160,y:125, out:false},
+          'サード':{x:88,y:138, out:false},'ピッチャー':{x:120,y:135, out:false},'ファースト':{x:152,y:138, out:false},'キャッチャー':{x:120,y:178, out:false} 
         };
         
         const getSprayPosition = (res) => { 
-          if (res.includes('サード➡') || res.includes('ショート⬅')) return sprayCoordMap['三遊間'];
-          if (res.includes('ショート➡') || res.includes('セカンド⬅')) return sprayCoordMap['二遊間'];
-          if (res.includes('セカンド➡') || res.includes('ファースト⬅')) return sprayCoordMap['一二間'];
-          if (res.includes('サード⬅')) return {x:75, y:140}; 
-          if (res.includes('ファースト➡')) return {x:165, y:140}; 
-          if (res.includes('レフト➡') || res.includes('センター⬅')) return sprayCoordMap['左中間'];
-          if (res.includes('センター➡') || res.includes('ライト⬅')) return sprayCoordMap['右中間'];
-          if (res.includes('レフト⬅')) return {x:25, y:80}; 
-          if (res.includes('ライト➡')) return {x:215, y:80}; 
-          if (res.includes('ピッチャー⬆')) return sprayCoordMap['二遊間']; 
-          if (res.includes('左ファウル')) return {x:40, y:150};
-          if (res.includes('右ファウル')) return {x:200, y:150};
-          for(const [k,v] of Object.entries(sprayCoordMap)){ if(res.includes(k)) return v; } 
-          if(res.match(/左/))return sprayCoordMap['レフト']; if(res.match(/右/))return sprayCoordMap['ライト']; if(res.match(/中/))return sprayCoordMap['センター']; 
-          return null; 
+          let basePos = null;
+          if (res.includes('サード➡') || res.includes('ショート⬅')) basePos = sprayCoordMap['三遊間'];
+          else if (res.includes('ショート➡') || res.includes('セカンド⬅')) basePos = sprayCoordMap['二遊間'];
+          else if (res.includes('セカンド➡') || res.includes('ファースト⬅')) basePos = sprayCoordMap['一二間'];
+          else if (res.includes('サード⬅')) basePos = {x:75, y:140, out:false}; 
+          else if (res.includes('ファースト➡')) basePos = {x:165, y:140, out:false}; 
+          else if (res.includes('レフト➡') || res.includes('センター⬅')) basePos = sprayCoordMap['左中間'];
+          else if (res.includes('センター➡') || res.includes('ライト⬅')) basePos = sprayCoordMap['右中間'];
+          else if (res.includes('レフト⬅')) basePos = {x:25, y:80, out:true}; 
+          else if (res.includes('ライト➡')) basePos = {x:215, y:80, out:true}; 
+          else if (res.includes('ピッチャー⬆')) basePos = sprayCoordMap['二遊間']; 
+          else if (res.includes('左ファウル')) basePos = {x:40, y:150, out:false};
+          else if (res.includes('右ファウル')) basePos = {x:200, y:150, out:false};
+          else {
+            for(const [k,v] of Object.entries(sprayCoordMap)){ if(res.includes(k)) { basePos = v; break; } } 
+            if (!basePos) {
+              if(res.match(/左/)) basePos = sprayCoordMap['レフト']; 
+              else if(res.match(/右/)) basePos = sprayCoordMap['ライト']; 
+              else if(res.match(/中/)) basePos = sprayCoordMap['センター']; 
+            }
+          }
+          if(!basePos) return null; 
+
+          let scale = 1.0;
+          const hx = 120, hy = 185;
+          const isOut = basePos.out;
+
+          if (res.includes('本塁打')) scale = isOut ? 1.3 : 2.2;
+          else if (res.includes('三塁打') || res.includes('二塁打')) scale = isOut ? 1.15 : 1.8;
+          else if (res.includes('安')) scale = isOut ? 0.9 : 1.4;
+
+          if (res.includes('⬆') || res.includes('↖') || res.includes('↗')) scale *= 1.15;
+          else if (res.includes('⬇') || res.includes('↙') || res.includes('↘')) scale *= 0.85;
+
+          let tx = hx + (basePos.x - hx) * scale;
+          let ty = hy + (basePos.y - hy) * scale;
+
+          if (!res.includes('➡') && !res.includes('⬅')) {
+            if (res.includes('↗') || res.includes('↘')) tx += 10;
+            else if (res.includes('↖') || res.includes('↙')) tx -= 10;
+          }
+
+          tx = Math.max(10, Math.min(230, tx));
+          ty = Math.max(10, Math.min(190, ty));
+
+          return { x: tx, y: ty };
         };
 
         const getSprayResultType = (res) => ['安','塁打','本塁打'].some(w=>res.includes(w))?'hit':['エラー','野手選択'].some(w=>res.includes(w))?'error':res.includes('ファウル')?'foul':'out';
