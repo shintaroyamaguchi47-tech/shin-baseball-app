@@ -772,19 +772,27 @@
       const advancedStats = useMemo(() => {
         if (!showPostGameAnalysis) return null;
         
-        const sprayCoordMap = { '左翼線':{x:20,y:75},'レフト':{x:38,y:45},'左中間':{x:65,y:22},'センター':{x:120,y:12},'右中間':{x:175,y:22},'ライト':{x:202,y:45},'右翼線':{x:220,y:75},'三遊間':{x:60,y:130},'ショート':{x:78,y:118},'二遊間':{x:120,y:108},'セカンド':{x:162,y:118},'一二間':{x:180,y:130},'サード':{x:68,y:152},'ピッチャー':{x:120,y:148},'ファースト':{x:172,y:152},'キャッチャー':{x:120,y:178} };
+        const sprayCoordMap = { 
+          '左翼線':{x:30,y:85},'レフト':{x:60,y:70},'左中間':{x:90,y:55},
+          'センター':{x:120,y:50},'右中間':{x:150,y:55},'ライト':{x:180,y:70},'右翼線':{x:210,y:85},
+          '三遊間':{x:80,y:125},'ショート':{x:95,y:115},'二遊間':{x:120,y:105},
+          'セカンド':{x:145,y:115},'一二間':{x:160,y:125},
+          'サード':{x:88,y:138},'ピッチャー':{x:120,y:135},'ファースト':{x:152,y:138},'キャッチャー':{x:120,y:178} 
+        };
         
         const getSprayPosition = (res) => { 
           if (res.includes('サード➡') || res.includes('ショート⬅')) return sprayCoordMap['三遊間'];
           if (res.includes('ショート➡') || res.includes('セカンド⬅')) return sprayCoordMap['二遊間'];
           if (res.includes('セカンド➡') || res.includes('ファースト⬅')) return sprayCoordMap['一二間'];
-          if (res.includes('サード⬅')) return {x:40, y:152}; 
-          if (res.includes('ファースト➡')) return {x:200, y:152}; 
+          if (res.includes('サード⬅')) return {x:75, y:140}; 
+          if (res.includes('ファースト➡')) return {x:165, y:140}; 
           if (res.includes('レフト➡') || res.includes('センター⬅')) return sprayCoordMap['左中間'];
           if (res.includes('センター➡') || res.includes('ライト⬅')) return sprayCoordMap['右中間'];
-          if (res.includes('レフト⬅')) return {x:20, y:45}; 
-          if (res.includes('ライト➡')) return {x:220, y:45}; 
+          if (res.includes('レフト⬅')) return {x:25, y:80}; 
+          if (res.includes('ライト➡')) return {x:215, y:80}; 
           if (res.includes('ピッチャー⬆')) return sprayCoordMap['二遊間']; 
+          if (res.includes('左ファウル')) return {x:40, y:150};
+          if (res.includes('右ファウル')) return {x:200, y:150};
           for(const [k,v] of Object.entries(sprayCoordMap)){ if(res.includes(k)) return v; } 
           if(res.match(/左/))return sprayCoordMap['レフト']; if(res.match(/右/))return sprayCoordMap['ライト']; if(res.match(/中/))return sprayCoordMap['センター']; 
           return null; 
