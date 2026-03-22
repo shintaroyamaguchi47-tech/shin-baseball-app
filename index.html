@@ -446,22 +446,9 @@
         const rect = e.currentTarget.getBoundingClientRect();
         const x = (e.clientX - rect.left) / rect.width * 240;
         const y = (e.clientY - rect.top) / rect.height * 200;
-        const hx = 120, hy = 185;
-        const dx = x - hx, dy = hy - y;
-        const dist = Math.sqrt(dx*dx + dy*dy);
-        const angle = Math.atan2(dx, dy) * 180 / Math.PI;
-        let posName = '';
-        if (y > 185) { posName = x < 120 ? '左ファウル' : '右ファウル'; }
-        else if (angle < -45) { posName = '左ファウル'; }
-        else if (angle > 45) { posName = '右ファウル'; }
-        else {
-           const isOutfield = dist > 65;
-           if (isOutfield) { if (angle < -20) posName = 'レフト'; else if (angle < -5) posName = '左中間'; else if (angle < 5) posName = 'センター'; else if (angle < 20) posName = '右中間'; else posName = 'ライト'; }
-           else { if (dist < 30) posName = 'ピッチャー'; else if (angle < -20) posName = 'サード'; else if (angle < -5) posName = 'ショート'; else if (angle < 5) posName = 'ピッチャー'; else if (angle < 20) posName = 'セカンド'; else posName = 'ファースト'; }
-        }
         recordAction();
         setSelectedHitCoord({ x, y });
-        setSelectedPosition(posName);
+        setSelectedPosition(null);
       };
 
       const handleInPlayFinalResult = (typeLabel, outCount) => {
@@ -1172,46 +1159,140 @@
                 </div>
               ) : (
                 <div className="bg-blue-50/50 rounded-3xl shadow-inner p-4 md:p-6 border border-blue-200 flex-1 flex flex-col min-h-[450px]">
-                  <div className="flex justify-between items-center mb-6 border-b border-blue-200 pb-3">
-                    <h2 className="text-xl font-black text-blue-800">🎯 打撃結果の入力</h2>
+                  <div className="flex justify-between items-center mb-4 border-b border-blue-200 pb-3">
+                    <h2 className="text-lg font-black text-blue-800">🎯 打撃結果の入力</h2>
                     <button onClick={() => { handleUndo(); setSelectedHitCoord(null); setSelectedPosition(null); }} className="text-xs bg-white px-4 py-2 rounded-full border border-slate-300 shadow-sm font-bold text-slate-600">↩️ 取消して戻る</button>
                   </div>
-                  {!selectedHitCoord ? (
+                  {/* Step indicator */}
+                  <div className="flex items-center gap-1 mb-4 px-2">
+                    <div className={`flex items-center gap-1 text-xs font-black ${!selectedHitCoord ? 'text-blue-700' : 'text-emerald-600'}`}>
+                      <span className={`w-5 h-5 rounded-full flex items-center justify-center text-white text-[10px] ${!selectedHitCoord ? 'bg-blue-600' : 'bg-emerald-500'}`}>{selectedHitCoord ? '✓' : '1'}</span>位置
+                    </div>
+                    <div className="flex-1 h-px bg-slate-300"></div>
+                    <div className={`flex items-center gap-1 text-xs font-black ${selectedHitCoord && !selectedPosition ? 'text-blue-700' : selectedPosition ? 'text-emerald-600' : 'text-slate-300'}`}>
+                      <span className={`w-5 h-5 rounded-full flex items-center justify-center text-white text-[10px] ${selectedHitCoord && !selectedPosition ? 'bg-blue-600' : selectedPosition ? 'bg-emerald-500' : 'bg-slate-200'}`}>{selectedPosition ? '✓' : '2'}</span>野手
+                    </div>
+                    <div className="flex-1 h-px bg-slate-300"></div>
+                    <div className={`flex items-center gap-1 text-xs font-black ${selectedPosition ? 'text-blue-700' : 'text-slate-300'}`}>
+                      <span className={`w-5 h-5 rounded-full flex items-center justify-center text-white text-[10px] ${selectedPosition ? 'bg-blue-600' : 'bg-slate-200'}`}>3</span>結果
+                    </div>
+                  </div>
+
+                  {/* STEP 1: 打球の落下点 */}
+                  {!selectedHitCoord && (
                     <div className="flex-1 flex flex-col items-center justify-center w-full">
-                      <p className="text-slate-700 font-black text-lg mb-4"><span className="text-blue-600">①</span> 打球の落下点・処理位置をタップ</p>
-                      <div className="relative w-full max-w-[360px] aspect-[1.2] mb-4 mx-auto bg-white p-2 rounded-3xl shadow-sm border border-slate-200 overflow-hidden flex items-center justify-center">
+                      <p className="text-slate-600 font-bold text-sm mb-3">打球の落下点・処理位置をタップ</p>
+                      <div className="relative w-full max-w-[360px] aspect-[1.2] mb-2 mx-auto bg-white p-2 rounded-3xl shadow-sm border border-slate-200 overflow-hidden flex items-center justify-center">
                         <svg viewBox="0 0 240 200" preserveAspectRatio="xMidYMid meet" className="w-full h-full cursor-crosshair rounded-2xl" onClick={handleFieldClick} style={{ touchAction: 'none' }}>
                           <path d="M 120 185 L 0 65 L 0 0 L 240 0 L 240 65 Z" fill="#f8fafc" />
                           <path d="M 120 185 L 8 70 Q 120 -25 232 70 Z" fill="#dcfce7" />
                           <path d="M 120 185 L 55 120 Q 120 70 185 120 Z" fill="#fef3c7" opacity="0.8" />
                           <polygon points="120,185 80,145 120,110 160,145" fill="none" stroke="#94a3b8" strokeWidth="1" />
-                          {selectedHitCoord && <g className="pointer-events-none"><circle cx={selectedHitCoord.x} cy={selectedHitCoord.y} r="5" fill="#3b82f6" stroke="#fff" strokeWidth="1.5" /></g>}
+                          <text x="55" y="60" textAnchor="middle" fontSize="9" fontWeight="700" fill="#64748b" opacity="0.6">左</text>
+                          <text x="88" y="42" textAnchor="middle" fontSize="8" fontWeight="600" fill="#64748b" opacity="0.5">左中</text>
+                          <text x="120" y="35" textAnchor="middle" fontSize="9" fontWeight="700" fill="#64748b" opacity="0.6">中</text>
+                          <text x="152" y="42" textAnchor="middle" fontSize="8" fontWeight="600" fill="#64748b" opacity="0.5">右中</text>
+                          <text x="185" y="60" textAnchor="middle" fontSize="9" fontWeight="700" fill="#64748b" opacity="0.6">右</text>
+                          <text x="82" y="130" textAnchor="middle" fontSize="8" fontWeight="600" fill="#94a3b8" opacity="0.7">三</text>
+                          <text x="100" y="112" textAnchor="middle" fontSize="8" fontWeight="600" fill="#94a3b8" opacity="0.7">遊</text>
+                          <text x="140" y="112" textAnchor="middle" fontSize="8" fontWeight="600" fill="#94a3b8" opacity="0.7">二</text>
+                          <text x="158" y="130" textAnchor="middle" fontSize="8" fontWeight="600" fill="#94a3b8" opacity="0.7">一</text>
+                          <text x="120" y="145" textAnchor="middle" fontSize="7" fontWeight="600" fill="#94a3b8" opacity="0.5">投</text>
+                          <path d="M 55 120 Q 120 70 185 120" fill="none" stroke="#94a3b8" strokeWidth="0.5" strokeDasharray="3,3" opacity="0.4" />
                         </svg>
                       </div>
                     </div>
-                  ) : (
+                  )}
+
+                  {/* STEP 2: 処理した野手 */}
+                  {selectedHitCoord && !selectedPosition && (
                     <div className="flex-1 flex flex-col items-center w-full">
-                      <div className="flex items-center gap-4 mb-6">
-                        <p className="text-slate-700 font-black text-lg"><span className="text-blue-600 mr-2">②</span><span className="text-blue-700 text-2xl px-3 bg-white rounded-xl shadow-sm border border-blue-100 py-1 mx-1">{selectedPosition}</span> の結果は？</p>
-                        <button onClick={() => { setSelectedHitCoord(null); setSelectedPosition(null); }} className="text-xs bg-white text-slate-500 border border-slate-300 px-3 py-1.5 rounded-lg shadow-sm font-bold">位置を変更</button>
+                      <div className="flex items-center gap-3 mb-3">
+                        <div className="relative w-16 h-14 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden shrink-0">
+                          <svg viewBox="0 0 240 200" className="w-full h-full">
+                            <path d="M 120 185 L 8 70 Q 120 -25 232 70 Z" fill="#dcfce7" />
+                            <path d="M 120 185 L 55 120 Q 120 70 185 120 Z" fill="#fef3c7" opacity="0.6" />
+                            <circle cx={selectedHitCoord.x} cy={selectedHitCoord.y} r="8" fill="#3b82f6" stroke="#fff" strokeWidth="2" />
+                          </svg>
+                        </div>
+                        <div>
+                          <p className="text-slate-700 font-black text-base">処理した野手は？</p>
+                          <button onClick={() => setSelectedHitCoord(null)} className="text-[10px] text-slate-400 underline">← 位置を選びなおす</button>
+                        </div>
                       </div>
-                      <div className="w-full space-y-4 max-w-md">
+                      {/* Field-layout: 9 positions only */}
+                      <div className="w-full max-w-xs mx-auto">
+                        <div className="relative bg-gradient-to-b from-emerald-50 to-amber-50/50 rounded-2xl border border-slate-200 shadow-sm overflow-hidden" style={{aspectRatio: '1'}}>
+                          {/* Outfielders */}
+                          <button onClick={() => setSelectedPosition('レフト')} className="absolute bg-emerald-500 hover:bg-emerald-600 text-white font-black rounded-xl active:scale-95 shadow-sm flex items-center justify-center text-base" style={{left:'5%',top:'5%',width:'26%',height:'22%'}}>
+                            左
+                          </button>
+                          <button onClick={() => setSelectedPosition('センター')} className="absolute bg-emerald-500 hover:bg-emerald-600 text-white font-black rounded-xl active:scale-95 shadow-sm flex items-center justify-center text-base" style={{left:'37%',top:'2%',width:'26%',height:'22%'}}>
+                            中
+                          </button>
+                          <button onClick={() => setSelectedPosition('ライト')} className="absolute bg-emerald-500 hover:bg-emerald-600 text-white font-black rounded-xl active:scale-95 shadow-sm flex items-center justify-center text-base" style={{left:'69%',top:'5%',width:'26%',height:'22%'}}>
+                            右
+                          </button>
+                          {/* Infielders */}
+                          <button onClick={() => setSelectedPosition('サード')} className="absolute bg-amber-500 hover:bg-amber-600 text-white font-black rounded-xl active:scale-95 shadow-sm flex items-center justify-center text-base" style={{left:'5%',top:'38%',width:'22%',height:'20%'}}>
+                            三
+                          </button>
+                          <button onClick={() => setSelectedPosition('ショート')} className="absolute bg-amber-500 hover:bg-amber-600 text-white font-black rounded-xl active:scale-95 shadow-sm flex items-center justify-center text-base" style={{left:'28%',top:'32%',width:'20%',height:'18%'}}>
+                            遊
+                          </button>
+                          <button onClick={() => setSelectedPosition('セカンド')} className="absolute bg-amber-500 hover:bg-amber-600 text-white font-black rounded-xl active:scale-95 shadow-sm flex items-center justify-center text-base" style={{left:'52%',top:'32%',width:'20%',height:'18%'}}>
+                            二
+                          </button>
+                          <button onClick={() => setSelectedPosition('ファースト')} className="absolute bg-amber-500 hover:bg-amber-600 text-white font-black rounded-xl active:scale-95 shadow-sm flex items-center justify-center text-base" style={{left:'73%',top:'38%',width:'22%',height:'20%'}}>
+                            一
+                          </button>
+                          {/* Battery */}
+                          <button onClick={() => setSelectedPosition('ピッチャー')} className="absolute bg-slate-600 hover:bg-slate-700 text-white font-black rounded-xl active:scale-95 shadow-sm flex items-center justify-center text-base" style={{left:'37%',top:'58%',width:'26%',height:'18%'}}>
+                            投
+                          </button>
+                          <button onClick={() => setSelectedPosition('キャッチャー')} className="absolute bg-slate-600 hover:bg-slate-700 text-white font-black rounded-xl active:scale-95 shadow-sm flex items-center justify-center text-base" style={{left:'34%',top:'80%',width:'32%',height:'17%'}}>
+                            捕
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* STEP 3: 結果 */}
+                  {selectedHitCoord && selectedPosition && (
+                    <div className="flex-1 flex flex-col items-center w-full">
+                      <div className="flex items-center gap-3 mb-4 w-full max-w-md">
+                        <div className="relative w-14 h-12 bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden shrink-0">
+                          <svg viewBox="0 0 240 200" className="w-full h-full">
+                            <path d="M 120 185 L 8 70 Q 120 -25 232 70 Z" fill="#dcfce7" />
+                            <circle cx={selectedHitCoord.x} cy={selectedHitCoord.y} r="8" fill="#3b82f6" stroke="#fff" strokeWidth="2" />
+                          </svg>
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-slate-800 font-black text-base">
+                            <span className="bg-blue-100 text-blue-800 px-2 py-0.5 rounded-lg text-sm mr-1">{selectedPosition}</span>
+                            の結果は？
+                          </p>
+                        </div>
+                        <button onClick={() => setSelectedPosition(null)} className="text-[10px] bg-slate-100 text-slate-500 border border-slate-200 px-2.5 py-1.5 rounded-lg font-bold shrink-0">← 野手変更</button>
+                      </div>
+                      <div className="w-full space-y-3 max-w-md">
                         <div className="bg-white p-4 rounded-2xl border border-rose-100 shadow-sm"><div className="grid grid-cols-3 gap-3">
-                          <button onClick={() => handleInPlayFinalResult('ゴロ', 1)} className="bg-rose-50 text-rose-700 py-4 rounded-xl font-black text-lg active:scale-95">ゴロ</button>
-                          <button onClick={() => handleInPlayFinalResult('飛', 1)} className="bg-orange-50 text-orange-700 py-4 rounded-xl font-black text-lg active:scale-95">飛/直</button>
+                          <button onClick={() => handleInPlayFinalResult('ゴロ', 1)} className="bg-rose-50 text-rose-700 py-4 rounded-xl font-black text-lg active:scale-95 border border-rose-200">ゴロ</button>
+                          <button onClick={() => handleInPlayFinalResult('飛', 1)} className="bg-orange-50 text-orange-700 py-4 rounded-xl font-black text-lg active:scale-95 border border-orange-200">飛/直</button>
                           <button onClick={() => handleInPlayFinalResult('併殺打', 2)} className="bg-rose-600 text-white py-4 rounded-xl font-black text-lg shadow-md active:scale-95">併殺打</button>
                         </div></div>
                         <div className="bg-white p-4 rounded-2xl border border-blue-100 shadow-sm"><div className="grid grid-cols-4 gap-3">
-                          <button onClick={() => handleInPlayFinalResult('安', 0)} className="bg-blue-50 text-blue-700 py-4 rounded-xl font-black active:scale-95">単打</button>
-                          <button onClick={() => handleInPlayFinalResult('二塁打', 0)} className="bg-indigo-50 text-indigo-700 py-4 rounded-xl font-black active:scale-95">二塁打</button>
-                          <button onClick={() => handleInPlayFinalResult('三塁打', 0)} className="bg-purple-50 text-purple-700 py-4 rounded-xl font-black active:scale-95">三塁打</button>
-                          <button onClick={() => handleInPlayFinalResult('本塁打', 0)} className="bg-pink-100 text-pink-700 py-4 rounded-xl font-black shadow-sm active:scale-95">本塁打</button>
+                          <button onClick={() => handleInPlayFinalResult('安', 0)} className="bg-blue-50 text-blue-700 py-4 rounded-xl font-black active:scale-95 border border-blue-200">単打</button>
+                          <button onClick={() => handleInPlayFinalResult('二塁打', 0)} className="bg-indigo-50 text-indigo-700 py-4 rounded-xl font-black active:scale-95 border border-indigo-200">二塁打</button>
+                          <button onClick={() => handleInPlayFinalResult('三塁打', 0)} className="bg-purple-50 text-purple-700 py-4 rounded-xl font-black active:scale-95 border border-purple-200">三塁打</button>
+                          <button onClick={() => handleInPlayFinalResult('本塁打', 0)} className="bg-pink-100 text-pink-700 py-4 rounded-xl font-black shadow-sm active:scale-95 border border-pink-200">本塁打</button>
                         </div></div>
                         <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm"><div className="grid grid-cols-4 gap-3">
-                          <button onClick={() => handleInPlayFinalResult('エラー', 0)} className="bg-slate-100 text-slate-700 py-3 rounded-xl font-bold text-sm">エラー</button>
-                          <button onClick={() => handleInPlayFinalResult('野手選択', 0)} className="bg-slate-100 text-slate-700 py-3 rounded-xl font-bold text-sm">野手選択</button>
-                          <button onClick={() => handleInPlayFinalResult('犠打', 1)} className="bg-slate-100 text-slate-700 py-3 rounded-xl font-bold text-sm">犠打</button>
-                          <button onClick={() => handleInPlayFinalResult('犠飛', 1)} className="bg-slate-100 text-slate-700 py-3 rounded-xl font-bold text-sm">犠飛</button>
+                          <button onClick={() => handleInPlayFinalResult('エラー', 0)} className="bg-slate-100 text-slate-700 py-3 rounded-xl font-bold text-sm border border-slate-200">エラー</button>
+                          <button onClick={() => handleInPlayFinalResult('野手選択', 0)} className="bg-slate-100 text-slate-700 py-3 rounded-xl font-bold text-sm border border-slate-200">野選</button>
+                          <button onClick={() => handleInPlayFinalResult('犠打', 1)} className="bg-slate-100 text-slate-700 py-3 rounded-xl font-bold text-sm border border-slate-200">犠打</button>
+                          <button onClick={() => handleInPlayFinalResult('犠飛', 1)} className="bg-slate-100 text-slate-700 py-3 rounded-xl font-bold text-sm border border-slate-200">犠飛</button>
                         </div></div>
                       </div>
                     </div>
