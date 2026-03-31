@@ -1097,21 +1097,26 @@
               <span className="text-2xl">⚾</span>配球スコア <span className="text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full uppercase tracking-widest ml-1 font-bold border border-blue-200 relative -top-0.5">Pro</span>
             </div>
 
-            {/* モバイル専用の簡易表示とボタン (md未満) */}
-            <div className="flex md:hidden w-full items-center justify-between mt-1">
-              <div className="flex items-center gap-2 text-xs font-bold bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200 shrink-0 max-w-[70%] overflow-x-auto custom-scrollbar">
+            {/* モバイル専用の簡易表示とアクションバー (md未満) */}
+            <div className="flex md:hidden w-full flex-col gap-2 mt-1">
+              <div className="flex items-center gap-2 text-xs font-bold bg-slate-100 px-3 py-2 rounded-lg border border-slate-200 w-full overflow-x-auto custom-scrollbar shadow-inner">
                 <span className="text-slate-600 whitespace-nowrap">{gameState.inning}回{gameState.isTop?'表':'裏'}</span>
                 <span className="text-slate-800 ml-1 whitespace-nowrap flex items-center">
-                  <span className="truncate max-w-[80px]">{gameInfo.teamTop}</span>
-                  <span className="text-blue-700 font-black text-sm mx-1">{gameState.runs.top.reduce((a,b)=>a+b,0)}</span>
+                  <span className="truncate max-w-[100px]">{gameInfo.teamTop}</span>
+                  <span className="text-blue-700 font-black text-sm mx-1.5">{gameState.runs.top.reduce((a,b)=>a+b,0)}</span>
                   <span className="text-slate-400 mx-0.5">-</span>
-                  <span className="text-blue-700 font-black text-sm mx-1">{gameState.runs.bottom.reduce((a,b)=>a+b,0)}</span>
-                  <span className="truncate max-w-[80px]">{gameInfo.teamBottom}</span>
+                  <span className="text-blue-700 font-black text-sm mx-1.5">{gameState.runs.bottom.reduce((a,b)=>a+b,0)}</span>
+                  <span className="truncate max-w-[100px]">{gameInfo.teamBottom}</span>
                 </span>
               </div>
-              <div className="flex gap-1.5 shrink-0">
-                <button onClick={()=>setShowSettings(true)} className="bg-slate-100 text-slate-700 px-2.5 py-1.5 rounded-lg text-xs font-bold border border-slate-300 shadow-sm active:bg-slate-200">⚙️</button>
-                <button onClick={() => setShowPostGameAnalysis(true)} className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold shadow-md active:bg-blue-700">分析</button>
+              <div className="flex w-full overflow-x-auto custom-scrollbar pb-1 gap-2 shrink-0">
+                <button onClick={()=>setShowSettings(true)} className="whitespace-nowrap bg-white hover:bg-slate-50 text-slate-700 px-3 py-1.5 rounded-lg text-xs font-bold border border-slate-300 shadow-sm flex items-center gap-1 shrink-0">⚙️ オーダー</button>
+                <button onClick={()=>{ setEditingTeamIndex(null); setShowTeamManager(true); }} className="whitespace-nowrap bg-white hover:bg-slate-50 text-slate-700 px-3 py-1.5 rounded-lg text-xs font-bold border border-slate-300 shadow-sm flex items-center gap-1 shrink-0">👥 チーム</button>
+                <button onClick={()=>setShowArchiveModal(true)} className="whitespace-nowrap bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm flex items-center gap-1 shrink-0">📂 保存/読込</button>
+                <button onClick={()=>setShowExport(true)} className="whitespace-nowrap bg-slate-800 text-white px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm flex items-center gap-1 shrink-0">📤 出力</button>
+                <button onClick={handleTieBreak} className="whitespace-nowrap bg-purple-50 text-purple-700 px-3 py-1.5 rounded-lg text-xs font-bold border border-purple-200 shadow-sm shrink-0">⚡ 特延</button>
+                <button onClick={handleNewGame} className="whitespace-nowrap bg-rose-50 text-rose-700 px-3 py-1.5 rounded-lg text-xs font-bold border border-rose-200 shadow-sm shrink-0">🔄 リセット</button>
+                <button onClick={() => setShowPostGameAnalysis(true)} className="whitespace-nowrap bg-blue-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold shadow-md shrink-0">🏁 試合分析へ</button>
               </div>
             </div>
             
