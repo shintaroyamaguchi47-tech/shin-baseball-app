@@ -699,6 +699,18 @@
         reader.readAsText(file);
       };
 
+      const handlePrintDashboard = () => {
+        if (!advancedStats) return;
+        const ok = window.generatePdfReport({
+          gameInfo,
+          gameState,
+          advancedStats,
+          pitches,
+          hitsAndErrors,
+        });
+        if (!ok) showToast('ポップアップをブロックしていると印刷できません', 'error');
+      };
+
       const copyShareText = () => {
         try {
           const topTotal = gameState.runs.top.reduce((a,b)=>a+b,0), bottomTotal = gameState.runs.bottom.reduce((a,b)=>a+b,0);
