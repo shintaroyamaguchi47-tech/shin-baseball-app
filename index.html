@@ -121,12 +121,47 @@
     function pitcherDetails(pitching, teamName) {
       var h='<div style="margin:24px 0 12px;font-size:16px;font-weight:bold;color:#1e293b;border-bottom:2px solid #e2e8f0;padding-bottom:4px;">投手詳細: '+esc(teamName)+'</div>';
       pitching.pitchers.forEach(function(p){
-        h+='<div class="nbi" style="background:#ffffff;border:1px solid #cbd5e1;border-radius:12px;padding:20px;margin-bottom:20px;">';
+        h+='<div class="nbi" style="background:#ffffff;border:1px solid #cbd5e1;border-radius:12px;padding:20px;margin-bottom:20px;page-break-inside:avoid;">';
         h+='<div style="font-size:20px;font-weight:bold;margin-bottom:16px;border-bottom:2px solid #f1f5f9;padding-bottom:8px;">'+esc(p.name)+' ('+p.total+'球)</div>';
         h+='<div style="display:flex;gap:16px;margin-bottom:16px;">';
         h+='<div style="flex:1;background:#f8fafc;padding:12px;border-radius:8px;"><div style="font-size:11px;color:#64748b;">CSW%</div><div style="font-size:24px;font-weight:bold;color:#d97706;">'+p.csw+'%</div></div>';
         h+='<div style="flex:1;background:#f8fafc;padding:12px;border-radius:8px;"><div style="font-size:11px;color:#64748b;">Whiff%</div><div style="font-size:24px;font-weight:bold;color:#ef4444;">'+p.whiff+'%</div></div>';
         h+='<div style="flex:1;background:#f8fafc;padding:12px;border-radius:8px;"><div style="font-size:11px;color:#64748b;">初球S率</div><div style="font-size:24px;font-weight:bold;color:#0ea5e9;">'+p.fStrikePct+'%</div></div>';
+        h+='</div>';
+        // スプリット表（対右/左・上位/下位）
+        function splitRow(label, sp, bg) {
+          return '<tr style="background:'+bg+';border-bottom:1px solid #e2e8f0;">'
+            +'<td style="padding:6px 8px;font-weight:bold;">'+esc(label)+'</td>'
+            +'<td style="padding:6px 8px;text-align:right;">'+sp.PA+'</td>'
+            +'<td style="padding:6px 8px;text-align:right;">'+sp.total+'</td>'
+            +'<td style="padding:6px 8px;text-align:right;color:#0ea5e9;font-weight:bold;">'+sp.sPct+'%</td>'
+            +'<td style="padding:6px 8px;text-align:right;color:#0369a1;font-weight:bold;">'+sp.AVG+'</td>'
+            +'<td style="padding:6px 8px;text-align:right;color:#ef4444;font-weight:bold;">'+sp.KPct+'%</td>'
+            +'<td style="padding:6px 8px;text-align:right;color:#10b981;font-weight:bold;">'+sp.BBPct+'%</td>'
+            +'</tr>';
+        }
+        var splitTh = '<tr style="background:#f1f5f9;color:#475569;border-bottom:2px solid #cbd5e1;">'
+          +'<th style="padding:6px 8px;text-align:left;"></th>'
+          +'<th style="padding:6px 8px;text-align:right;">打席</th>'
+          +'<th style="padding:6px 8px;text-align:right;">投球</th>'
+          +'<th style="padding:6px 8px;text-align:right;">S%</th>'
+          +'<th style="padding:6px 8px;text-align:right;">被打率</th>'
+          +'<th style="padding:6px 8px;text-align:right;">K%</th>'
+          +'<th style="padding:6px 8px;text-align:right;">BB%</th>'
+          +'</tr>';
+        h+='<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px;">';
+        h+='<div style="flex:1;min-width:260px;">';
+        h+='<div style="font-size:12px;font-weight:bold;margin-bottom:6px;color:#475569;">🆚 対左右スプリット</div>';
+        h+='<table style="width:100%;border-collapse:collapse;font-size:11px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;"><thead>'+splitTh+'</thead><tbody>';
+        h+=splitRow('対右', p.sideStats.right, '#fff');
+        h+=splitRow('対左', p.sideStats.left, '#f8fafc');
+        h+='</tbody></table></div>';
+        h+='<div style="flex:1;min-width:260px;">';
+        h+='<div style="font-size:12px;font-weight:bold;margin-bottom:6px;color:#475569;">📊 打順スプリット</div>';
+        h+='<table style="width:100%;border-collapse:collapse;font-size:11px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;"><thead>'+splitTh+'</thead><tbody>';
+        h+=splitRow('上位 1〜5番', p.orderStats.top, '#fff');
+        h+=splitRow('下位 6〜9番', p.orderStats.bottom, '#f8fafc');
+        h+='</tbody></table></div>';
         h+='</div>';
         h+='<div style="font-size:13px;font-weight:bold;margin-bottom:8px;">カウント別配球</div>';
         h+='<div style="display:flex;gap:16px;margin-bottom:20px;">';
@@ -849,7 +884,9 @@
               if (!pStats[pName]) pStats[pName] = { name: pName, total: 0, calledStrikes: 0, whiffs: 0, swings: 0, strikes: 0, firstPitches: 0, firstStrikes: 0, PA: 0, H: 0, K: 0, BB: 0, throws: p.pitcherThrows || '右', typeStats: {},
                   heatmaps: { fastball: { all: {}, ahead: {}, even: {}, behind: {}, max: {all:0, ahead:0, even:0, behind:0} }, breaking: { all: {}, ahead: {}, even: {}, behind: {}, max: {all:0, ahead:0, even:0, behind:0} } },
                   pitchTypeHeatmaps: {},
-                  counts: { vsRight: { ahead: { total: 0, strikes: 0, types: {} }, even: { total: 0, strikes: 0, types: {} }, behind: { total: 0, strikes: 0, types: {} } }, vsLeft: { ahead: { total: 0, strikes: 0, types: {} }, even: { total: 0, strikes: 0, types: {} }, behind: { total: 0, strikes: 0, types: {} } } }
+                  counts: { vsRight: { ahead: { total: 0, strikes: 0, types: {} }, even: { total: 0, strikes: 0, types: {} }, behind: { total: 0, strikes: 0, types: {} } }, vsLeft: { ahead: { total: 0, strikes: 0, types: {} }, even: { total: 0, strikes: 0, types: {} }, behind: { total: 0, strikes: 0, types: {} } } },
+                  sideStats: { right: { total:0, strikes:0, PA:0, AB:0, H:0, K:0, BB:0 }, left: { total:0, strikes:0, PA:0, AB:0, H:0, K:0, BB:0 } },
+                  orderStats: { top: { total:0, strikes:0, PA:0, AB:0, H:0, K:0, BB:0 }, bottom: { total:0, strikes:0, PA:0, AB:0, H:0, K:0, BB:0 } }
               };
           });
           const abArr = []; let cAb = [];
@@ -868,6 +905,11 @@
               if (!targetCountObj.types[type]) targetCountObj.types[type] = 0;
               targetCountObj.types[type]++;
               if (!['ボール','ウエスト','死球'].includes(p.result)) { st.strikes++; tSt.strikes++; targetCountObj.strikes++; }
+              const _sideKey = p.batterBats === '左' ? 'left' : 'right';
+              const _orderKey = (p.batter >= 1 && p.batter <= 5) ? 'top' : 'bottom';
+              st.sideStats[_sideKey].total++;
+              st.orderStats[_orderKey].total++;
+              if (!['ボール','ウエスト','死球'].includes(p.result)) { st.sideStats[_sideKey].strikes++; st.orderStats[_orderKey].strikes++; }
               let isSwing = false, isStrike = false;
               if (p.result.includes('見逃し') || p.result === 'ストライク') { st.calledStrikes++; tSt.calledStrikes++; isStrike = true; }
               else if (p.result.includes('空振り') || p.result === 'バント空振り') { st.whiffs++; tSt.whiffs++; isSwing = true; isStrike = true; }
@@ -891,12 +933,31 @@
             const st = pStats[lastP.pitcherName || '不明'];
             st.PA++; const res = lastP.result;
             let fB=0, fS=0; ab.forEach(p => { if(['ボール','ウエスト'].includes(p.result)) fB++; else if(['ストライク','空振り','バント空振り'].includes(p.result)) fS++; else if(['ファウル','バントファウル'].includes(p.result)&&fS<2) fS++; });
-            if (['安','塁打','本塁打'].some(w=>res.includes(w))) st.H++; else if (['死球','四球','ウエスト'].includes(res) || fB>=4) st.BB++; else if (res==='三振' || res==='スリーバント失敗' || fS>=3) st.K++;
+            const _isH = ['安','塁打','本塁打'].some(w=>res.includes(w));
+            const _isBB = ['死球','四球','ウエスト'].includes(res) || fB>=4;
+            const _isK = res==='三振' || res==='スリーバント失敗' || fS>=3;
+            const _isSac = ['犠打','犠飛'].some(w=>res.includes(w));
+            if (_isH) st.H++; else if (_isBB) st.BB++; else if (_isK) st.K++;
+            const _abSide = lastP.batterBats === '左' ? 'left' : 'right';
+            const _abOrder = (lastP.batter >= 1 && lastP.batter <= 5) ? 'top' : 'bottom';
+            [st.sideStats[_abSide], st.orderStats[_abOrder]].forEach(sp => {
+              sp.PA++;
+              if (!_isBB && !_isSac) sp.AB++;
+              if (_isH) sp.H++; else if (_isBB) sp.BB++; else if (_isK) sp.K++;
+            });
+          });
+          const calcSplitRates = (sp) => ({ ...sp,
+            sPct: sp.total>0?Math.round(sp.strikes/sp.total*100):0,
+            AVG: sp.AB>0?(sp.H/sp.AB).toFixed(3).replace(/^0/,''):'---',
+            KPct: sp.PA>0?Math.round(sp.K/sp.PA*100):0,
+            BBPct: sp.PA>0?Math.round(sp.BB/sp.PA*100):0,
           });
           return { pitchers: Object.values(pStats).map(st => ({
               ...st, csw: st.total>0?Math.round(((st.calledStrikes+st.whiffs)/st.total)*100):0, whiff: st.swings>0?Math.round((st.whiffs/st.swings)*100):0,
               fStrikePct: st.firstPitches>0?Math.round((st.firstStrikes/st.firstPitches)*100):0, pPa: st.PA>0?(st.total/st.PA).toFixed(1):'0.0',
-              types: Object.entries(st.typeStats).map(([t, tSt]) => ({ type: t, total: tSt.total, csw: tSt.total>0?Math.round(((tSt.calledStrikes+tSt.whiffs)/tSt.total)*100):0, whiff: tSt.swings>0?Math.round((tSt.whiffs/tSt.swings)*100):0, strikeRate: tSt.total>0?Math.round((tSt.strikes/tSt.total)*100):0 })).sort((a, b) => b.total - a.total)
+              types: Object.entries(st.typeStats).map(([t, tSt]) => ({ type: t, total: tSt.total, csw: tSt.total>0?Math.round(((tSt.calledStrikes+tSt.whiffs)/tSt.total)*100):0, whiff: tSt.swings>0?Math.round((tSt.whiffs/tSt.swings)*100):0, strikeRate: tSt.total>0?Math.round((tSt.strikes/tSt.total)*100):0 })).sort((a, b) => b.total - a.total),
+              sideStats: { right: calcSplitRates(st.sideStats.right), left: calcSplitRates(st.sideStats.left) },
+              orderStats: { top: calcSplitRates(st.orderStats.top), bottom: calcSplitRates(st.orderStats.bottom) },
             })).sort((a, b) => b.total - a.total)
           };
         };
