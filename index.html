@@ -967,7 +967,7 @@
           <header className="bg-white shadow-sm border-b border-slate-200 p-2 md:p-4 flex flex-col md:flex-row md:items-center md:justify-between shrink-0 gap-3 z-10 relative">
             <div className="flex flex-col gap-2 md:w-auto w-full">
               <div className="flex items-center justify-between md:justify-start gap-4">
-                <div className="flex items-center gap-2 text-xl md:text-2xl font-black text-blue-700 tracking-tighter"><span className="text-2xl">⚾</span>配球スコア <span className="text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full uppercase tracking-widest ml-1 font-bold border border-blue-200">Pro</span></div>
+                <div className="flex items-center gap-2 text-xl md:text-2xl font-black text-blue-700 tracking-tighter whitespace-nowrap"><span className="text-2xl">⚾</span>配球スコア <span className="text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full uppercase tracking-widest ml-1 font-bold border border-blue-200">Pro</span></div>
                 <div className="flex md:hidden items-center gap-2 text-xs font-bold bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200">
                   <span className="text-slate-600">{gameState.inning}回{gameState.isTop?'表':'裏'}</span>
                   <span className="text-slate-800 ml-1">{gameInfo.teamTop} <span className="text-blue-700 font-black text-sm">{gameState.runs.top.reduce((a,b)=>a+b,0)}</span> - <span className="text-blue-700 font-black text-sm">{gameState.runs.bottom.reduce((a,b)=>a+b,0)}</span> {gameInfo.teamBottom}</span>
@@ -991,34 +991,34 @@
             {/* Desktop scoreboard */}
             <div className="hidden md:flex flex-col bg-white border border-slate-300 rounded-xl overflow-hidden text-sm shadow-sm">
               <div className="flex bg-slate-100 border-b border-slate-300 font-bold text-[10px] text-slate-500">
-                <div className="w-28 border-r border-slate-300 flex items-center justify-center py-1">TEAM</div>
-                {[1,2,3,4,5,6,7,8,9].map(i => <div key={i} className={`w-8 border-r border-slate-300 flex items-center justify-center py-1 ${gameState.inning === i ? 'bg-blue-200 text-blue-800' : ''}`}>{i}</div>)}
-                <div className="w-10 flex items-center justify-center py-1 bg-slate-200 border-r border-slate-300">R</div>
-                <div className="w-8 flex items-center justify-center py-1 bg-slate-200 border-r border-slate-300">H</div>
-                <div className="w-8 flex items-center justify-center py-1 bg-slate-200">E</div>
+                <div className="w-28 shrink-0 border-r border-slate-300 flex items-center justify-center py-1">TEAM</div>
+                {[1,2,3,4,5,6,7,8,9].map(i => <div key={i} className={`w-8 shrink-0 border-r border-slate-300 flex items-center justify-center py-1 ${gameState.inning === i ? 'bg-blue-200 text-blue-800' : ''}`}>{i}</div>)}
+                <div className="w-10 shrink-0 flex items-center justify-center py-1 bg-slate-200 border-r border-slate-300">R</div>
+                <div className="w-8 shrink-0 flex items-center justify-center py-1 bg-slate-200 border-r border-slate-300">H</div>
+                <div className="w-8 shrink-0 flex items-center justify-center py-1 bg-slate-200">E</div>
               </div>
               <div className="flex">
-                <div className="flex flex-col bg-white font-bold border-r border-slate-300 w-28">
+                <div className="flex flex-col bg-white font-bold border-r border-slate-300 w-28 shrink-0">
                   <div className="h-8 border-b border-slate-200 flex items-center px-2"><input type="text" value={gameInfo.teamTop} onChange={e=>setGameInfo({...gameInfo, teamTop: e.target.value})} className="flex-1 h-full bg-transparent text-left outline-none font-bold text-xs min-w-0" /></div>
                   <div className="h-8 flex items-center px-2"><input type="text" value={gameInfo.teamBottom} onChange={e=>setGameInfo({...gameInfo, teamBottom: e.target.value})} className="flex-1 h-full bg-transparent text-left outline-none font-bold text-xs min-w-0" /></div>
                 </div>
-                <div className="flex">
+                <div className="flex shrink-0">
                   {[1,2,3,4,5,6,7,8,9].map(i => (
-                    <div key={i} className="flex flex-col border-r border-slate-300 text-center w-8 bg-white">
+                    <div key={i} className="flex flex-col border-r border-slate-300 text-center w-8 shrink-0 bg-white">
                       <div onClick={() => jumpToInning(i, true)} className={`h-8 border-b border-slate-200 flex items-center justify-center font-bold text-xs cursor-pointer hover:bg-blue-50 ${gameState.inning === i && gameState.isTop ? 'bg-blue-100 text-blue-800' : 'text-slate-600'}`}>{gameState.runs.top[i-1] > 0 ? gameState.runs.top[i-1] : (gameState.inning > i || (gameState.inning === i && !gameState.isTop) ? '0' : '')}</div>
                       <div onClick={() => jumpToInning(i, false)} className={`h-8 flex items-center justify-center font-bold text-xs cursor-pointer hover:bg-blue-50 ${gameState.inning === i && !gameState.isTop ? 'bg-blue-100 text-blue-800' : 'text-slate-600'}`}>{gameState.runs.bottom[i-1] > 0 ? gameState.runs.bottom[i-1] : (gameState.inning > i ? '0' : '')}</div>
                     </div>
                   ))}
                 </div>
-                <div className="flex flex-col text-center w-10 font-black bg-blue-50 text-blue-800 border-r border-slate-300">
+                <div className="flex flex-col text-center w-10 shrink-0 font-black bg-blue-50 text-blue-800 border-r border-slate-300">
                   <div className="h-8 border-b border-slate-300 flex items-center justify-center text-sm">{gameState.runs.top.reduce((a,b)=>a+b,0)}</div>
                   <div className="h-8 flex items-center justify-center text-sm">{gameState.runs.bottom.reduce((a,b)=>a+b,0)}</div>
                 </div>
-                <div className="flex flex-col text-center w-8 font-bold bg-slate-50 border-r border-slate-300">
+                <div className="flex flex-col text-center w-8 shrink-0 font-bold bg-slate-50 border-r border-slate-300">
                   <div className="h-8 border-b border-slate-300 flex items-center justify-center">{hitsAndErrors.top.hits}</div>
                   <div className="h-8 flex items-center justify-center">{hitsAndErrors.bottom.hits}</div>
                 </div>
-                <div className="flex flex-col text-center w-8 font-bold bg-slate-50">
+                <div className="flex flex-col text-center w-8 shrink-0 font-bold bg-slate-50">
                   <div className="h-8 border-b border-slate-300 flex items-center justify-center">{hitsAndErrors.top.errors}</div>
                   <div className="h-8 flex items-center justify-center">{hitsAndErrors.bottom.errors}</div>
                 </div>
