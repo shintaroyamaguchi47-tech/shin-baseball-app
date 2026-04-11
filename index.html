@@ -341,6 +341,7 @@
       const [advanceData, setAdvanceData] = useState({ runner: '', reason: '', to: '' });
       const [showOutRunnerModal, setShowOutRunnerModal] = useState(false);
       const [outRunnerData, setOutRunnerData] = useState({ runner: '', reason: '盗塁死' });
+      const [showFuriNigeModal, setShowFuriNigeModal] = useState(false);
       
       // 選手交代モーダル用ステート
       const [showSubstitutionModal, setShowSubstitutionModal] = useState(false);
@@ -542,8 +543,9 @@
           ...currentPitch, course: ['牽制','その他出塁','ウエスト'].includes(result) ? null : currentPitch.course, type: ['牽制','その他出塁'].includes(result) ? '-' : currentPitch.type, result: actualResult, inning: gameState.inning, isTop: gameState.isTop, batter: currentBatterIndex + 1, pitchNumber: currentBatterPitches.length + 1, pitcherName: currentPitcherObj.name, pitcherThrows: currentPitcherObj.throws, batterName: currentBatterObj.name, batterBats: currentBatterObj.bats, isEvent: false, runners: { ...gameState.runners }, outs: gameState.outs
         }]);
         if (result === '牽制') { setCurrentPitch(p => ({ ...p, course: null })); return; }
-        if (isThreeBunt) { handleAdvanceAndNextBatter('out', 1); }
-        else if (result === 'ストライク' || result === '空振り' || result === 'バント空振り') { if (gameState.strikes === 2) handleAdvanceAndNextBatter('out', 1); else setGameState(prev => ({ ...prev, strikes: prev.strikes + 1 })); }
+        const _canFuriNige = !gameState.runners.first || gameState.outs === 2;
+        if (isThreeBunt) { if (_canFuriNige) setShowFuriNigeModal(true); else handleAdvanceAndNextBatter('out', 1); }
+        else if (result === 'ストライク' || result === '空振り' || result === 'バント空振り') { if (gameState.strikes === 2) { if (_canFuriNige) setShowFuriNigeModal(true); else handleAdvanceAndNextBatter('out', 1); } else setGameState(prev => ({ ...prev, strikes: prev.strikes + 1 })); }
         else if (result === 'ファウル' || result === 'バントファウル') { if (gameState.strikes < 2) setGameState(prev => ({ ...prev, strikes: prev.strikes + 1 })); }
         else if (result === 'ボール' || result === 'ウエスト') { if (gameState.balls === 3) handleAdvanceAndNextBatter('walk', 0); else setGameState(prev => ({ ...prev, balls: prev.balls + 1 })); }
         else if (result === '死球' || result === 'その他出塁') { handleAdvanceAndNextBatter(result === 'その他出塁' ? 'other' : 'walk', 0); }
@@ -611,6 +613,21 @@
           return { ...prev, outs: newOuts, inning: newInning, isTop: newIsTop, runners: newRunners, balls: isChange ? 0 : prev.balls, strikes: isChange ? 0 : prev.strikes };
         });
         setShowOutRunnerModal(false); setOutRunnerData({ runner: '', reason: '盗塁死' });
+      };
+
+      const handleFuriNigeOut = () => {
+        setShowFuriNigeModal(false);
+        handleAdvanceAndNextBatter('out', 1);
+      };
+
+      const handleFuriNigeSuccess = () => {
+        setShowFuriNigeModal(false);
+        setPitches(prev => {
+          const copy = [...prev];
+          copy[copy.length - 1] = { ...copy[copy.length - 1], result: '振り逃げ' };
+          return copy;
+        });
+        handleAdvanceAndNextBatter('other', 0);
       };
 
       // 選手交代実行
@@ -769,6 +786,7 @@
             const res = last.result; let finalRes = res;
             if (['安','塁打','本塁打'].some(w=>res.includes(w))) { pStats[pName].h++; }
             else if (['死球','四球','ウエスト'].includes(res) || b>=4) { pStats[pName].bb++; finalRes = res==='死球'?'死球':'四球'; }
+            else if (res==='振り逃げ') { finalRes = '振り逃げ'; }
             else if (res==='三振' || res==='スリーバント失敗' || s>=3) { pStats[pName].k++; finalRes = res==='スリーバント失敗'?'スリーバント失敗':'三振'; }
             if (!['牽制','盗塁死'].includes(finalRes)) { const tk = last.isTop ? 'top' : 'bottom'; if(bStats[tk][last.batter]) bStats[tk][last.batter].res.push(finalRes); }
           });
@@ -866,6 +884,7 @@
             if (isHitPlay) { teamStats.H++; pStat.H++; tbAdded = res.includes('二塁打')?2:res.includes('三塁打')?3:res.includes('本塁打')?4:1; teamStats.TB+=tbAdded; pStat.TB+=tbAdded; }
             else if (['死球','四球','ウエスト'].includes(res)||b>=4) { teamStats.BB_HBP++; pStat.BB_HBP++; isAB = false; }
             else if (['犠打','犠飛'].some(w=>res.includes(w))) { isAB = false; }
+            else if (res==='振り逃げ') { /* 振り逃げ: ABカウント、K・Hなし */ }
             else if (res==='三振'||res==='スリーバント失敗'||s>=3) { teamStats.K++; pStat.K++; }
             if (isAB) { teamStats.AB++; pStat.AB++; }
             if (isHitPlay || ['ゴロ','飛','直','エラー','バント'].some(w=>res.includes(w))) {
@@ -1981,6 +2000,21 @@
                 <div className="p-4 border-t border-slate-200 flex gap-3 bg-slate-50">
                   <button onClick={() => setShowOutRunnerModal(false)} className="flex-1 bg-slate-100 text-slate-700 py-3 rounded-xl font-bold">キャンセル</button>
                   <button onClick={handleOutRunnerRecord} className="flex-1 bg-rose-600 text-white py-3 rounded-xl font-black shadow-md active:scale-95">アウトを記録</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 振り逃げ確認ダイアログ */}
+          {showFuriNigeModal && (
+            <div className="fixed inset-0 bg-slate-900/60 z-[600] flex items-center justify-center p-4 backdrop-blur-sm">
+              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-xs overflow-hidden flex flex-col p-6 text-center border border-slate-200">
+                <div className="text-3xl mb-2">🏃</div>
+                <h3 className="text-xl font-black text-slate-800 mb-1">振り逃げ？</h3>
+                <p className="text-sm text-slate-500 font-bold mb-6">捕手が捕球できませんでした</p>
+                <div className="flex gap-3">
+                  <button onClick={handleFuriNigeOut} className="flex-1 bg-rose-600 text-white py-3 rounded-xl font-black shadow-md active:scale-95">アウト</button>
+                  <button onClick={handleFuriNigeSuccess} className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-black shadow-md active:scale-95">振り逃げ<br/><span className="text-xs font-bold">1塁へ</span></button>
                 </div>
               </div>
             </div>
