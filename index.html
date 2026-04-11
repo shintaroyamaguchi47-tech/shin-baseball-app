@@ -90,7 +90,7 @@
       var h='<div style="margin:24px 0 12px;font-size:16px;font-weight:bold;color:#1e293b;border-bottom:2px solid #e2e8f0;padding-bottom:4px;">打者詳細: '+esc(teamName)+'</div>';
       var active=batting.players.filter(function(p){return p.PA>0;});
       for(var i=0;i<active.length;i+=2){
-        h+='<div class="bif" style="display:flex;gap:16px;margin-bottom:16px;">';
+        h+='<div class="bat-pair" style="display:flex;gap:16px;margin-bottom:16px;">';
         [active[i],active[i+1]].forEach(function(p){
           if(!p)return;
           h+='<div style="flex:1;min-width:0;background:#ffffff;border:1px solid #cbd5e1;border-radius:8px;padding:12px;box-sizing:border-box;">';
@@ -173,7 +173,7 @@
         h+=countDistHtml(p.counts.vsLeft, '対左');
         h+='</div>';
         h+='<div style="font-size:13px;font-weight:bold;margin-bottom:8px;">球種別ヒートマップ</div>';
-        h+='<div style="display:flex;flex-wrap:wrap;gap:12px;">';
+        h+='<div class="bif" style="display:flex;flex-wrap:wrap;gap:12px;">';
         Object.entries(p.pitchTypeHeatmaps||{}).sort(function(a,b){var ta=0,tb=0;Object.values(a[1].all||{}).forEach(function(v){ta+=v;});Object.values(b[1].all||{}).forEach(function(v){tb+=v;});return tb-ta;}).forEach(function(e){
             var tn=e[0], th=e[1], isFB=tn.indexOf('ストレート')>=0||tn.indexOf('シュート')>=0, clr=isFB?'red':'indigo', cnt=0;
             Object.values(th.all||{}).forEach(function(v){cnt+=v;});
@@ -233,7 +233,7 @@
       +'<button onclick="window.print()" style="background:#1e293b;color:#fff;border:none;padding:8px 18px;border-radius:8px;font-size:13px;font-weight:bold;cursor:pointer;">🖨️ 印刷 / PDF</button>'
       +'<button onclick="window.close()" style="background:#e2e8f0;color:#334155;border:none;padding:8px 18px;border-radius:8px;font-size:13px;font-weight:bold;cursor:pointer;">✕ 閉じる</button>'
       +'</div>';
-    w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>試合分析レポート<\/title><style>@page{margin:15mm 10mm;}body{margin:0;background:#f1f5f9;}@media print{body{background:#fff !important;}*{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;}.pb{page-break-before:always;break-before:page;}.nbi{page-break-inside:avoid;break-inside:avoid;}.bif{page-break-inside:avoid;break-inside:avoid;}.no-print{display:none !important;}}table{page-break-inside:auto;}tr{page-break-inside:avoid;}<\/style><\/head><body>'+closeBtn+body+'<\/body><\/html>');
+    w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>試合分析レポート<\/title><style>@page{margin:15mm 10mm;}body{margin:0;background:#f1f5f9;}.bat-pair>div{page-break-inside:avoid;break-inside:avoid;}@media print{body{background:#fff !important;}*{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;}.pb{page-break-before:always;break-before:page;}.nbi{page-break-inside:avoid;break-inside:avoid;}.bif{page-break-inside:avoid;break-inside:avoid;}.bat-pair{display:block !important;}.bat-pair>div{display:block !important;width:100% !important;margin-bottom:16px !important;page-break-inside:avoid;break-inside:avoid;}.no-print{display:none !important;}}table{page-break-inside:auto;}tr{page-break-inside:avoid;}<\/style><\/head><body>'+closeBtn+body+'<\/body><\/html>');
     w.document.close();
     setTimeout(function(){w.print();},800);
     return true;
