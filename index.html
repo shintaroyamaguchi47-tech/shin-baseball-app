@@ -1093,27 +1093,27 @@
               </div>
             </div>
 
-            <div className="hidden md:flex gap-4 items-center">
-              <div className="flex flex-col gap-1 items-start px-4 border-l border-r border-slate-200 font-mono w-auto shrink-0 min-w-[120px]">
+            <div className="hidden md:flex gap-2 items-center">
+              <div className="flex flex-col gap-1 items-start px-2 border-l border-r border-slate-200 font-mono w-auto shrink-0">
                 <div className="flex items-center gap-2 w-full"><span className="text-[13px] font-black text-emerald-600 w-3">B</span><div className="flex gap-1">{[0,1,2].map(i=><div key={i} className={`w-4 h-4 rounded-full border-2 border-emerald-600 ${i<gameState.balls?'bg-emerald-500':'bg-slate-100'}`}></div>)}</div></div>
                 <div className="flex items-center gap-2 w-full"><span className="text-[13px] font-black text-amber-500 w-3">S</span><div className="flex gap-1">{[0,1].map(i=><div key={i} className={`w-4 h-4 rounded-full border-2 border-amber-500 ${i<gameState.strikes?'bg-amber-400':'bg-slate-100'}`}></div>)}</div></div>
                 <div className="flex items-center gap-2 w-full"><span className="text-[13px] font-black text-rose-600 w-3">O</span><div className="flex gap-1">{[0,1].map(i=><div key={i} className={`w-4 h-4 rounded-full border-2 border-rose-600 ${i<gameState.outs?'bg-rose-500':'bg-slate-100'}`}></div>)}</div></div>
               </div>
               <div className="flex flex-col gap-2 font-sans shrink-0">
-                <div className="flex gap-2">
-                  <button onClick={()=>setShowSettings(true)} className="bg-white hover:bg-slate-50 text-slate-700 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-slate-300 shadow-sm">⚙️ オーダー</button>
+                <div className="flex gap-1.5">
+                  <button onClick={()=>setShowSettings(true)} className="bg-white hover:bg-slate-50 text-slate-700 px-2 py-1.5 rounded-lg text-[11px] font-bold border border-slate-300 shadow-sm">⚙️ オーダー</button>
                   <button onClick={()=>{
                     setSubData({ team: gameState.isTop ? 'top' : 'bottom', type: '代打', order: gameState.isTop ? gameState.batterTop : gameState.batterBottom, newName: '', newPos: '打', newThrows: '右', newBats: '右' });
                     setShowSubstitutionModal(true);
-                  }} className="bg-blue-50 hover:bg-blue-100 text-blue-700 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-blue-200 shadow-sm">🔄 交代</button>
-                  <button onClick={()=>{ setEditingTeamIndex(null); setShowTeamManager(true); }} className="bg-white hover:bg-slate-50 text-slate-700 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-slate-300 shadow-sm">👥 チーム</button>
-                  <button onClick={()=>setShowArchiveModal(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-[11px] font-bold shadow-sm">📂 保存/読込</button>
-                  <button onClick={()=>setShowExport(true)} className="bg-slate-800 hover:bg-black text-white px-3 py-1.5 rounded-lg text-[11px] font-bold shadow-sm">📤 出力</button>
+                  }} className="bg-blue-50 hover:bg-blue-100 text-blue-700 px-2 py-1.5 rounded-lg text-[11px] font-bold border border-blue-200 shadow-sm">🔄 交代</button>
+                  <button onClick={()=>{ setEditingTeamIndex(null); setShowTeamManager(true); }} className="bg-white hover:bg-slate-50 text-slate-700 px-2 py-1.5 rounded-lg text-[11px] font-bold border border-slate-300 shadow-sm">👥 チーム</button>
+                  <button onClick={()=>setShowArchiveModal(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-1.5 rounded-lg text-[11px] font-bold shadow-sm">📂 保存/読込</button>
+                  <button onClick={()=>setShowExport(true)} className="bg-slate-800 hover:bg-black text-white px-2 py-1.5 rounded-lg text-[11px] font-bold shadow-sm">📤 出力</button>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-1.5">
                   <button onClick={handleTieBreak} className="flex-1 bg-purple-50 text-purple-700 px-2 py-1.5 rounded-lg text-[10px] font-bold border border-purple-200">⚡ 特延</button>
                   <button onClick={handleNewGame} className="flex-1 bg-rose-50 text-rose-700 px-2 py-1.5 rounded-lg text-[10px] font-bold border border-rose-200">🔄 リセット</button>
-                  <button onClick={() => setShowPostGameAnalysis(true)} className="bg-blue-600 text-white px-4 py-1.5 rounded-lg text-[11px] font-bold shadow-md">🏁 試合分析へ</button>
+                  <button onClick={() => setShowPostGameAnalysis(true)} className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-[11px] font-bold shadow-md">🏁 試合分析へ</button>
                 </div>
               </div>
             </div>
