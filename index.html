@@ -87,18 +87,22 @@
       h+='</tbody></table>';return h;
     }
     function batterDetails(batting, teamName) {
-      var h='<div style="margin:24px 0 12px;font-size:16px;font-weight:bold;color:#1e293b;border-bottom:2px solid #e2e8f0;padding-bottom:4px;">打者詳細: '+esc(teamName)+'</div><div style="display:flex;flex-wrap:wrap;gap:16px;margin-bottom:20px;">';
-      batting.players.forEach(function(p){
-        if(p.PA > 0) {
-           h+='<div class="nbi" style="width:calc(50% - 8px);background:#ffffff;border:1px solid #cbd5e1;border-radius:8px;padding:12px;box-sizing:border-box;">';
-           h+='<div style="font-size:14px;font-weight:bold;margin-bottom:8px;border-bottom:1px solid #e2e8f0;padding-bottom:6px;">'+p.order+'番 '+esc(p.name)+' AVG:'+p.AVG+' OPS:'+p.OPS+'</div>';
-           h+='<div style="display:flex;gap:12px;align-items:center;">';
-           h+=sprayChartSvg(p.sprayHits, '打球方向');
-           h+='<div style="flex:1;font-size:11px;"><div>打数:'+p.AB+' 安打:'+p.H+'</div><div>四死:'+p.BB_HBP+' 三振:'+p.K+'</div><div style="font-size:10px;margin-top:4px;">結果: '+(p.results.join(', ')||'-')+'</div></div>';
-           h+='</div></div>';
-        }
-      });
-      h+='</div>'; return h;
+      var h='<div style="margin:24px 0 12px;font-size:16px;font-weight:bold;color:#1e293b;border-bottom:2px solid #e2e8f0;padding-bottom:4px;">打者詳細: '+esc(teamName)+'</div>';
+      var active=batting.players.filter(function(p){return p.PA>0;});
+      for(var i=0;i<active.length;i+=2){
+        h+='<div class="bif" style="display:flex;gap:16px;margin-bottom:16px;">';
+        [active[i],active[i+1]].forEach(function(p){
+          if(!p)return;
+          h+='<div style="flex:1;min-width:0;background:#ffffff;border:1px solid #cbd5e1;border-radius:8px;padding:12px;box-sizing:border-box;">';
+          h+='<div style="font-size:14px;font-weight:bold;margin-bottom:8px;border-bottom:1px solid #e2e8f0;padding-bottom:6px;">'+p.order+'番 '+esc(p.name)+' AVG:'+p.AVG+' OPS:'+p.OPS+'</div>';
+          h+='<div style="display:flex;gap:12px;align-items:center;">';
+          h+=sprayChartSvg(p.sprayHits,'打球方向');
+          h+='<div style="flex:1;font-size:11px;"><div>打数:'+p.AB+' 安打:'+p.H+'</div><div>四死:'+p.BB_HBP+' 三振:'+p.K+'</div><div style="font-size:10px;margin-top:4px;">結果: '+(p.results.join(', ')||'-')+'</div></div>';
+          h+='</div></div>';
+        });
+        h+='</div>';
+      }
+      return h;
     }
     function countDistHtml(counts, title) {
       var h='<div style="background:#f8fafc;border:1px solid #cbd5e1;border-radius:8px;padding:10px;min-width:180px;flex:1;"><div style="font-size:11px;font-weight:bold;text-align:center;margin-bottom:8px;border-bottom:1px solid #cbd5e1;padding-bottom:6px;">'+esc(title)+'</div>';
@@ -123,7 +127,7 @@
       pitching.pitchers.forEach(function(p){
         h+='<div class="nbi" style="background:#ffffff;border:1px solid #cbd5e1;border-radius:12px;padding:20px;margin-bottom:20px;page-break-inside:avoid;">';
         h+='<div style="font-size:20px;font-weight:bold;margin-bottom:16px;border-bottom:2px solid #f1f5f9;padding-bottom:8px;">'+esc(p.name)+' ('+p.total+'球)</div>';
-        h+='<div style="display:flex;gap:16px;margin-bottom:16px;">';
+        h+='<div class="bif" style="display:flex;gap:16px;margin-bottom:16px;">';
         h+='<div style="flex:1;background:#f8fafc;padding:12px;border-radius:8px;"><div style="font-size:11px;color:#64748b;">CSW%</div><div style="font-size:24px;font-weight:bold;color:#d97706;">'+p.csw+'%</div></div>';
         h+='<div style="flex:1;background:#f8fafc;padding:12px;border-radius:8px;"><div style="font-size:11px;color:#64748b;">Whiff%</div><div style="font-size:24px;font-weight:bold;color:#ef4444;">'+p.whiff+'%</div></div>';
         h+='<div style="flex:1;background:#f8fafc;padding:12px;border-radius:8px;"><div style="font-size:11px;color:#64748b;">初球S率</div><div style="font-size:24px;font-weight:bold;color:#0ea5e9;">'+p.fStrikePct+'%</div></div>';
@@ -149,7 +153,7 @@
           +'<th style="padding:6px 8px;text-align:right;">K%</th>'
           +'<th style="padding:6px 8px;text-align:right;">BB%</th>'
           +'</tr>';
-        h+='<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px;">';
+        h+='<div class="bif" style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px;">';
         h+='<div style="flex:1;min-width:260px;">';
         h+='<div style="font-size:12px;font-weight:bold;margin-bottom:6px;color:#475569;">🆚 対左右スプリット</div>';
         h+='<table style="width:100%;border-collapse:collapse;font-size:11px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;"><thead>'+splitTh+'</thead><tbody>';
@@ -164,7 +168,7 @@
         h+='</tbody></table></div>';
         h+='</div>';
         h+='<div style="font-size:13px;font-weight:bold;margin-bottom:8px;">カウント別配球</div>';
-        h+='<div style="display:flex;gap:16px;margin-bottom:20px;">';
+        h+='<div class="bif" style="display:flex;gap:16px;margin-bottom:20px;">';
         h+=countDistHtml(p.counts.vsRight, '対右');
         h+=countDistHtml(p.counts.vsLeft, '対左');
         h+='</div>';
@@ -174,7 +178,7 @@
             var tn=e[0], th=e[1], isFB=tn.indexOf('ストレート')>=0||tn.indexOf('シュート')>=0, clr=isFB?'red':'indigo', cnt=0;
             Object.values(th.all||{}).forEach(function(v){cnt+=v;});
             if(cnt > 0) {
-                h+='<div style="background:#f8fafc;padding:12px;border-radius:8px;border:1px solid #e2e8f0;display:flex;flex-direction:column;align-items:center;">';
+                h+='<div class="bif" style="background:#f8fafc;padding:12px;border-radius:8px;border:1px solid #e2e8f0;display:flex;flex-direction:column;align-items:center;">';
                 h+='<div style="font-size:12px;font-weight:bold;margin-bottom:8px;">'+esc(tn)+' ('+cnt+'球)</div>';
                 h+='<div style="display:flex;gap:6px;">';
                 h+=heatmapSvg(th.all, th.max.all, clr, '全体');
@@ -207,7 +211,7 @@
     summaryH+=sRow('K%',t.topBatting.team.KPct+'%',t.bottomBatting.team.KPct+'%');
     summaryH+=sRow('BB%',t.topBatting.team.BBPct+'%',t.bottomBatting.team.BBPct+'%');
     summaryH+='</tbody></table>';
-    var sprayH='<h3 style="margin:24px 0 10px;font-size:16px;font-weight:bold;">チーム打球方向</h3><div style="display:flex;gap:20px;flex-wrap:wrap;justify-content:center;margin-bottom:16px;">';
+    var sprayH='<h3 style="margin:24px 0 10px;font-size:16px;font-weight:bold;">チーム打球方向</h3><div class="bif" style="display:flex;gap:20px;flex-wrap:wrap;justify-content:center;margin-bottom:16px;">';
     sprayH+=sprayChartSvg(t.topBatting.team.sprayHits,gi.teamTop);
     sprayH+=sprayChartSvg(t.bottomBatting.team.sprayHits,gi.teamBottom);
     sprayH+='</div>';
@@ -229,7 +233,7 @@
       +'<button onclick="window.print()" style="background:#1e293b;color:#fff;border:none;padding:8px 18px;border-radius:8px;font-size:13px;font-weight:bold;cursor:pointer;">🖨️ 印刷 / PDF</button>'
       +'<button onclick="window.close()" style="background:#e2e8f0;color:#334155;border:none;padding:8px 18px;border-radius:8px;font-size:13px;font-weight:bold;cursor:pointer;">✕ 閉じる</button>'
       +'</div>';
-    w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>試合分析レポート<\/title><style>body{margin:0;background:#f1f5f9;}@media print{body{background:#fff !important;}*{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;}.pb{page-break-before:always;}.nbi{break-inside:avoid;}.no-print{display:none !important;}}table{page-break-inside:auto;}tr{page-break-inside:avoid;}<\/style><\/head><body>'+closeBtn+body+'<\/body><\/html>');
+    w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>試合分析レポート<\/title><style>@page{margin:15mm 10mm;}body{margin:0;background:#f1f5f9;}@media print{body{background:#fff !important;}*{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;}.pb{page-break-before:always;break-before:page;}.nbi{page-break-inside:avoid;break-inside:avoid;}.bif{page-break-inside:avoid;break-inside:avoid;}.no-print{display:none !important;}}table{page-break-inside:auto;}tr{page-break-inside:avoid;}<\/style><\/head><body>'+closeBtn+body+'<\/body><\/html>');
     w.document.close();
     setTimeout(function(){w.print();},800);
     return true;
