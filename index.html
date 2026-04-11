@@ -225,7 +225,11 @@
       body+=pitcherDetails(t.pitchingBottom,gi.teamBottom);
     }
     body+='</div>';
-    w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>試合分析レポート<\/title><style>body{margin:0;background:#f1f5f9;}@media print{body{background:#fff !important;}*{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;}.pb{page-break-before:always;}.nbi{break-inside:avoid;}}table{page-break-inside:auto;}tr{page-break-inside:avoid;}<\/style><\/head><body>'+body+'<\/body><\/html>');
+    var closeBtn='<div class="no-print" style="position:fixed;top:12px;right:16px;z-index:999;display:flex;gap:8px;">'
+      +'<button onclick="window.print()" style="background:#1e293b;color:#fff;border:none;padding:8px 18px;border-radius:8px;font-size:13px;font-weight:bold;cursor:pointer;">🖨️ 印刷 / PDF</button>'
+      +'<button onclick="window.close()" style="background:#e2e8f0;color:#334155;border:none;padding:8px 18px;border-radius:8px;font-size:13px;font-weight:bold;cursor:pointer;">✕ 閉じる</button>'
+      +'</div>';
+    w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>試合分析レポート<\/title><style>body{margin:0;background:#f1f5f9;}@media print{body{background:#fff !important;}*{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;}.pb{page-break-before:always;}.nbi{break-inside:avoid;}.no-print{display:none !important;}}table{page-break-inside:auto;}tr{page-break-inside:avoid;}<\/style><\/head><body>'+closeBtn+body+'<\/body><\/html>');
     w.document.close();
     setTimeout(function(){w.print();},800);
     return true;
@@ -603,7 +607,8 @@
         setGameState(prev => {
           let newOuts = prev.outs + 1, newRunners = { ...prev.runners, [outRunnerData.runner]: false }, newInning = prev.inning, newIsTop = prev.isTop;
           if (newOuts >= 3) { newOuts = 0; newRunners = { first: false, second: false, third: false }; if (prev.isTop) newIsTop = false; else { newIsTop = true; newInning++; } }
-          return { ...prev, outs: newOuts, inning: newInning, isTop: newIsTop, runners: newRunners };
+          const isChange = newOuts === 0 && prev.outs + 1 >= 3;
+          return { ...prev, outs: newOuts, inning: newInning, isTop: newIsTop, runners: newRunners, balls: isChange ? 0 : prev.balls, strikes: isChange ? 0 : prev.strikes };
         });
         setShowOutRunnerModal(false); setOutRunnerData({ runner: '', reason: '盗塁死' });
       };
@@ -2123,11 +2128,46 @@
                           <div className="flex justify-between items-center mb-3">
                             <div className="font-black text-lg text-slate-800">{p.name} <span className="text-sm text-slate-500 font-bold ml-2">{p.total}球</span></div>
                           </div>
-                          <div className="grid grid-cols-3 gap-3 mb-5">
+                          <div className="grid grid-cols-3 gap-3 mb-4">
                             <div className="bg-white p-3 rounded-xl border border-slate-200 text-center"><div className="text-[10px] text-slate-500 font-bold uppercase">CSW%</div><div className="text-2xl font-black text-amber-600">{p.csw}%</div></div>
                             <div className="bg-white p-3 rounded-xl border border-slate-200 text-center"><div className="text-[10px] text-slate-500 font-bold uppercase">Whiff%</div><div className="text-2xl font-black text-rose-600">{p.whiff}%</div></div>
                             <div className="bg-white p-3 rounded-xl border border-slate-200 text-center"><div className="text-[10px] text-slate-500 font-bold uppercase">初球S率</div><div className="text-2xl font-black text-blue-600">{p.fStrikePct}%</div></div>
                           </div>
+
+                          {/* === SECTION: スプリット === */}
+                          {p.sideStats && (
+                            <div className="flex flex-col sm:flex-row gap-3 mb-4">
+                              {[{label:'🆚 対左右', rows:[{name:'対右', d:p.sideStats.right},{name:'対左', d:p.sideStats.left}]}, {label:'📊 打順', rows:[{name:'上位 1〜5番', d:p.orderStats.top},{name:'下位 6〜9番', d:p.orderStats.bottom}]}].map(({label, rows}) => (
+                                <div key={label} className="flex-1 bg-white rounded-xl border border-slate-200 p-3">
+                                  <div className="text-[10px] font-black text-slate-600 mb-2">{label}</div>
+                                  <table className="w-full text-[10px] border-collapse">
+                                    <thead><tr className="border-b border-slate-200 bg-slate-50">
+                                      <th className="py-1 px-1 text-left font-black text-slate-500"></th>
+                                      <th className="py-1 px-1 text-right font-black text-slate-500">打席</th>
+                                      <th className="py-1 px-1 text-right font-black text-slate-500">投球</th>
+                                      <th className="py-1 px-1 text-right font-black text-sky-600">S%</th>
+                                      <th className="py-1 px-1 text-right font-black text-blue-600">被打率</th>
+                                      <th className="py-1 px-1 text-right font-black text-rose-600">K%</th>
+                                      <th className="py-1 px-1 text-right font-black text-emerald-600">BB%</th>
+                                    </tr></thead>
+                                    <tbody>
+                                      {rows.map(({name, d}, ri) => (
+                                        <tr key={ri} className={`border-b border-slate-100 ${ri%2===1?'bg-slate-50':''}`}>
+                                          <td className="py-1 px-1 font-bold text-slate-700">{name}</td>
+                                          <td className="py-1 px-1 text-right">{d.PA}</td>
+                                          <td className="py-1 px-1 text-right">{d.total}</td>
+                                          <td className="py-1 px-1 text-right text-sky-600 font-bold">{d.sPct}%</td>
+                                          <td className="py-1 px-1 text-right text-blue-600 font-bold">{d.AVG}</td>
+                                          <td className="py-1 px-1 text-right text-rose-600 font-bold">{d.KPct}%</td>
+                                          <td className="py-1 px-1 text-right text-emerald-600 font-bold">{d.BBPct}%</td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              ))}
+                            </div>
+                          )}
 
                           {/* === SECTION: 全体 === */}
                           <div className="bg-white rounded-xl border border-slate-200 p-4 mb-4">
