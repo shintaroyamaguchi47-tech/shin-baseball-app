@@ -375,6 +375,14 @@
       const [toast, setToast] = useState(null);
       const [confirmDialog, setConfirmDialog] = useState(null);
 
+      // 累計成績モーダル用ステート
+      const [showCumulativeStats, setShowCumulativeStats] = useState(false);
+      const [cumulativeTeam, setCumulativeTeam] = useState('');
+      const [cumulativeDateFrom, setCumulativeDateFrom] = useState('');
+      const [cumulativeDateTo, setCumulativeDateTo] = useState('');
+      const [cumulativeTab, setCumulativeTab] = useState('batter');
+      const [expandedCumKey, setExpandedCumKey] = useState(null);
+
       useEffect(() => { localStorage.setItem('baseball_gameState_v2', JSON.stringify(gameState)); }, [gameState]);
       useEffect(() => { localStorage.setItem('baseball_gameInfo_v2', JSON.stringify(gameInfo)); }, [gameInfo]);
       useEffect(() => { localStorage.setItem('baseball_lineups_v2', JSON.stringify(lineups)); }, [lineups]);
@@ -439,12 +447,69 @@
         });
       };
 
+      const isPlaceholderName = (name) => {
+        if (!name || !name.trim()) return true;
+        const t = name.trim();
+        return /^(先攻|後攻)\d+番$/.test(t) || t === '先発投手' || /^選手\d+$/.test(t);
+      };
+      const isPlaceholderTeam = (name) => !name || !name.trim() || name === '先攻チーム' || name === '後攻チーム';
+      const parseGameDate = (s) => { const m = (s||'').match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/); return m ? new Date(+m[1], +m[2]-1, +m[3]) : null; };
+
+      // 試合保存時、オーダーと対戦相手のメンバーを登録チームへ自動反映
+      const autoRegisterFromGame = (gi, lns) => {
+        const collectFromPitches = (isTopSide) => {
+          // 対戦相手の投手名を該当チームの選手として拾う
+          const key = isTopSide ? 'Top' : 'Bottom';
+          const result = [];
+          pitches.forEach(p => {
+            if (p.isEvent) return;
+            // 投手は守備側＝打者の反対サイド
+            const pitcherTeamIsTop = !p.isTop;
+            if (pitcherTeamIsTop === isTopSide && p.pitcherName && !isPlaceholderName(p.pitcherName)) {
+              if (!result.find(x => x.name === p.pitcherName)) {
+                result.push({ name: p.pitcherName, throws: p.pitcherThrows || '右', bats: '右' });
+              }
+            }
+          });
+          return result;
+        };
+        setRegisteredTeams(prev => {
+          let updated = [...prev];
+          ['top','bottom'].forEach(side => {
+            const teamName = side === 'top' ? gi.teamTop : gi.teamBottom;
+            if (isPlaceholderTeam(teamName)) return;
+            const fromLineup = (lns[side] || [])
+              .filter(p => !isPlaceholderName(p.name))
+              .map(p => ({ name: p.name.trim(), throws: p.throws || '右', bats: p.bats || '右' }));
+            const fromPitchers = collectFromPitches(side === 'top');
+            const merged = [...fromLineup];
+            fromPitchers.forEach(fp => { if (!merged.find(m => m.name === fp.name)) merged.push(fp); });
+            if (merged.length === 0) return;
+            const idx = updated.findIndex(t => t.name === teamName);
+            if (idx < 0) {
+              updated.push({ name: teamName, players: merged });
+            } else {
+              const existing = updated[idx];
+              const existingPl = (existing.players || []).map(pl => typeof pl === 'string' ? { name: pl, throws: '右', bats: '右' } : pl);
+              const names = new Set(existingPl.map(pl => pl.name));
+              const adds = merged.filter(m => !names.has(m.name));
+              if (adds.length > 0) {
+                updated[idx] = { ...existing, players: [...existingPl, ...adds] };
+              }
+            }
+          });
+          return updated;
+        });
+      };
+
       const saveCurrentGame = () => {
         setConfirmDialog({
           title: '💾 アーカイブに保存', message: '現在の試合状態をアーカイブに保存しますか？', isDanger: false,
           onConfirm: () => {
             const newGame = { id: Date.now().toString(), date: gameInfo.date, teamTop: gameInfo.teamTop, teamBottom: gameInfo.teamBottom, scoreTop: gameState.runs.top.reduce((a,b)=>a+b,0), scoreBottom: gameState.runs.bottom.reduce((a,b)=>a+b,0), pitchesCount: pitches.filter(p=>!p.isEvent).length, data: { gameState, gameInfo, lineups, pitches } };
-            setSavedGames([newGame, ...savedGames]); setConfirmDialog(null); showToast('試合を保存しました！');
+            setSavedGames([newGame, ...savedGames]);
+            autoRegisterFromGame(gameInfo, lineups);
+            setConfirmDialog(null); showToast('試合を保存しました！チーム/選手を自動登録しました');
           }
         });
       };
@@ -978,6 +1043,129 @@
         return { topBatting: calcBatting(true), bottomBatting: calcBatting(false), pitchingTop: calcTeamPitching(false), pitchingBottom: calcTeamPitching(true) };
       }, [pitchesWithCountState, showPostGameAnalysis, lineups]);
 
+      // ---------- 累計成績（複数試合横断集計） ----------
+      const cumulativeStats = useMemo(() => {
+        if (!showCumulativeStats || !cumulativeTeam) return { games: [], batters: [], pitchers: [] };
+        const fromD = cumulativeDateFrom ? parseGameDate(cumulativeDateFrom) : null;
+        const toD = cumulativeDateTo ? parseGameDate(cumulativeDateTo) : null;
+        const games = savedGames.filter(g => {
+          if (g.teamTop !== cumulativeTeam && g.teamBottom !== cumulativeTeam) return false;
+          const d = parseGameDate(g.date);
+          if (fromD && d && d < fromD) return false;
+          if (toD && d && d > toD) return false;
+          return true;
+        });
+        const batters = {}; // key: playerName
+        const pitchers = {}; // key: pitcherName
+        const mkBatter = (nm) => ({ name: nm, games: new Set(), PA:0, AB:0, H:0, _2B:0, _3B:0, HR:0, BB_HBP:0, K:0, TB:0, SF:0, results: [], gameLog: [] });
+        const mkPitcher = (nm, throwsSide) => ({ name: nm, throws: throwsSide || '右', games: new Set(), pitches:0, PA:0, H:0, BB:0, K:0, strikes:0, calledStrikes:0, whiffs:0, swings:0, firstPitches:0, firstStrikes:0, typeStats: {}, gameLog: [] });
+        games.forEach(g => {
+          const gpitches = (g.data && g.data.pitches) || [];
+          const targetIsTop = g.teamTop === cumulativeTeam;
+          const battingIsTop = targetIsTop ? true : false;
+          // ---- 打者集計 ----
+          const batPitches = gpitches.filter(p => p.isTop === battingIsTop && !p.isEvent && !['牽制','盗塁死','その他出塁'].includes(p.result));
+          const abs = []; let cur = [];
+          batPitches.forEach(p => { if (p.pitchNumber === 1 && cur.length > 0) { abs.push(cur); cur = []; } cur.push(p); });
+          if (cur.length > 0) abs.push(cur);
+          const perGameBatter = {};
+          abs.forEach(ab => {
+            const last = ab[ab.length - 1]; if (!last) return;
+            const nm = last.batterName || '不明';
+            if (!batters[nm]) batters[nm] = mkBatter(nm);
+            const b = batters[nm]; b.games.add(g.id);
+            if (!perGameBatter[nm]) perGameBatter[nm] = { PA:0, AB:0, H:0, BB_HBP:0, K:0, TB:0, results: [] };
+            const pg = perGameBatter[nm];
+            let s=0,bb=0; ab.forEach(p => { if(['ボール','ウエスト'].includes(p.result)) bb++; else if(['ストライク','空振り','バント空振り'].includes(p.result)) s++; else if(['ファウル','バントファウル'].includes(p.result)&&s<2) s++; });
+            const res = last.result;
+            const isHit = ['安','塁打','本塁打'].some(w=>res.includes(w));
+            let isAB = true, tbAdd = 0;
+            b.PA++; pg.PA++;
+            if (isHit) {
+              b.H++; pg.H++;
+              if (res.includes('本塁打')) { b.HR++; tbAdd = 4; }
+              else if (res.includes('三塁打')) { b._3B++; tbAdd = 3; }
+              else if (res.includes('二塁打')) { b._2B++; tbAdd = 2; }
+              else tbAdd = 1;
+              b.TB += tbAdd; pg.TB += tbAdd;
+            } else if (['死球','四球','ウエスト'].includes(res) || bb >= 4) {
+              b.BB_HBP++; pg.BB_HBP++; isAB = false;
+            } else if (['犠打','犠飛'].some(w=>res.includes(w))) {
+              if (res.includes('犠飛')) b.SF++;
+              isAB = false;
+            } else if (res === '三振' || res === 'スリーバント失敗' || s >= 3) {
+              b.K++; pg.K++;
+            }
+            if (isAB) { b.AB++; pg.AB++; }
+            b.results.push(res); pg.results.push(res);
+          });
+          Object.entries(perGameBatter).forEach(([nm, pg]) => {
+            batters[nm].gameLog.push({ gameId: g.id, date: g.date, opponent: targetIsTop ? g.teamBottom : g.teamTop, ...pg });
+          });
+
+          // ---- 投手集計 ----
+          const pitchingIsTop = !battingIsTop;
+          const pitPitches = gpitches.filter(p => p.isTop === pitchingIsTop && !p.isEvent && !['牽制','盗塁死','その他出塁'].includes(p.result));
+          const pAbs = []; cur = [];
+          pitPitches.forEach(p => { if (p.pitchNumber === 1 && cur.length > 0) { pAbs.push(cur); cur = []; } cur.push(p); });
+          if (cur.length > 0) pAbs.push(cur);
+          const perGamePitcher = {};
+          pAbs.forEach(ab => {
+            ab.forEach(p => {
+              const nm = p.pitcherName || '不明';
+              if (!pitchers[nm]) pitchers[nm] = mkPitcher(nm, p.pitcherThrows);
+              const ps = pitchers[nm]; ps.games.add(g.id); ps.pitches++;
+              if (!perGamePitcher[nm]) perGamePitcher[nm] = { pitches:0, PA:0, H:0, BB:0, K:0, strikes:0 };
+              const pg = perGamePitcher[nm]; pg.pitches++;
+              const type = p.type ? p.type.replace(/系$/, '') : '不明';
+              if (!ps.typeStats[type]) ps.typeStats[type] = { total:0, strikes:0, whiffs:0, swings:0, calledStrikes:0 };
+              const tSt = ps.typeStats[type]; tSt.total++;
+              const isStrikeCount = !['ボール','ウエスト','死球'].includes(p.result);
+              if (isStrikeCount) { ps.strikes++; tSt.strikes++; pg.strikes++; }
+              let isSwing = false, isStrikeType = false;
+              if (p.result.includes('見逃し') || p.result === 'ストライク') { ps.calledStrikes++; tSt.calledStrikes++; isStrikeType = true; }
+              else if (p.result.includes('空振り') || p.result === 'バント空振り') { ps.whiffs++; tSt.whiffs++; isSwing = true; isStrikeType = true; }
+              else if (['ファウル','バントファウル','スリーバント失敗','インプレー','バント','ゴロ','飛','安','塁打','エラー','犠','直'].some(w=>p.result.includes(w))) { isSwing = true; isStrikeType = true; }
+              if (isSwing) { ps.swings++; tSt.swings++; }
+              if (p.pitchNumber === 1) { ps.firstPitches++; if (isStrikeType || isSwing || isStrikeCount) ps.firstStrikes++; }
+            });
+            const last = ab[ab.length - 1]; if (!last) return;
+            const nm = last.pitcherName || '不明';
+            const ps = pitchers[nm]; const pg = perGamePitcher[nm];
+            ps.PA++; pg.PA++;
+            const res = last.result;
+            let fB=0,fS=0; ab.forEach(p => { if(['ボール','ウエスト'].includes(p.result)) fB++; else if(['ストライク','空振り','バント空振り'].includes(p.result)) fS++; else if(['ファウル','バントファウル'].includes(p.result)&&fS<2) fS++; });
+            const isHit = ['安','塁打','本塁打'].some(w=>res.includes(w));
+            const isBB = ['死球','四球','ウエスト'].includes(res) || fB>=4;
+            const isK = res==='三振' || res==='スリーバント失敗' || fS>=3;
+            if (isHit) { ps.H++; pg.H++; } else if (isBB) { ps.BB++; pg.BB++; } else if (isK) { ps.K++; pg.K++; }
+          });
+          Object.entries(perGamePitcher).forEach(([nm, pg]) => {
+            pitchers[nm].gameLog.push({ gameId: g.id, date: g.date, opponent: targetIsTop ? g.teamBottom : g.teamTop, ...pg });
+          });
+        });
+        const battersArr = Object.values(batters).map(b => {
+          const AB = b.AB, PA = b.PA;
+          const AVG = AB>0 ? (b.H/AB).toFixed(3).replace(/^0/,'') : '.000';
+          const OBP = PA>0 ? ((b.H + b.BB_HBP) / PA).toFixed(3).replace(/^0/,'') : '.000';
+          const SLG = AB>0 ? (b.TB/AB).toFixed(3).replace(/^0/,'') : '.000';
+          const OPS = ((AB>0?(b.TB/AB):0) + (PA>0?((b.H+b.BB_HBP)/PA):0)).toFixed(3).replace(/^0/,'');
+          return { ...b, G: b.games.size, AVG, OBP, SLG, OPS, KPct: PA>0?Math.round(b.K/PA*100):0, BBPct: PA>0?Math.round(b.BB_HBP/PA*100):0 };
+        }).sort((a,b) => b.PA - a.PA);
+        const pitchersArr = Object.values(pitchers).map(p => ({
+          ...p, G: p.games.size,
+          csw: p.pitches>0 ? Math.round(((p.calledStrikes + p.whiffs) / p.pitches) * 100) : 0,
+          whiffPct: p.swings>0 ? Math.round((p.whiffs / p.swings) * 100) : 0,
+          strikePct: p.pitches>0 ? Math.round((p.strikes / p.pitches) * 100) : 0,
+          fStrikePct: p.firstPitches>0 ? Math.round((p.firstStrikes / p.firstPitches) * 100) : 0,
+          AVG: (p.PA - p.BB) > 0 ? (p.H / (p.PA - p.BB)).toFixed(3).replace(/^0/,'') : '.000',
+          KPct: p.PA>0 ? Math.round(p.K/p.PA*100) : 0,
+          BBPct: p.PA>0 ? Math.round(p.BB/p.PA*100) : 0,
+          types: Object.entries(p.typeStats).map(([t, ts]) => ({ type: t, total: ts.total, strikePct: ts.total>0?Math.round(ts.strikes/ts.total*100):0, whiffPct: ts.swings>0?Math.round(ts.whiffs/ts.swings*100):0 })).sort((a,b) => b.total - a.total),
+        })).sort((a,b) => b.pitches - a.pitches);
+        return { games, batters: battersArr, pitchers: pitchersArr };
+      }, [showCumulativeStats, cumulativeTeam, cumulativeDateFrom, cumulativeDateTo, savedGames]);
+
       const playByPlayData = useMemo(() => {
         const innings = {}; let currentAbKey = null, currentAb = [];
         const flushAb = () => {
@@ -1012,6 +1200,19 @@
       const throwBatOptions = ['右打右投','右打左投','左打右投','左打左投','両打右投','両打左投'];
       const parseThrowBat = (bats, throws) => `${bats || '右'}打${throws || '右'}投`;
       const splitThrowBat = (val) => { const m = val.match(/^(右|左|両)打(右|左)投$/); return m ? { bats: m[1], throws: m[2] } : { bats: '右', throws: '右' }; };
+      // 登録チームから選手を検索し、投打情報も自動反映するためのヘルパー
+      const getRosterPlayers = (teamName) => {
+        const t = findRegisteredTeam(teamName);
+        if (!t || !t.players) return [];
+        return t.players.map(pl => typeof pl === 'string' ? { name: pl, throws: '右', bats: '右' } : pl);
+      };
+      const onLineupNameChange = (side, i, newName) => {
+        const roster = getRosterPlayers(side === 'top' ? gameInfo.teamTop : gameInfo.teamBottom);
+        const match = roster.find(pl => pl.name === newName);
+        const nl = [...lineups[side]];
+        nl[i] = match ? { ...nl[i], name: newName, throws: match.throws || '右', bats: match.bats || '右' } : { ...nl[i], name: newName };
+        setLineups(prev => ({...prev, [side]: nl}));
+      };
 
       const getPitchTypes = (throwsRight) => [
         { name: 'ストレート', icon: '↑', colorClass: 'border-rose-500 bg-rose-50 text-rose-700' },
@@ -1709,8 +1910,14 @@
                     <button onClick={swapTopAndBottom} className="bg-blue-50 text-blue-700 py-2.5 px-4 rounded-xl font-bold text-xs border border-blue-200 whitespace-nowrap">⇅ 先攻/後攻入替</button>
                     <button onClick={applyLineupToPast} className="bg-amber-50 text-amber-700 py-2.5 px-4 rounded-xl font-bold text-xs border border-amber-200 whitespace-nowrap">💡 過去記録に反映</button>
                   </div>
+                  <datalist id="roster-top-list">
+                    {getRosterPlayers(gameInfo.teamTop).map((pl, idx) => <option key={idx} value={pl.name} />)}
+                  </datalist>
+                  <datalist id="roster-bottom-list">
+                    {getRosterPlayers(gameInfo.teamBottom).map((pl, idx) => <option key={idx} value={pl.name} />)}
+                  </datalist>
                   <div className="flex flex-col md:flex-row gap-4">
-                    
+
                     {/* 先攻オーダー */}
                     <div className="flex-1 bg-blue-50/60 rounded-2xl border border-blue-200/70 p-3">
                       <div className="mb-2">
@@ -1731,7 +1938,7 @@
                               <select value={p.pos} onChange={e => { const nl = [...lineups.top]; nl[i] = {...nl[i], pos: e.target.value}; setLineups(prev => ({...prev, top: nl})); }} className="w-9 text-[10px] font-bold border border-slate-200 rounded px-0.5 py-1 bg-slate-50 text-center shrink-0">
                                 {posOptions.map(po => <option key={po} value={po}>{po}</option>)}
                               </select>
-                              <input type="text" value={p.name} onChange={e => { const nl = [...lineups.top]; nl[i] = {...nl[i], name: e.target.value}; setLineups(prev => ({...prev, top: nl})); }} className="flex-1 text-xs font-bold border border-slate-200 rounded px-2 py-1 min-w-0" placeholder="選手名" />
+                              <input type="text" list="roster-top-list" value={p.name} onChange={e => onLineupNameChange('top', i, e.target.value)} className="flex-1 text-xs font-bold border border-slate-200 rounded px-2 py-1 min-w-0" placeholder="選手名" />
                               <select value={parseThrowBat(p.bats, p.throws)} onChange={e => { const {bats, throws} = splitThrowBat(e.target.value); const nl = [...lineups.top]; nl[i] = {...nl[i], bats, throws}; setLineups(prev => ({...prev, top: nl})); }} className="w-[70px] text-[10px] font-bold border border-slate-200 rounded px-0.5 py-1 bg-slate-50 shrink-0">
                                 {throwBatOptions.map(o => <option key={o} value={o}>{o}</option>)}
                               </select>
@@ -1762,7 +1969,7 @@
                               <select value={p.pos} onChange={e => { const nl = [...lineups.bottom]; nl[i] = {...nl[i], pos: e.target.value}; setLineups(prev => ({...prev, bottom: nl})); }} className="w-9 text-[10px] font-bold border border-slate-200 rounded px-0.5 py-1 bg-slate-50 text-center shrink-0">
                                 {posOptions.map(po => <option key={po} value={po}>{po}</option>)}
                               </select>
-                              <input type="text" value={p.name} onChange={e => { const nl = [...lineups.bottom]; nl[i] = {...nl[i], name: e.target.value}; setLineups(prev => ({...prev, bottom: nl})); }} className="flex-1 text-xs font-bold border border-slate-200 rounded px-2 py-1 min-w-0" placeholder="選手名" />
+                              <input type="text" list="roster-bottom-list" value={p.name} onChange={e => onLineupNameChange('bottom', i, e.target.value)} className="flex-1 text-xs font-bold border border-slate-200 rounded px-2 py-1 min-w-0" placeholder="選手名" />
                               <select value={parseThrowBat(p.bats, p.throws)} onChange={e => { const {bats, throws} = splitThrowBat(e.target.value); const nl = [...lineups.bottom]; nl[i] = {...nl[i], bats, throws}; setLineups(prev => ({...prev, bottom: nl})); }} className="w-[70px] text-[10px] font-bold border border-slate-200 rounded px-0.5 py-1 bg-slate-50 shrink-0">
                                 {throwBatOptions.map(o => <option key={o} value={o}>{o}</option>)}
                               </select>
@@ -1822,6 +2029,7 @@
                             <div className="text-[10px] text-slate-500 font-bold">{(team.players||[]).length}人登録</div>
                           </div>
                           <div className="flex gap-2">
+                            <button onClick={() => { setCumulativeTeam(team.name); setCumulativeDateFrom(''); setCumulativeDateTo(''); setCumulativeTab('batter'); setExpandedCumKey(null); setShowCumulativeStats(true); setShowTeamManager(false); }} className="text-[10px] bg-amber-50 text-amber-700 px-2.5 py-1.5 rounded-lg font-bold border border-amber-200">📊累計</button>
                             <button onClick={() => { applyTeamToLineup(team, 'top'); showToast(`${team.name}を先攻に反映`); }} className="text-[10px] bg-blue-50 text-blue-700 px-2.5 py-1.5 rounded-lg font-bold border border-blue-200">先攻に</button>
                             <button onClick={() => { applyTeamToLineup(team, 'bottom'); showToast(`${team.name}を後攻に反映`); }} className="text-[10px] bg-blue-50 text-blue-700 px-2.5 py-1.5 rounded-lg font-bold border border-blue-200">後攻に</button>
                             <button onClick={() => setEditingTeamIndex(i)} className="text-[10px] bg-white text-slate-600 px-2.5 py-1.5 rounded-lg font-bold border border-slate-300">編集</button>
@@ -2317,6 +2525,197 @@
                   <p className="text-sm font-bold text-slate-600 text-center">以下のテキストをコピーして送ってください。</p>
                   <textarea value={shareTextData} readOnly className="w-full h-32 p-3 border-2 border-slate-300 rounded-xl text-[10px] font-mono bg-white" onClick={(e) => e.target.select()} />
                   <button onClick={() => { navigator.clipboard.writeText(shareTextData).then(() => showToast('コピーしました！')).catch(() => { const ta = document.createElement('textarea'); ta.value = shareTextData; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); showToast('コピーしました！'); }); }} className="w-full bg-blue-600 text-white font-bold py-3 rounded-xl shadow-md active:scale-95">テキストをコピーする</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ============================================================ */}
+          {/* ============= MODAL: CUMULATIVE STATS (累計成績) =========== */}
+          {/* ============================================================ */}
+          {showCumulativeStats && (
+            <div className="fixed inset-0 bg-slate-900/70 z-[200] flex items-center justify-center p-2 md:p-4 backdrop-blur-sm">
+              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col max-h-[95vh] border border-slate-200">
+                <div className="p-4 border-b border-amber-200 bg-amber-50 flex justify-between items-center shrink-0">
+                  <div>
+                    <h2 className="text-lg font-black text-amber-800">📊 累計成績</h2>
+                    <div className="text-[11px] font-bold text-amber-700 mt-0.5">{cumulativeTeam} / {cumulativeStats.games.length}試合</div>
+                  </div>
+                  <button onClick={() => setShowCumulativeStats(false)} className="text-amber-400 hover:text-amber-800 font-bold text-xl px-2">✕</button>
+                </div>
+                <div className="px-4 py-3 border-b border-slate-200 bg-slate-50 shrink-0 flex flex-col gap-2">
+                  <div className="flex gap-2 items-center flex-wrap">
+                    <label className="text-[10px] font-bold text-slate-500">チーム</label>
+                    <select value={cumulativeTeam} onChange={e => setCumulativeTeam(e.target.value)} className="text-xs font-bold border border-slate-300 rounded px-2 py-1 bg-white">
+                      {registeredTeams.map(t => <option key={t.name} value={t.name}>{t.name}</option>)}
+                    </select>
+                    <label className="text-[10px] font-bold text-slate-500 ml-2">期間</label>
+                    <input type="date" value={cumulativeDateFrom} onChange={e => setCumulativeDateFrom(e.target.value)} className="text-xs border border-slate-300 rounded px-2 py-1 bg-white" />
+                    <span className="text-xs text-slate-400">〜</span>
+                    <input type="date" value={cumulativeDateTo} onChange={e => setCumulativeDateTo(e.target.value)} className="text-xs border border-slate-300 rounded px-2 py-1 bg-white" />
+                  </div>
+                  <div className="flex gap-1.5 flex-wrap">
+                    <button onClick={() => { setCumulativeDateFrom(''); setCumulativeDateTo(''); }} className="text-[10px] bg-white text-slate-600 border border-slate-300 px-2.5 py-1 rounded-lg font-bold">全期間</button>
+                    <button onClick={() => { const n = new Date(); const fm = `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-01`; const last = new Date(n.getFullYear(), n.getMonth()+1, 0); const tm = `${last.getFullYear()}-${String(last.getMonth()+1).padStart(2,'0')}-${String(last.getDate()).padStart(2,'0')}`; setCumulativeDateFrom(fm); setCumulativeDateTo(tm); }} className="text-[10px] bg-white text-slate-600 border border-slate-300 px-2.5 py-1 rounded-lg font-bold">今月</button>
+                    <button onClick={() => { const y = new Date().getFullYear(); setCumulativeDateFrom(`${y}-01-01`); setCumulativeDateTo(`${y}-12-31`); }} className="text-[10px] bg-white text-slate-600 border border-slate-300 px-2.5 py-1 rounded-lg font-bold">今年</button>
+                    <button onClick={() => { const y = new Date().getFullYear() - 1; setCumulativeDateFrom(`${y}-01-01`); setCumulativeDateTo(`${y}-12-31`); }} className="text-[10px] bg-white text-slate-600 border border-slate-300 px-2.5 py-1 rounded-lg font-bold">昨年</button>
+                  </div>
+                  <div className="flex gap-1.5">
+                    <button onClick={() => setCumulativeTab('batter')} className={`flex-1 py-2 rounded-lg font-black text-xs ${cumulativeTab==='batter' ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-300'}`}>🏏 打者</button>
+                    <button onClick={() => setCumulativeTab('pitcher')} className={`flex-1 py-2 rounded-lg font-black text-xs ${cumulativeTab==='pitcher' ? 'bg-rose-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-300'}`}>⚾ 投手</button>
+                  </div>
+                </div>
+                <div className="flex-1 overflow-y-auto modal-scroll p-3">
+                  {cumulativeStats.games.length === 0 ? (
+                    <p className="text-center text-slate-400 text-sm py-12 font-bold">この期間に保存試合がありません</p>
+                  ) : cumulativeTab === 'batter' ? (
+                    cumulativeStats.batters.length === 0 ? <p className="text-center text-slate-400 text-sm py-12 font-bold">打者データなし</p> : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs border-collapse">
+                          <thead className="bg-slate-100 text-slate-600 text-[10px]">
+                            <tr>
+                              <th className="py-2 px-2 text-left">選手名</th>
+                              <th className="py-2 px-1 text-right">G</th>
+                              <th className="py-2 px-1 text-right">PA</th>
+                              <th className="py-2 px-1 text-right">AB</th>
+                              <th className="py-2 px-1 text-right">H</th>
+                              <th className="py-2 px-1 text-right">2B</th>
+                              <th className="py-2 px-1 text-right">3B</th>
+                              <th className="py-2 px-1 text-right">HR</th>
+                              <th className="py-2 px-1 text-right">四死</th>
+                              <th className="py-2 px-1 text-right">K</th>
+                              <th className="py-2 px-1 text-right text-blue-600">打率</th>
+                              <th className="py-2 px-1 text-right text-emerald-600">出塁</th>
+                              <th className="py-2 px-1 text-right text-purple-600">長打</th>
+                              <th className="py-2 px-1 text-right text-amber-600">OPS</th>
+                              <th className="py-2 px-1 text-right text-rose-600">K%</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {cumulativeStats.batters.map((b, i) => (
+                              <React.Fragment key={b.name}>
+                                <tr onClick={() => setExpandedCumKey(expandedCumKey === `b-${b.name}` ? null : `b-${b.name}`)} className={`cursor-pointer border-b border-slate-200 ${i%2===0?'bg-white':'bg-slate-50'} hover:bg-amber-50`}>
+                                  <td className="py-2 px-2 font-black">{expandedCumKey===`b-${b.name}`?'▼':'▶'} {b.name}</td>
+                                  <td className="py-2 px-1 text-right">{b.G}</td>
+                                  <td className="py-2 px-1 text-right">{b.PA}</td>
+                                  <td className="py-2 px-1 text-right">{b.AB}</td>
+                                  <td className="py-2 px-1 text-right">{b.H}</td>
+                                  <td className="py-2 px-1 text-right">{b._2B}</td>
+                                  <td className="py-2 px-1 text-right">{b._3B}</td>
+                                  <td className="py-2 px-1 text-right">{b.HR}</td>
+                                  <td className="py-2 px-1 text-right">{b.BB_HBP}</td>
+                                  <td className="py-2 px-1 text-right">{b.K}</td>
+                                  <td className="py-2 px-1 text-right font-black text-blue-600">{b.AVG}</td>
+                                  <td className="py-2 px-1 text-right font-black text-emerald-600">{b.OBP}</td>
+                                  <td className="py-2 px-1 text-right font-black text-purple-600">{b.SLG}</td>
+                                  <td className="py-2 px-1 text-right font-black text-amber-600">{b.OPS}</td>
+                                  <td className="py-2 px-1 text-right text-rose-600">{b.KPct}%</td>
+                                </tr>
+                                {expandedCumKey===`b-${b.name}` && (
+                                  <tr><td colSpan={15} className="bg-amber-50/60 p-2">
+                                    <div className="text-[10px] font-bold text-slate-500 mb-1 px-1">試合別ログ</div>
+                                    <table className="w-full text-[11px] border-collapse">
+                                      <thead className="bg-white text-slate-500 text-[10px]">
+                                        <tr><th className="py-1 px-2 text-left">日付</th><th className="py-1 px-2 text-left">対戦</th><th className="py-1 px-1 text-right">PA</th><th className="py-1 px-1 text-right">AB</th><th className="py-1 px-1 text-right">H</th><th className="py-1 px-1 text-right">四死</th><th className="py-1 px-1 text-right">K</th><th className="py-1 px-1 text-left">結果</th></tr>
+                                      </thead>
+                                      <tbody>
+                                        {b.gameLog.map((gl, gi) => (
+                                          <tr key={gi} className="border-b border-amber-100"><td className="py-1 px-2">{gl.date}</td><td className="py-1 px-2">{gl.opponent}</td><td className="py-1 px-1 text-right">{gl.PA}</td><td className="py-1 px-1 text-right">{gl.AB}</td><td className="py-1 px-1 text-right">{gl.H}</td><td className="py-1 px-1 text-right">{gl.BB_HBP}</td><td className="py-1 px-1 text-right">{gl.K}</td><td className="py-1 px-2 text-[10px]">{gl.results.join(', ')}</td></tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </td></tr>
+                                )}
+                              </React.Fragment>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )
+                  ) : (
+                    cumulativeStats.pitchers.length === 0 ? <p className="text-center text-slate-400 text-sm py-12 font-bold">投手データなし</p> : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs border-collapse">
+                          <thead className="bg-slate-100 text-slate-600 text-[10px]">
+                            <tr>
+                              <th className="py-2 px-2 text-left">投手</th>
+                              <th className="py-2 px-1 text-right">G</th>
+                              <th className="py-2 px-1 text-right">球数</th>
+                              <th className="py-2 px-1 text-right">対戦</th>
+                              <th className="py-2 px-1 text-right">H</th>
+                              <th className="py-2 px-1 text-right">K</th>
+                              <th className="py-2 px-1 text-right">BB</th>
+                              <th className="py-2 px-1 text-right text-blue-600">被打率</th>
+                              <th className="py-2 px-1 text-right text-rose-600">K%</th>
+                              <th className="py-2 px-1 text-right text-amber-600">BB%</th>
+                              <th className="py-2 px-1 text-right text-indigo-600">CSW%</th>
+                              <th className="py-2 px-1 text-right text-emerald-600">Whiff%</th>
+                              <th className="py-2 px-1 text-right">S%</th>
+                              <th className="py-2 px-1 text-right">初球S%</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {cumulativeStats.pitchers.map((p, i) => (
+                              <React.Fragment key={p.name}>
+                                <tr onClick={() => setExpandedCumKey(expandedCumKey === `p-${p.name}` ? null : `p-${p.name}`)} className={`cursor-pointer border-b border-slate-200 ${i%2===0?'bg-white':'bg-slate-50'} hover:bg-amber-50`}>
+                                  <td className="py-2 px-2 font-black">{expandedCumKey===`p-${p.name}`?'▼':'▶'} {p.name} <span className="text-[9px] text-slate-400">({p.throws}投)</span></td>
+                                  <td className="py-2 px-1 text-right">{p.G}</td>
+                                  <td className="py-2 px-1 text-right">{p.pitches}</td>
+                                  <td className="py-2 px-1 text-right">{p.PA}</td>
+                                  <td className="py-2 px-1 text-right">{p.H}</td>
+                                  <td className="py-2 px-1 text-right">{p.K}</td>
+                                  <td className="py-2 px-1 text-right">{p.BB}</td>
+                                  <td className="py-2 px-1 text-right font-black text-blue-600">{p.AVG}</td>
+                                  <td className="py-2 px-1 text-right font-black text-rose-600">{p.KPct}%</td>
+                                  <td className="py-2 px-1 text-right font-black text-amber-600">{p.BBPct}%</td>
+                                  <td className="py-2 px-1 text-right font-black text-indigo-600">{p.csw}%</td>
+                                  <td className="py-2 px-1 text-right font-black text-emerald-600">{p.whiffPct}%</td>
+                                  <td className="py-2 px-1 text-right">{p.strikePct}%</td>
+                                  <td className="py-2 px-1 text-right">{p.fStrikePct}%</td>
+                                </tr>
+                                {expandedCumKey===`p-${p.name}` && (
+                                  <tr><td colSpan={14} className="bg-amber-50/60 p-2">
+                                    {p.types.length > 0 && (
+                                      <div className="mb-3">
+                                        <div className="text-[10px] font-bold text-slate-500 mb-1 px-1">球種別</div>
+                                        <div className="flex flex-wrap gap-2">
+                                          {p.types.map(t => (
+                                            <div key={t.type} className="bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-[10px]">
+                                              <span className="font-black text-slate-700">{t.type}</span>
+                                              <span className="text-slate-400 mx-1">·</span>
+                                              <span>{t.total}球</span>
+                                              <span className="text-slate-400 mx-1">·</span>
+                                              <span className="text-indigo-600 font-bold">S {t.strikePct}%</span>
+                                              <span className="text-slate-400 mx-1">·</span>
+                                              <span className="text-emerald-600 font-bold">Whiff {t.whiffPct}%</span>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
+                                    <div className="text-[10px] font-bold text-slate-500 mb-1 px-1">試合別ログ</div>
+                                    <table className="w-full text-[11px] border-collapse">
+                                      <thead className="bg-white text-slate-500 text-[10px]">
+                                        <tr><th className="py-1 px-2 text-left">日付</th><th className="py-1 px-2 text-left">対戦</th><th className="py-1 px-1 text-right">球数</th><th className="py-1 px-1 text-right">対戦</th><th className="py-1 px-1 text-right">H</th><th className="py-1 px-1 text-right">K</th><th className="py-1 px-1 text-right">BB</th><th className="py-1 px-1 text-right">S%</th></tr>
+                                      </thead>
+                                      <tbody>
+                                        {p.gameLog.map((gl, gi) => (
+                                          <tr key={gi} className="border-b border-amber-100"><td className="py-1 px-2">{gl.date}</td><td className="py-1 px-2">{gl.opponent}</td><td className="py-1 px-1 text-right">{gl.pitches}</td><td className="py-1 px-1 text-right">{gl.PA}</td><td className="py-1 px-1 text-right">{gl.H}</td><td className="py-1 px-1 text-right">{gl.K}</td><td className="py-1 px-1 text-right">{gl.BB}</td><td className="py-1 px-1 text-right">{gl.pitches>0?Math.round(gl.strikes/gl.pitches*100):0}%</td></tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </td></tr>
+                                )}
+                              </React.Fragment>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )
+                  )}
+                </div>
+                <div className="p-3 border-t border-slate-200 bg-slate-50 shrink-0">
+                  <button onClick={() => setShowCumulativeStats(false)} className="w-full bg-slate-700 text-white py-2.5 rounded-xl font-bold text-sm">閉じる</button>
                 </div>
               </div>
             </div>
