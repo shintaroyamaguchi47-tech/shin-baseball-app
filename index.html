@@ -49,7 +49,7 @@
     var bottomTotal = gs.runs.bottom.reduce(function(a,b){return a+b;},0);
     function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
     function heatmapSvg(d, mx, color, label) {
-      var GS=7, sz=70, cs=sz/GS;
+      var GS=7, sz=55, cs=sz/GS;
       var h='<div style="display:inline-block;text-align:center;margin:2px;"><div style="font-size:9px;font-weight:bold;color:'+(color==='red'?'#ef4444':color==='indigo'?'#8b5cf6':'#3b82f6')+';margin-bottom:2px;">'+esc(label)+'</div>';
       h+='<svg width="'+sz+'" height="'+sz+'" viewBox="0 0 '+sz+' '+sz+'" style="background:#f8fafc;border:1px solid #cbd5e1;border-radius:4px;box-shadow:inset 0 2px 4px rgba(0,0,0,0.05);">';
       h+='<rect x="'+(cs*2)+'" y="'+(cs*2)+'" width="'+(cs*3)+'" height="'+(cs*3)+'" fill="none" stroke="#64748b" stroke-width="1.5"/>';
