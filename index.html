@@ -1925,9 +1925,16 @@
                         <div className="flex justify-between items-center mb-3">
                           <div className="flex items-center gap-2 w-full">
                             <h3 className="font-black text-sm text-blue-800 shrink-0">先攻</h3>
-                            <input type="text" value={gameInfo.teamTop} onChange={e=>setGameInfo({...gameInfo, teamTop: e.target.value})} className="flex-1 font-black text-sm border border-blue-300 rounded px-2 py-1.5 bg-white outline-none focus:ring-2 focus:ring-blue-400 text-blue-900" placeholder="先攻チーム名" />
+                            {registeredTeams.length > 0 ? (
+                              <select value={gameInfo.teamTop} onChange={e => { const v = e.target.value; setGameInfo(prev => ({...prev, teamTop: v})); const team = findRegisteredTeam(v); if (team) applyTeamToLineup(team, 'top'); }} className="flex-1 font-black text-sm border border-blue-300 rounded px-2 py-1.5 bg-white outline-none focus:ring-2 focus:ring-blue-400 text-blue-900">
+                                <option value="">チームを選択...</option>
+                                {!findRegisteredTeam(gameInfo.teamTop) && gameInfo.teamTop && <option value={gameInfo.teamTop}>{gameInfo.teamTop}（未登録）</option>}
+                                {registeredTeams.map((t, ti) => <option key={ti} value={t.name}>{t.name}</option>)}
+                              </select>
+                            ) : (
+                              <input type="text" value={gameInfo.teamTop} onChange={e=>setGameInfo({...gameInfo, teamTop: e.target.value})} className="flex-1 font-black text-sm border border-blue-300 rounded px-2 py-1.5 bg-white outline-none focus:ring-2 focus:ring-blue-400 text-blue-900" placeholder="先攻チーム名" />
+                            )}
                           </div>
-                          {findRegisteredTeam(gameInfo.teamTop) && <button onClick={() => applyTeamToLineup(findRegisteredTeam(gameInfo.teamTop), 'top')} className="text-[10px] bg-blue-600 text-white px-2 py-1.5 rounded-lg font-bold shadow-sm ml-2 shrink-0">登録反映</button>}
                         </div>
                         <div className="text-[9px] font-bold text-slate-400 flex items-center gap-1 mb-1 px-1">
                           <span className="w-6 text-center">打順</span><span className="w-9 text-center">守備</span><span className="flex-1">氏名</span><span className="w-[70px] text-center">投打</span>
@@ -1977,9 +1984,16 @@
                         <div className="flex justify-between items-center mb-3">
                           <div className="flex items-center gap-2 w-full">
                             <h3 className="font-black text-sm text-rose-800 shrink-0">後攻</h3>
-                            <input type="text" value={gameInfo.teamBottom} onChange={e=>setGameInfo({...gameInfo, teamBottom: e.target.value})} className="flex-1 font-black text-sm border border-rose-300 rounded px-2 py-1.5 bg-white outline-none focus:ring-2 focus:ring-rose-400 text-rose-900" placeholder="後攻チーム名" />
+                            {registeredTeams.length > 0 ? (
+                              <select value={gameInfo.teamBottom} onChange={e => { const v = e.target.value; setGameInfo(prev => ({...prev, teamBottom: v})); const team = findRegisteredTeam(v); if (team) applyTeamToLineup(team, 'bottom'); }} className="flex-1 font-black text-sm border border-rose-300 rounded px-2 py-1.5 bg-white outline-none focus:ring-2 focus:ring-rose-400 text-rose-900">
+                                <option value="">チームを選択...</option>
+                                {!findRegisteredTeam(gameInfo.teamBottom) && gameInfo.teamBottom && <option value={gameInfo.teamBottom}>{gameInfo.teamBottom}（未登録）</option>}
+                                {registeredTeams.map((t, ti) => <option key={ti} value={t.name}>{t.name}</option>)}
+                              </select>
+                            ) : (
+                              <input type="text" value={gameInfo.teamBottom} onChange={e=>setGameInfo({...gameInfo, teamBottom: e.target.value})} className="flex-1 font-black text-sm border border-rose-300 rounded px-2 py-1.5 bg-white outline-none focus:ring-2 focus:ring-rose-400 text-rose-900" placeholder="後攻チーム名" />
+                            )}
                           </div>
-                          {findRegisteredTeam(gameInfo.teamBottom) && <button onClick={() => applyTeamToLineup(findRegisteredTeam(gameInfo.teamBottom), 'bottom')} className="text-[10px] bg-rose-600 text-white px-2 py-1.5 rounded-lg font-bold shadow-sm ml-2 shrink-0">登録反映</button>}
                         </div>
                         <div className="text-[9px] font-bold text-slate-400 flex items-center gap-1 mb-1 px-1">
                           <span className="w-6 text-center">打順</span><span className="w-9 text-center">守備</span><span className="flex-1">氏名</span><span className="w-[70px] text-center">投打</span>
