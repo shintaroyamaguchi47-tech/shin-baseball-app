@@ -12,6 +12,19 @@
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+  <script>
+    firebase.initializeApp({
+      apiKey: "AIzaSyDku6KzeppDeVYOx2DZ0khRcS5lBtodW74",
+      authDomain: "baseball-score-1e585.firebaseapp.com",
+      projectId: "baseball-score-1e585",
+      storageBucket: "baseball-score-1e585.firebasestorage.app",
+      messagingSenderId: "831109769499",
+      appId: "1:831109769499:web:a12091932917b0b9b9cbbe"
+    });
+    window.db = firebase.firestore();
+  </script>
   <style>
     body { -webkit-touch-callout: none; overscroll-behavior-y: none; user-select: none; }
     ::-webkit-scrollbar { display: none; }
@@ -387,6 +400,79 @@
       useEffect(() => { localStorage.setItem('baseball_pitches_v2', JSON.stringify(pitches)); }, [pitches]);
       useEffect(() => { localStorage.setItem('baseball_savedGames_v2', JSON.stringify(savedGames)); }, [savedGames]);
       useEffect(() => { localStorage.setItem('baseball_registeredTeams_v2', JSON.stringify(registeredTeams)); }, [registeredTeams]);
+
+      // ====== クラウド同期 ======
+      const [syncCode, setSyncCode] = useState(() => localStorage.getItem('baseball_syncCode') || '');
+      const [syncStatus, setSyncStatus] = useState('idle');
+      const [showSyncModal, setShowSyncModal] = useState(false);
+      const [syncCodeInput, setSyncCodeInput] = useState('');
+      const cloudSaveTimerRef = React.useRef(null);
+      const syncCodeRef = React.useRef(syncCode);
+      useEffect(() => { syncCodeRef.current = syncCode; }, [syncCode]);
+
+      const generateSyncCode = () => {
+        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+        let code = '';
+        for (let i = 0; i < 8; i++) {
+          if (i === 4) code += '-';
+          code += chars[Math.floor(Math.random() * chars.length)];
+        }
+        return code;
+      };
+
+      const loadFromCloud = async (code) => {
+        if (!code || !window.db) return false;
+        try {
+          setSyncStatus('loading');
+          const doc = await window.db.collection('userdata').doc(code).get();
+          if (doc.exists) {
+            const data = doc.data();
+            if (data.gameState) setGameState(data.gameState);
+            if (data.gameInfo) setGameInfo(data.gameInfo);
+            if (data.lineups) setLineups(data.lineups);
+            if (data.pitches) setPitches(data.pitches);
+            if (data.savedGames) setSavedGames(data.savedGames);
+            if (data.registeredTeams) setRegisteredTeams(data.registeredTeams);
+            setSyncStatus('saved');
+            setTimeout(() => setSyncStatus('idle'), 3000);
+            return true;
+          }
+          setSyncStatus('idle');
+          return false;
+        } catch(e) {
+          console.error('Cloud load error:', e);
+          setSyncStatus('error');
+          setTimeout(() => setSyncStatus('idle'), 3000);
+          return false;
+        }
+      };
+
+      useEffect(() => {
+        if (syncCode && window.db) loadFromCloud(syncCode);
+      }, []);
+
+      useEffect(() => {
+        const code = syncCodeRef.current;
+        if (!code || !window.db) return;
+        if (cloudSaveTimerRef.current) clearTimeout(cloudSaveTimerRef.current);
+        cloudSaveTimerRef.current = setTimeout(async () => {
+          const currentCode = syncCodeRef.current;
+          if (!currentCode) return;
+          try {
+            setSyncStatus('saving');
+            await window.db.collection('userdata').doc(currentCode).set({
+              gameState, gameInfo, lineups, pitches, savedGames, registeredTeams,
+              updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            setSyncStatus('saved');
+            setTimeout(() => setSyncStatus('idle'), 3000);
+          } catch(e) {
+            console.error('Cloud save error:', e);
+            setSyncStatus('error');
+            setTimeout(() => setSyncStatus('idle'), 3000);
+          }
+        }, 2000);
+      }, [gameState, gameInfo, lineups, pitches, savedGames, registeredTeams]);
 
       const showToast = (text, type = 'success') => { setToast({ text, type }); setTimeout(() => setToast(null), 3000); };
       const findRegisteredTeam = (name) => registeredTeams.find(t => t.name === name);
@@ -1265,6 +1351,9 @@
                 <button onClick={handleTieBreak} className="whitespace-nowrap shrink-0 bg-purple-50 text-purple-700 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-purple-200 shadow-sm">⚡ 特延</button>
                 <button onClick={handleNewGame} className="whitespace-nowrap shrink-0 bg-rose-50 text-rose-700 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-rose-200 shadow-sm">🔄 リセット</button>
                 <button onClick={() => setShowPostGameAnalysis(true)} className="whitespace-nowrap shrink-0 bg-blue-600 text-white px-3 py-1.5 rounded-lg text-[11px] font-bold shadow-sm">🏁 分析レポート</button>
+                <button onClick={() => setShowSyncModal(true)} className={`whitespace-nowrap shrink-0 px-3 py-1.5 rounded-lg text-[11px] font-bold border shadow-sm ${syncCode ? (syncStatus==='saving'?'bg-yellow-50 text-yellow-700 border-yellow-300':syncStatus==='saved'?'bg-green-50 text-green-700 border-green-300':syncStatus==='error'?'bg-red-50 text-red-700 border-red-300':syncStatus==='loading'?'bg-blue-50 text-blue-700 border-blue-300':'bg-indigo-50 text-indigo-700 border-indigo-300') : 'bg-slate-100 text-slate-500 border-slate-300'}`}>
+                  {syncStatus==='saving'?'☁️ 保存中...':syncStatus==='saved'?'✅ 同期済':syncStatus==='error'?'❌ 同期エラー':syncStatus==='loading'?'⏳ 読込中...':syncCode?'☁️ 同期中':'☁️ 同期設定'}
+                </button>
               </div>
             </div>
 
@@ -1326,6 +1415,9 @@
                   <button onClick={handleTieBreak} className="flex-1 bg-purple-50 text-purple-700 px-2 py-1.5 rounded-lg text-[10px] font-bold border border-purple-200">⚡ 特延</button>
                   <button onClick={handleNewGame} className="flex-1 bg-rose-50 text-rose-700 px-2 py-1.5 rounded-lg text-[10px] font-bold border border-rose-200">🔄 リセット</button>
                   <button onClick={() => setShowPostGameAnalysis(true)} className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-[11px] font-bold shadow-md">🏁 試合分析へ</button>
+                  <button onClick={() => setShowSyncModal(true)} className={`px-2 py-1.5 rounded-lg text-[11px] font-bold border shadow-sm ${syncCode ? (syncStatus==='saving'?'bg-yellow-50 text-yellow-700 border-yellow-300':syncStatus==='saved'?'bg-green-50 text-green-700 border-green-300':syncStatus==='error'?'bg-red-50 text-red-700 border-red-300':'bg-indigo-50 text-indigo-700 border-indigo-300') : 'bg-slate-100 text-slate-500 border-slate-300'}`}>
+                    {syncStatus==='saving'?'☁️..':syncStatus==='saved'?'✅':syncStatus==='error'?'❌':syncStatus==='loading'?'⏳':syncCode?'☁️':'☁️?'}
+                  </button>
                 </div>
               </div>
             </div>
@@ -2736,6 +2828,95 @@
                   <div className="flex gap-3 mt-2">
                     <button onClick={() => setShowImportTextModal(false)} className="flex-1 bg-slate-100 border border-slate-300 text-slate-700 font-bold py-3.5 rounded-xl">キャンセル</button>
                     <button onClick={handleImportText} className="flex-1 bg-emerald-600 text-white font-black py-3.5 rounded-xl shadow-md active:scale-95">データを復元する</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ====== 同期モーダル ====== */}
+          {showSyncModal && (
+            <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => setShowSyncModal(false)}>
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden" onClick={e => e.stopPropagation()}>
+                <div className="bg-indigo-600 px-5 py-4 flex items-center justify-between">
+                  <h2 className="text-white font-black text-lg">☁️ クラウド同期</h2>
+                  <button onClick={() => setShowSyncModal(false)} className="text-indigo-200 hover:text-white text-xl font-bold px-1">✕</button>
+                </div>
+                <div className="p-5 flex flex-col gap-5">
+                  {syncCode ? (
+                    <div className="flex flex-col gap-2">
+                      <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">現在の同期コード</p>
+                      <div className="flex items-center gap-2 bg-indigo-50 border-2 border-indigo-200 rounded-xl px-4 py-3">
+                        <span className="flex-1 font-mono text-2xl font-black text-indigo-700 tracking-widest text-center">{syncCode}</span>
+                        <button onClick={() => { navigator.clipboard.writeText(syncCode); showToast('コードをコピーしました'); }} className="text-indigo-400 hover:text-indigo-700 text-xl">📋</button>
+                      </div>
+                      <p className="text-[11px] text-slate-500 text-center">このコードを別の端末で入力するとデータが同期されます</p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <div className={`w-2 h-2 rounded-full ${syncStatus==='saving'?'bg-yellow-400':syncStatus==='saved'?'bg-green-400':syncStatus==='error'?'bg-red-400':syncStatus==='loading'?'bg-blue-400':'bg-slate-300'}`}></div>
+                        <span className="text-xs text-slate-500">{syncStatus==='saving'?'クラウドに保存中...':syncStatus==='saved'?'同期済み':syncStatus==='error'?'同期エラー（オフライン？）':syncStatus==='loading'?'読み込み中...':'待機中'}</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800 font-bold text-center">
+                      同期コードが未設定です。<br/>下のボタンで新規作成してください。
+                    </div>
+                  )}
+
+                  <div className="flex flex-col gap-2">
+                    <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">別の端末のコードを入力</p>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={syncCodeInput}
+                        onChange={e => setSyncCodeInput(e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g,'').slice(0,9))}
+                        placeholder="XXXX-XXXX"
+                        className="flex-1 border-2 border-slate-200 rounded-xl px-3 py-2 font-mono text-lg font-bold text-center tracking-widest"
+                        maxLength={9}
+                      />
+                      <button
+                        onClick={async () => {
+                          const code = syncCodeInput.trim();
+                          if (code.length < 8) { showToast('コードを正しく入力してください', 'error'); return; }
+                          const found = await loadFromCloud(code);
+                          if (found) {
+                            setSyncCode(code);
+                            syncCodeRef.current = code;
+                            localStorage.setItem('baseball_syncCode', code);
+                            setSyncCodeInput('');
+                            setShowSyncModal(false);
+                            showToast('データを読み込みました！');
+                          } else {
+                            showToast('そのコードのデータが見つかりませんでした', 'error');
+                          }
+                        }}
+                        className="bg-indigo-600 text-white font-black px-4 py-2 rounded-xl shadow-md active:scale-95"
+                      >読込</button>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-2 pt-1 border-t border-slate-100">
+                    <button
+                      onClick={() => {
+                        const code = generateSyncCode();
+                        setSyncCode(code);
+                        syncCodeRef.current = code;
+                        localStorage.setItem('baseball_syncCode', code);
+                        showToast('新しい同期コードを作成しました');
+                      }}
+                      className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-3 rounded-xl text-sm border border-slate-200"
+                    >+ 新しい同期コードを生成する</button>
+                    {syncCode && (
+                      <button
+                        onClick={() => {
+                          setSyncCode('');
+                          syncCodeRef.current = '';
+                          localStorage.removeItem('baseball_syncCode');
+                          setShowSyncModal(false);
+                          showToast('同期を解除しました');
+                        }}
+                        className="w-full text-red-400 hover:text-red-600 font-bold py-2 rounded-xl text-xs"
+                      >同期を解除する</button>
+                    )}
                   </div>
                 </div>
               </div>
