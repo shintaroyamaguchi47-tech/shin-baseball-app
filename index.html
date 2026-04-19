@@ -373,6 +373,9 @@
       const [toast, setToast] = useState(null);
       const [confirmDialog, setConfirmDialog] = useState(null);
 
+      // オーダー設定画面の登録選手ピッカー用ステート
+      const [rosterPickerSlot, setRosterPickerSlot] = useState(null);
+
       // 累計成績モーダル用ステート
       const [showCumulativeStats, setShowCumulativeStats] = useState(false);
       const [cumulativeTeam, setCumulativeTeam] = useState('');
@@ -1930,18 +1933,39 @@
                           <span className="w-6 text-center">打順</span><span className="w-9 text-center">守備</span><span className="flex-1">氏名</span><span className="w-[70px] text-center">投打</span>
                         </div>
                         <div className="space-y-1">
-                          {lineups.top.map((p, i) => (
-                            <div key={i} className="flex items-center gap-1 bg-white/80 rounded-lg border border-slate-200 px-1.5 py-1">
-                              <span className="w-6 text-center text-xs font-black text-slate-400 shrink-0">{p.order}</span>
-                              <select value={p.pos} onChange={e => { const nl = [...lineups.top]; nl[i] = {...nl[i], pos: e.target.value}; setLineups(prev => ({...prev, top: nl})); }} className="w-9 text-[10px] font-bold border border-slate-200 rounded px-0.5 py-1 bg-slate-50 text-center shrink-0">
-                                {posOptions.map(po => <option key={po} value={po}>{po}</option>)}
-                              </select>
-                              <input type="text" list="roster-top-list" value={p.name} onChange={e => onLineupNameChange('top', i, e.target.value)} className="flex-1 text-xs font-bold border border-slate-200 rounded px-2 py-1 min-w-0" placeholder="選手名" />
-                              <select value={parseThrowBat(p.bats, p.throws)} onChange={e => { const {bats, throws} = splitThrowBat(e.target.value); const nl = [...lineups.top]; nl[i] = {...nl[i], bats, throws}; setLineups(prev => ({...prev, top: nl})); }} className="w-[70px] text-[10px] font-bold border border-slate-200 rounded px-0.5 py-1 bg-slate-50 shrink-0">
-                                {throwBatOptions.map(o => <option key={o} value={o}>{o}</option>)}
-                              </select>
+                          {lineups.top.map((p, i) => {
+                            const topRoster = getRosterPlayers(gameInfo.teamTop);
+                            const isPickerOpen = rosterPickerSlot?.side === 'top' && rosterPickerSlot?.index === i;
+                            return (
+                            <div key={i}>
+                              <div className="flex items-center gap-1 bg-white/80 rounded-lg border border-slate-200 px-1.5 py-1">
+                                <span className="w-6 text-center text-xs font-black text-slate-400 shrink-0">{p.order}</span>
+                                <select value={p.pos} onChange={e => { const nl = [...lineups.top]; nl[i] = {...nl[i], pos: e.target.value}; setLineups(prev => ({...prev, top: nl})); }} className="w-9 text-[10px] font-bold border border-slate-200 rounded px-0.5 py-1 bg-slate-50 text-center shrink-0">
+                                  {posOptions.map(po => <option key={po} value={po}>{po}</option>)}
+                                </select>
+                                <input type="text" list="roster-top-list" value={p.name} onChange={e => onLineupNameChange('top', i, e.target.value)} className="flex-1 text-xs font-bold border border-slate-200 rounded px-2 py-1 min-w-0" placeholder="選手名" />
+                                {topRoster.length > 0 && (
+                                  <button onClick={() => setRosterPickerSlot(isPickerOpen ? null : {side: 'top', index: i})} className={`w-6 h-6 text-[10px] rounded font-black shrink-0 border flex items-center justify-center ${isPickerOpen ? 'bg-blue-600 text-white border-blue-600' : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-600'}`} title="登録選手から選択">▼</button>
+                                )}
+                                <select value={parseThrowBat(p.bats, p.throws)} onChange={e => { const {bats, throws} = splitThrowBat(e.target.value); const nl = [...lineups.top]; nl[i] = {...nl[i], bats, throws}; setLineups(prev => ({...prev, top: nl})); }} className="w-[70px] text-[10px] font-bold border border-slate-200 rounded px-0.5 py-1 bg-slate-50 shrink-0">
+                                  {throwBatOptions.map(o => <option key={o} value={o}>{o}</option>)}
+                                </select>
+                              </div>
+                              {isPickerOpen && topRoster.length > 0 && (
+                                <div className="bg-blue-50 border border-blue-200 rounded-lg p-2 mt-0.5 flex flex-wrap gap-1">
+                                  {topRoster.map((pl, pi) => {
+                                    const alreadyUsed = lineups.top.some((lp, li) => li !== i && lp.name === pl.name);
+                                    return (
+                                      <button key={pi} onClick={() => { onLineupNameChange('top', i, pl.name); setRosterPickerSlot(null); }} className={`text-[10px] px-2 py-1 rounded-md font-bold border transition-colors ${alreadyUsed ? 'bg-slate-100 text-slate-400 border-slate-200 line-through' : 'bg-white text-blue-700 border-blue-200 hover:bg-blue-100 active:scale-95'}`}>
+                                        {pl.name}<span className="text-slate-400 font-normal ml-1">{pl.bats}打{pl.throws}投</span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              )}
                             </div>
-                          ))}
+                            );
+                          })}
                         </div>
                         <button onClick={() => setLineups(prev => ({...prev, top: [...prev.top, { order: '控', name: '', pos: '控', throws: '右', bats: '右' }]}))} className="mt-1.5 text-[10px] bg-white/60 text-slate-500 px-3 py-1.5 rounded-lg font-bold border border-slate-200 w-full hover:bg-white">＋ 控え追加</button>
                       </div>
@@ -1961,18 +1985,39 @@
                           <span className="w-6 text-center">打順</span><span className="w-9 text-center">守備</span><span className="flex-1">氏名</span><span className="w-[70px] text-center">投打</span>
                         </div>
                         <div className="space-y-1">
-                          {lineups.bottom.map((p, i) => (
-                            <div key={i} className="flex items-center gap-1 bg-white/80 rounded-lg border border-slate-200 px-1.5 py-1">
-                              <span className="w-6 text-center text-xs font-black text-slate-400 shrink-0">{p.order}</span>
-                              <select value={p.pos} onChange={e => { const nl = [...lineups.bottom]; nl[i] = {...nl[i], pos: e.target.value}; setLineups(prev => ({...prev, bottom: nl})); }} className="w-9 text-[10px] font-bold border border-slate-200 rounded px-0.5 py-1 bg-slate-50 text-center shrink-0">
-                                {posOptions.map(po => <option key={po} value={po}>{po}</option>)}
-                              </select>
-                              <input type="text" list="roster-bottom-list" value={p.name} onChange={e => onLineupNameChange('bottom', i, e.target.value)} className="flex-1 text-xs font-bold border border-slate-200 rounded px-2 py-1 min-w-0" placeholder="選手名" />
-                              <select value={parseThrowBat(p.bats, p.throws)} onChange={e => { const {bats, throws} = splitThrowBat(e.target.value); const nl = [...lineups.bottom]; nl[i] = {...nl[i], bats, throws}; setLineups(prev => ({...prev, bottom: nl})); }} className="w-[70px] text-[10px] font-bold border border-slate-200 rounded px-0.5 py-1 bg-slate-50 shrink-0">
-                                {throwBatOptions.map(o => <option key={o} value={o}>{o}</option>)}
-                              </select>
+                          {lineups.bottom.map((p, i) => {
+                            const bottomRoster = getRosterPlayers(gameInfo.teamBottom);
+                            const isPickerOpen = rosterPickerSlot?.side === 'bottom' && rosterPickerSlot?.index === i;
+                            return (
+                            <div key={i}>
+                              <div className="flex items-center gap-1 bg-white/80 rounded-lg border border-slate-200 px-1.5 py-1">
+                                <span className="w-6 text-center text-xs font-black text-slate-400 shrink-0">{p.order}</span>
+                                <select value={p.pos} onChange={e => { const nl = [...lineups.bottom]; nl[i] = {...nl[i], pos: e.target.value}; setLineups(prev => ({...prev, bottom: nl})); }} className="w-9 text-[10px] font-bold border border-slate-200 rounded px-0.5 py-1 bg-slate-50 text-center shrink-0">
+                                  {posOptions.map(po => <option key={po} value={po}>{po}</option>)}
+                                </select>
+                                <input type="text" list="roster-bottom-list" value={p.name} onChange={e => onLineupNameChange('bottom', i, e.target.value)} className="flex-1 text-xs font-bold border border-slate-200 rounded px-2 py-1 min-w-0" placeholder="選手名" />
+                                {bottomRoster.length > 0 && (
+                                  <button onClick={() => setRosterPickerSlot(isPickerOpen ? null : {side: 'bottom', index: i})} className={`w-6 h-6 text-[10px] rounded font-black shrink-0 border flex items-center justify-center ${isPickerOpen ? 'bg-rose-600 text-white border-rose-600' : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-rose-50 hover:border-rose-300 hover:text-rose-600'}`} title="登録選手から選択">▼</button>
+                                )}
+                                <select value={parseThrowBat(p.bats, p.throws)} onChange={e => { const {bats, throws} = splitThrowBat(e.target.value); const nl = [...lineups.bottom]; nl[i] = {...nl[i], bats, throws}; setLineups(prev => ({...prev, bottom: nl})); }} className="w-[70px] text-[10px] font-bold border border-slate-200 rounded px-0.5 py-1 bg-slate-50 shrink-0">
+                                  {throwBatOptions.map(o => <option key={o} value={o}>{o}</option>)}
+                                </select>
+                              </div>
+                              {isPickerOpen && bottomRoster.length > 0 && (
+                                <div className="bg-rose-50 border border-rose-200 rounded-lg p-2 mt-0.5 flex flex-wrap gap-1">
+                                  {bottomRoster.map((pl, pi) => {
+                                    const alreadyUsed = lineups.bottom.some((lp, li) => li !== i && lp.name === pl.name);
+                                    return (
+                                      <button key={pi} onClick={() => { onLineupNameChange('bottom', i, pl.name); setRosterPickerSlot(null); }} className={`text-[10px] px-2 py-1 rounded-md font-bold border transition-colors ${alreadyUsed ? 'bg-slate-100 text-slate-400 border-slate-200 line-through' : 'bg-white text-rose-700 border-rose-200 hover:bg-rose-100 active:scale-95'}`}>
+                                        {pl.name}<span className="text-slate-400 font-normal ml-1">{pl.bats}打{pl.throws}投</span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              )}
                             </div>
-                          ))}
+                            );
+                          })}
                         </div>
                         <button onClick={() => setLineups(prev => ({...prev, bottom: [...prev.bottom, { order: '控', name: '', pos: '控', throws: '右', bats: '右' }]}))} className="mt-1.5 text-[10px] bg-white/60 text-slate-500 px-3 py-1.5 rounded-lg font-bold border border-slate-200 w-full hover:bg-white">＋ 控え追加</button>
                       </div>
