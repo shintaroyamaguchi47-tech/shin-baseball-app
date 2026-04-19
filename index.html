@@ -591,6 +591,10 @@
               if (newRunners.third) runScored++; if (newRunners.second) runScored++; if (newRunners.first) runScored++; newRunners.third = true; newRunners.second = false; newRunners.first = false;
             } else if (eventType === 'homerun') {
               if (newRunners.third) runScored++; if (newRunners.second) runScored++; if (newRunners.first) runScored++; runScored++; newRunners = { first: false, second: false, third: false };
+            } else if (eventType === 'sac_bunt') {
+              if (newRunners.third) runScored++; newRunners.third = newRunners.second; newRunners.second = newRunners.first; newRunners.first = false;
+            } else if (eventType === 'sac_fly') {
+              if (newRunners.third) runScored++; newRunners.third = false;
             }
           }
           if (runScored > 0) newRunsArray[newInning - 1] += runScored;
@@ -643,7 +647,7 @@
           return newPitches;
         });
         let eventType = 'out';
-        if (typeLabel === '安') eventType = 'single'; else if (typeLabel === '二塁打') eventType = 'double'; else if (typeLabel === '三塁打') eventType = 'triple'; else if (typeLabel === '本塁打') eventType = 'homerun'; else if (['エラー','敵失(エラー)','野手選択'].includes(typeLabel)) eventType = 'error';
+        if (typeLabel === '安') eventType = 'single'; else if (typeLabel === '二塁打') eventType = 'double'; else if (typeLabel === '三塁打') eventType = 'triple'; else if (typeLabel === '本塁打') eventType = 'homerun'; else if (['エラー','敵失(エラー)','野手選択'].includes(typeLabel)) eventType = 'error'; else if (typeLabel === '犠打') eventType = 'sac_bunt'; else if (typeLabel === '犠飛') eventType = 'sac_fly';
         handleAdvanceAndNextBatter(eventType, outCount);
         setSelectedHitCoord(null);
       };
