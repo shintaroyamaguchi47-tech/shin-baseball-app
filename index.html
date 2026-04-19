@@ -2921,12 +2921,27 @@
 
                   <div className="flex flex-col gap-2 pt-1 border-t border-slate-100">
                     <button
-                      onClick={() => {
+                      onClick={async () => {
                         const code = generateSyncCode();
                         setSyncCode(code);
                         syncCodeRef.current = code;
                         localStorage.setItem('baseball_syncCode', code);
-                        showToast('新しい同期コードを作成しました');
+                        try {
+                          setSyncStatus('saving');
+                          await window.firebaseAuthReady;
+                          isLocalWrite.current = true;
+                          await window.db.ref('userdata/' + code).set({
+                            gameState, gameInfo, lineups, pitches, savedGames, registeredTeams,
+                            updatedAt: firebase.database.ServerValue.TIMESTAMP
+                          });
+                          setSyncStatus('saved');
+                          setTimeout(() => setSyncStatus('idle'), 3000);
+                          showToast('同期コードを作成しました！別端末でこのコードを入力してください');
+                        } catch(e) {
+                          isLocalWrite.current = false;
+                          setSyncStatus('error');
+                          showToast('クラウド保存に失敗しました', 'error');
+                        }
                       }}
                       className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-3 rounded-xl text-sm border border-slate-200"
                     >+ 新しい同期コードを生成する</button>
