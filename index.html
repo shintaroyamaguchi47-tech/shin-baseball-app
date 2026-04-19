@@ -14,6 +14,7 @@
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
   <script>
     firebase.initializeApp({
       apiKey: "AIzaSyDku6KzeppDeVYOx2DZ0khRcS5lBtodW74",
@@ -24,6 +25,9 @@
       appId: "1:831109769499:web:a12091932917b0b9b9cbbe"
     });
     window.db = firebase.firestore();
+    window.firebaseAuthReady = firebase.auth().signInAnonymously()
+      .then(() => true)
+      .catch(() => false);
   </script>
   <style>
     body { -webkit-touch-callout: none; overscroll-behavior-y: none; user-select: none; }
@@ -424,6 +428,7 @@
         if (!code || !window.db) return false;
         try {
           setSyncStatus('loading');
+          await window.firebaseAuthReady;
           const doc = await window.db.collection('userdata').doc(code).get();
           if (doc.exists) {
             const data = doc.data();
@@ -460,6 +465,7 @@
           if (!currentCode) return;
           try {
             setSyncStatus('saving');
+            await window.firebaseAuthReady;
             await window.db.collection('userdata').doc(currentCode).set({
               gameState, gameInfo, lineups, pitches, savedGames, registeredTeams,
               updatedAt: firebase.firestore.FieldValue.serverTimestamp()
