@@ -425,12 +425,27 @@
         return code;
       };
 
-      const loadFromCloud = async (code) => {
-        if (!code || !window.db) return false;
-        try {
-          setSyncStatus('loading');
-          await window.firebaseAuthReady;
-          const snap = await window.db.ref('userdata/' + code).once('value');
+      const isLocalWrite = React.useRef(false);
+      const dbRefHandle = React.useRef(null);
+      const dbRefObj = React.useRef(null);
+
+      const teardownListener = () => {
+        if (dbRefObj.current && dbRefHandle.current) {
+          dbRefObj.current.off('value', dbRefHandle.current);
+          dbRefObj.current = null;
+          dbRefHandle.current = null;
+        }
+      };
+
+      const setupRealtimeListener = async (code) => {
+        teardownListener();
+        if (!code || !window.db) return;
+        await window.firebaseAuthReady;
+        setSyncStatus('loading');
+        const ref = window.db.ref('userdata/' + code);
+        dbRefObj.current = ref;
+        dbRefHandle.current = ref.on('value', (snap) => {
+          if (isLocalWrite.current) { isLocalWrite.current = false; return; }
           if (snap.exists()) {
             const data = snap.val();
             if (data.gameState) setGameState(data.gameState);
@@ -439,23 +454,27 @@
             if (data.pitches) setPitches(data.pitches);
             if (data.savedGames) setSavedGames(data.savedGames);
             if (data.registeredTeams) setRegisteredTeams(data.registeredTeams);
-            setSyncStatus('saved');
-            setTimeout(() => setSyncStatus('idle'), 3000);
-            return true;
           }
-          setSyncStatus('idle');
-          return false;
-        } catch(e) {
-          console.error('Cloud load error:', e);
-          setSyncStatus('error');
+          setSyncStatus('saved');
           setTimeout(() => setSyncStatus('idle'), 3000);
-          return false;
-        }
+        }, () => setSyncStatus('error'));
+      };
+
+      const checkAndApplySyncCode = async (code) => {
+        await window.firebaseAuthReady;
+        const snap = await window.db.ref('userdata/' + code).once('value');
+        if (!snap.exists()) return false;
+        setSyncCode(code);
+        syncCodeRef.current = code;
+        localStorage.setItem('baseball_syncCode', code);
+        await setupRealtimeListener(code);
+        return true;
       };
 
       useEffect(() => {
-        if (syncCode && window.db) loadFromCloud(syncCode);
-      }, []);
+        if (syncCode) setupRealtimeListener(syncCode);
+        return teardownListener;
+      }, [syncCode]);
 
       useEffect(() => {
         const code = syncCodeRef.current;
@@ -467,6 +486,7 @@
           try {
             setSyncStatus('saving');
             await window.firebaseAuthReady;
+            isLocalWrite.current = true;
             await window.db.ref('userdata/' + currentCode).set({
               gameState, gameInfo, lineups, pitches, savedGames, registeredTeams,
               updatedAt: firebase.database.ServerValue.TIMESTAMP
@@ -475,6 +495,7 @@
             setTimeout(() => setSyncStatus('idle'), 3000);
           } catch(e) {
             console.error('Cloud save error:', e);
+            isLocalWrite.current = false;
             setSyncStatus('error');
             setTimeout(() => setSyncStatus('idle'), 3000);
           }
@@ -2884,11 +2905,8 @@
                         onClick={async () => {
                           const code = syncCodeInput.trim();
                           if (code.length < 8) { showToast('コードを正しく入力してください', 'error'); return; }
-                          const found = await loadFromCloud(code);
+                          const found = await checkAndApplySyncCode(code);
                           if (found) {
-                            setSyncCode(code);
-                            syncCodeRef.current = code;
-                            localStorage.setItem('baseball_syncCode', code);
                             setSyncCodeInput('');
                             setShowSyncModal(false);
                             showToast('データを読み込みました！');
