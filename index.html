@@ -13,18 +13,19 @@
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
   <script>
     firebase.initializeApp({
       apiKey: "AIzaSyDku6KzeppDeVYOx2DZ0khRcS5lBtodW74",
       authDomain: "baseball-score-1e585.firebaseapp.com",
+      databaseURL: "https://baseball-score-1e585-default-rtdb.firebaseio.com",
       projectId: "baseball-score-1e585",
       storageBucket: "baseball-score-1e585.firebasestorage.app",
       messagingSenderId: "831109769499",
       appId: "1:831109769499:web:a12091932917b0b9b9cbbe"
     });
-    window.db = firebase.firestore();
+    window.db = firebase.database();
     window.firebaseAuthReady = firebase.auth().signInAnonymously()
       .then(() => true)
       .catch(() => false);
@@ -429,9 +430,9 @@
         try {
           setSyncStatus('loading');
           await window.firebaseAuthReady;
-          const doc = await window.db.collection('userdata').doc(code).get();
-          if (doc.exists) {
-            const data = doc.data();
+          const snap = await window.db.ref('userdata/' + code).once('value');
+          if (snap.exists()) {
+            const data = snap.val();
             if (data.gameState) setGameState(data.gameState);
             if (data.gameInfo) setGameInfo(data.gameInfo);
             if (data.lineups) setLineups(data.lineups);
@@ -466,9 +467,9 @@
           try {
             setSyncStatus('saving');
             await window.firebaseAuthReady;
-            await window.db.collection('userdata').doc(currentCode).set({
+            await window.db.ref('userdata/' + currentCode).set({
               gameState, gameInfo, lineups, pitches, savedGames, registeredTeams,
-              updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+              updatedAt: firebase.database.ServerValue.TIMESTAMP
             });
             setSyncStatus('saved');
             setTimeout(() => setSyncStatus('idle'), 3000);
