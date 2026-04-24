@@ -445,6 +445,7 @@
         const ref = window.db.ref('userdata/' + code);
         dbRefObj.current = ref;
         dbRefHandle.current = ref.on('value', (snap) => {
+          if (cloudSaveTimerRef.current !== null) return;
           if (isLocalWrite.current) { isLocalWrite.current = false; return; }
           if (snap.exists()) {
             const data = snap.val();
@@ -481,12 +482,13 @@
         if (!code || !window.db) return;
         if (cloudSaveTimerRef.current) clearTimeout(cloudSaveTimerRef.current);
         cloudSaveTimerRef.current = setTimeout(async () => {
+          cloudSaveTimerRef.current = null;
           const currentCode = syncCodeRef.current;
           if (!currentCode) return;
           try {
             setSyncStatus('saving');
-            await window.firebaseAuthReady;
             isLocalWrite.current = true;
+            await window.firebaseAuthReady;
             await window.db.ref('userdata/' + currentCode).set({
               gameState, gameInfo, lineups, pitches, savedGames, registeredTeams,
               updatedAt: firebase.database.ServerValue.TIMESTAMP
