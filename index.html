@@ -90,7 +90,7 @@
       h+='</tbody></table>';return h;
     }
     function batterDetails(batting, teamName) {
-      var h='<div style="margin:12px 0 6px;font-size:15px;font-weight:bold;color:#1e293b;border-bottom:2px solid #e2e8f0;padding-bottom:3px;">打者詳細: '+esc(teamName)+'</div>';
+      var h='<div style="margin:12px 0 6px;font-size:15px;font-weight:bold;color:#1e293b;border-bottom:2px solid #e2e8f0;padding-bottom:3px;break-after:avoid;page-break-after:avoid;">打者詳細: '+esc(teamName)+'</div>';
       h+='<div style="display:flex;flex-wrap:wrap;gap:6px;">';
       batting.players.forEach(function(p){
         if(p.PA<=0) return;
@@ -127,15 +127,15 @@
       var h='';
       pitching.pitchers.forEach(function(p, idx){
         h+='<div class="pb">';
-        h+='<div style="font-size:11px;font-weight:bold;color:#64748b;margin-bottom:4px;">投手詳細: '+esc(teamName)+'</div>';
-        h+='<div style="font-size:19px;font-weight:bold;margin-bottom:8px;border-bottom:2px solid #f1f5f9;padding-bottom:6px;">'+esc(p.name)+' <span style="font-size:13px;color:#64748b;font-weight:normal;">('+p.total+'球)</span></div>';
-        h+='<div style="display:flex;gap:8px;margin-bottom:8px;">';
+        h+='<div style="font-size:11px;font-weight:bold;color:#64748b;margin-bottom:4px;break-after:avoid;page-break-after:avoid;">投手詳細: '+esc(teamName)+'</div>';
+        h+='<div style="font-size:19px;font-weight:bold;margin-bottom:8px;border-bottom:2px solid #f1f5f9;padding-bottom:6px;break-after:avoid;page-break-after:avoid;">'+esc(p.name)+' <span style="font-size:13px;color:#64748b;font-weight:normal;">('+p.total+'球)</span></div>';
+        h+='<div style="display:flex;gap:8px;margin-bottom:8px;break-inside:avoid;page-break-inside:avoid;">';
         h+='<div style="flex:1;background:#f8fafc;padding:6px 10px;border-radius:7px;text-align:center;"><div style="font-size:10px;color:#64748b;">CSW%</div><div style="font-size:22px;font-weight:bold;color:#d97706;">'+p.csw+'%</div></div>';
         h+='<div style="flex:1;background:#f8fafc;padding:6px 10px;border-radius:7px;text-align:center;"><div style="font-size:10px;color:#64748b;">Whiff%</div><div style="font-size:22px;font-weight:bold;color:#ef4444;">'+p.whiff+'%</div></div>';
         h+='<div style="flex:1;background:#f8fafc;padding:6px 10px;border-radius:7px;text-align:center;"><div style="font-size:10px;color:#64748b;">初球S率</div><div style="font-size:22px;font-weight:bold;color:#0ea5e9;">'+p.fStrikePct+'%</div></div>';
         h+='</div>';
         // スプリット表 + カウント別配球を横並び
-        h+='<div style="display:flex;gap:8px;margin-bottom:8px;">';
+        h+='<div style="display:flex;gap:8px;margin-bottom:8px;break-inside:avoid;page-break-inside:avoid;">';
         // スプリット表（左）
         h+='<div style="flex:2;min-width:0;">';
         function splitRow(label, sp, bg) {
@@ -236,7 +236,7 @@
       +'<button onclick="window.print()" style="background:#1e293b;color:#fff;border:none;padding:8px 18px;border-radius:8px;font-size:13px;font-weight:bold;cursor:pointer;">🖨️ 印刷 / PDF</button>'
       +'<button onclick="window.close()" style="background:#e2e8f0;color:#334155;border:none;padding:8px 18px;border-radius:8px;font-size:13px;font-weight:bold;cursor:pointer;">✕ 閉じる</button>'
       +'</div>';
-    w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>試合分析レポート<\/title><style>@page{margin:12mm 10mm;}body{margin:0;background:#f1f5f9;}@media print{body{background:#fff !important;}*{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;}.pb{page-break-before:always;break-before:page;}.bdc{break-inside:avoid;page-break-inside:avoid;}.no-print{display:none !important;}}table{page-break-inside:auto;}tr{page-break-inside:avoid;}<\/style><\/head><body>'+closeBtn+body+'<\/body><\/html>');
+    w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>試合分析レポート<\/title><style>@page{margin:12mm 10mm;}body{margin:0;background:#f1f5f9;}@media print{body{background:#fff !important;}*{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;}.pb{page-break-before:always;break-before:page;}.bdc{break-inside:avoid;page-break-inside:avoid;}.bif{break-inside:avoid;page-break-inside:avoid;}.no-print{display:none !important;}}table{page-break-inside:auto;}tr{page-break-inside:avoid;}h1,h3{break-after:avoid;page-break-after:avoid;}<\/style><\/head><body>'+closeBtn+body+'<\/body><\/html>');
     w.document.close();
     setTimeout(function(){w.print();},800);
     return true;
