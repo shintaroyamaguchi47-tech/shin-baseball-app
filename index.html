@@ -352,7 +352,7 @@
       
       // 選手交代モーダル用ステート
       const [showSubstitutionModal, setShowSubstitutionModal] = useState(false);
-      const [subData, setSubData] = useState({ team: 'top', type: '代打', order: 1, newName: '', newPos: '打', newThrows: '右', newBats: '右' });
+      const [subData, setSubData] = useState({ team: 'top', type: '代打', order: 1, newName: '', newPos: '打', newThrows: '右', newBats: '右', shiftOrder: null, shiftNewPos: '' });
 
       const [showPostGameAnalysis, setShowPostGameAnalysis] = useState(false);
       const [showShareModal, setShowShareModal] = useState(false);
@@ -698,17 +698,28 @@
         const { team, type, order, newName, newPos, newThrows, newBats } = subData;
         if (!newName.trim()) { showToast('新しい選手名を入力してください', 'error'); return; }
 
+        const { shiftOrder, shiftNewPos } = subData;
         const targetIndex = order - 1;
         const currentLineup = [...lineups[team]];
         const oldPlayer = currentLineup[targetIndex] || { name: '不明' };
 
-        // ラインナップの更新
+        // ラインナップの更新（退く選手 → 新選手）
         currentLineup[targetIndex] = { ...oldPlayer, name: newName, pos: newPos, throws: newThrows, bats: newBats };
+
+        // ポジション移動がある場合（例: ショートがサードへ）
+        let shiftText = '';
+        if (shiftOrder) {
+          const shiftIdx = shiftOrder - 1;
+          const shiftPlayer = currentLineup[shiftIdx];
+          shiftText = ` / [移]${shiftPlayer?.name || '?'} ${newPos}→${shiftNewPos}`;
+          currentLineup[shiftIdx] = { ...shiftPlayer, pos: shiftNewPos };
+        }
+
         setLineups(prev => ({ ...prev, [team]: currentLineup }));
 
         // イベントとして履歴に記録
         const orderLabel = order === 10 ? '控/投' : `${order}番`;
-        const eventText = `選手交代: [退]${orderLabel}/${oldPlayer.pos || '?'} ${oldPlayer.name} ➡️ [入]${newPos} ${newName} (${type})`;
+        const eventText = `選手交代: [退]${orderLabel}/${oldPlayer.pos || '?'} ${oldPlayer.name} ➡️ [入]${newPos} ${newName} (${type})${shiftText}`;
         
         const dummyPitcher = lineups[gameState.isTop ? 'bottom' : 'top'].find(p => p.pos === '投' || p.pos === '1' || p.pos === '①') || { name: '投手未設定', throws: '右' };
         const dummyBatterIndex = (gameState.isTop ? gameState.batterTop : gameState.batterBottom) - 1;
@@ -1889,7 +1900,7 @@
                         const idx = lineups[subData.team].findIndex(p => p.pos === pos);
                         const active = idx !== -1 && (idx + 1) === subData.order;
                         return (
-                          <button key={pos} disabled={idx === -1} onClick={() => idx !== -1 && setSubData({...subData, order: idx + 1})}
+                          <button key={pos} disabled={idx === -1} onClick={() => { if(idx === -1) return; const updates = {order: idx+1, shiftOrder: null, shiftNewPos: ''}; if(subData.type === '守備') updates.newPos = pos; setSubData({...subData, ...updates}); }}
                             className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-colors ${active ? 'bg-slate-700 text-white border-slate-700' : idx !== -1 ? 'bg-white border-slate-300 text-slate-600 hover:border-slate-500 hover:bg-slate-50' : 'bg-slate-100 border-slate-200 text-slate-300 cursor-not-allowed'}`}>
                             {pos}
                           </button>
@@ -1910,14 +1921,49 @@
                   <div className="flex flex-col gap-2">
                     <label className="text-[10px] font-bold text-slate-500 block">入る選手</label>
                     <input type="text" value={subData.newName} onChange={e=>setSubData({...subData, newName: e.target.value})} placeholder="新しい選手名" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-bold" />
-                    <div className="flex gap-2 mt-1">
-                      <select value={subData.newPos} onChange={e=>setSubData({...subData, newPos: e.target.value})} className="flex-1 bg-white border border-slate-300 rounded-lg px-2 py-2 text-xs font-bold">
-                        {posOptions.map(po => <option key={po} value={po}>{po}</option>)}
-                      </select>
-                      <select value={parseThrowBat(subData.newBats, subData.newThrows)} onChange={e => { const {bats, throws} = splitThrowBat(e.target.value); setSubData({...subData, newBats: bats, newThrows: throws}); }} className="flex-[1.5] bg-white border border-slate-300 rounded-lg px-2 py-2 text-xs font-bold">
-                        {throwBatOptions.map(o => <option key={o} value={o}>{o}</option>)}
-                      </select>
-                    </div>
+                    {subData.type === '守備' ? (
+                      <>
+                        {/* 入るポジション選択（守備タイプ専用） */}
+                        <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                          <div className="text-[10px] font-bold text-slate-400 mb-1.5">入るポジション</div>
+                          <div className="flex flex-wrap gap-1">
+                            {['投','捕','一','二','三','遊','左','中','右'].map(ePos => {
+                              const vacatedPos = lineups[subData.team][subData.order-1]?.pos;
+                              const occupiedIdx = lineups[subData.team].findIndex(p => p.pos === ePos);
+                              const isActive = subData.newPos === ePos;
+                              return (
+                                <button key={ePos} onClick={() => {
+                                  if(ePos !== vacatedPos && occupiedIdx !== -1 && occupiedIdx !== subData.order-1) {
+                                    setSubData({...subData, newPos: ePos, shiftOrder: occupiedIdx+1, shiftNewPos: vacatedPos || ''});
+                                  } else {
+                                    setSubData({...subData, newPos: ePos, shiftOrder: null, shiftNewPos: ''});
+                                  }
+                                }} className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-colors ${isActive ? 'bg-blue-600 text-white border-blue-600' : 'bg-white border-slate-300 text-slate-600 hover:border-slate-500'}`}>{ePos}</button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                        {/* ポジション移動の確認表示 */}
+                        {subData.shiftOrder && (
+                          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-center gap-2 text-sm">
+                            <span className="text-[10px] font-black text-amber-600 shrink-0">移動</span>
+                            <span className="shrink-0 bg-amber-500 text-white text-[10px] font-black rounded px-1.5 py-0.5">{subData.newPos}</span>
+                            <span className="font-bold truncate">{lineups[subData.team][subData.shiftOrder-1]?.name || '?'}</span>
+                            <span className="text-slate-400 shrink-0">→</span>
+                            <span className="shrink-0 bg-slate-600 text-white text-[10px] font-black rounded px-1.5 py-0.5">{subData.shiftNewPos}</span>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div className="flex gap-2 mt-1">
+                        <select value={subData.newPos} onChange={e=>setSubData({...subData, newPos: e.target.value})} className="flex-1 bg-white border border-slate-300 rounded-lg px-2 py-2 text-xs font-bold">
+                          {posOptions.map(po => <option key={po} value={po}>{po}</option>)}
+                        </select>
+                        <select value={parseThrowBat(subData.newBats, subData.newThrows)} onChange={e => { const {bats, throws} = splitThrowBat(e.target.value); setSubData({...subData, newBats: bats, newThrows: throws}); }} className="flex-[1.5] bg-white border border-slate-300 rounded-lg px-2 py-2 text-xs font-bold">
+                          {throwBatOptions.map(o => <option key={o} value={o}>{o}</option>)}
+                        </select>
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div className="p-4 border-t border-slate-200 flex gap-3 bg-slate-50">
