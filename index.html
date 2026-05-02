@@ -344,6 +344,7 @@
       const [showSettings, setShowSettings] = useState(false);
       const [showExport, setShowExport] = useState(false);
       const [showInPlayResult, setShowInPlayResult] = useState(false);
+      const [showErrorTypeSelect, setShowErrorTypeSelect] = useState(false);
       const [showAdvanceModal, setShowAdvanceModal] = useState(false);
       const [advanceData, setAdvanceData] = useState({ runner: '', reason: '', to: '' });
       const [showOutRunnerModal, setShowOutRunnerModal] = useState(false);
@@ -554,7 +555,7 @@
           }
         }
         setGameState(prev => ({ ...prev, inning, isTop, ...(isTop ? { batterTop: targetBatter } : { batterBottom: targetBatter }), runners: newRunners, outs: newOuts, balls: newBalls, strikes: newStrikes }));
-        setShowInPlayResult(false); setSelectedPosition(null); setSelectedHitCoord(null);
+        setShowInPlayResult(false); setSelectedPosition(null); setSelectedHitCoord(null); setShowErrorTypeSelect(false);
       };
 
       const manuallyChangeBatter = (newBatterNum) => {
@@ -568,7 +569,7 @@
           }
           return { ...prev, ...(prev.isTop ? { batterTop: newBatterNum } : { batterBottom: newBatterNum }), runners: newRunners, outs: newOuts, balls: newBalls, strikes: newStrikes };
         });
-        setShowInPlayResult(false); setSelectedPosition(null); setSelectedHitCoord(null);
+        setShowInPlayResult(false); setSelectedPosition(null); setSelectedHitCoord(null); setShowErrorTypeSelect(false);
       };
 
       const toggleRunner = (base) => { recordAction(); setGameState(prev => ({ ...prev, runners: { ...prev.runners, [base]: !prev.runners[base] } })); };
@@ -603,7 +604,7 @@
           if (newOuts >= 3) { newOuts = 0; newRunners = { first: false, second: false, third: false }; if (prev.isTop) newIsTop = false; else { newIsTop = true; newInning++; } }
           return { ...prev, outs: newOuts, balls: 0, strikes: 0, batterTop: newBatterTop, batterBottom: newBatterBottom, inning: newInning, isTop: newIsTop, runners: newRunners, runs: { ...prev.runs, [prev.isTop ? 'top' : 'bottom']: newRunsArray } };
         });
-        setShowInPlayResult(false); setSelectedPosition(null); setSelectedHitCoord(null);
+        setShowInPlayResult(false); setSelectedPosition(null); setSelectedHitCoord(null); setShowErrorTypeSelect(false);
       };
 
       const recordPitch = (result, detailedResult = '') => {
@@ -635,6 +636,7 @@
         recordAction();
         setSelectedHitCoord({ x, y });
         setSelectedPosition(null);
+        setShowErrorTypeSelect(false);
       };
 
       const handleInPlayFinalResult = (typeLabel, outCount) => {
@@ -648,7 +650,7 @@
           return newPitches;
         });
         let eventType = 'out';
-        if (typeLabel === '安') eventType = 'single'; else if (typeLabel === '二塁打') eventType = 'double'; else if (typeLabel === '三塁打') eventType = 'triple'; else if (typeLabel === '本塁打') eventType = 'homerun'; else if (['エラー','敵失(エラー)','野手選択'].includes(typeLabel)) eventType = 'error'; else if (typeLabel === '犠打') eventType = 'sac_bunt'; else if (typeLabel === '犠飛') eventType = 'sac_fly';
+        if (typeLabel === '安') eventType = 'single'; else if (typeLabel === '二塁打') eventType = 'double'; else if (typeLabel === '三塁打') eventType = 'triple'; else if (typeLabel === '本塁打') eventType = 'homerun'; else if (['エラー','敵失(エラー)','野手選択'].includes(typeLabel) || typeLabel.includes('エラー')) eventType = 'error'; else if (typeLabel === '犠打') eventType = 'sac_bunt'; else if (typeLabel === '犠飛') eventType = 'sac_fly';
         handleAdvanceAndNextBatter(eventType, outCount);
         setSelectedHitCoord(null);
       };
@@ -1578,7 +1580,7 @@
                             の結果は？
                           </p>
                         </div>
-                        <button onClick={() => setSelectedPosition(null)} className="text-[10px] bg-slate-100 text-slate-500 border border-slate-200 px-2.5 py-1.5 rounded-lg font-bold shrink-0">← 野手変更</button>
+                        <button onClick={() => { setSelectedPosition(null); setShowErrorTypeSelect(false); }} className="text-[10px] bg-slate-100 text-slate-500 border border-slate-200 px-2.5 py-1.5 rounded-lg font-bold shrink-0">← 野手変更</button>
                       </div>
                       <div className="w-full space-y-3 max-w-md">
                         <div className="bg-white p-4 rounded-2xl border border-rose-100 shadow-sm"><div className="grid grid-cols-3 gap-3">
@@ -1592,12 +1594,26 @@
                           <button onClick={() => handleInPlayFinalResult('三塁打', 0)} className="bg-purple-50 text-purple-700 py-4 rounded-xl font-black active:scale-95 border border-purple-200">三塁打</button>
                           <button onClick={() => handleInPlayFinalResult('本塁打', 0)} className="bg-pink-100 text-pink-700 py-4 rounded-xl font-black shadow-sm active:scale-95 border border-pink-200">本塁打</button>
                         </div></div>
-                        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm"><div className="grid grid-cols-4 gap-3">
-                          <button onClick={() => handleInPlayFinalResult('エラー', 0)} className="bg-slate-100 text-slate-700 py-3 rounded-xl font-bold text-sm border border-slate-200">エラー</button>
-                          <button onClick={() => handleInPlayFinalResult('野手選択', 0)} className="bg-slate-100 text-slate-700 py-3 rounded-xl font-bold text-sm border border-slate-200">野選</button>
-                          <button onClick={() => handleInPlayFinalResult('犠打', 1)} className="bg-slate-100 text-slate-700 py-3 rounded-xl font-bold text-sm border border-slate-200">犠打</button>
-                          <button onClick={() => handleInPlayFinalResult('犠飛', 1)} className="bg-slate-100 text-slate-700 py-3 rounded-xl font-bold text-sm border border-slate-200">犠飛</button>
-                        </div></div>
+                        {!showErrorTypeSelect ? (
+                          <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm"><div className="grid grid-cols-4 gap-3">
+                            <button onClick={() => setShowErrorTypeSelect(true)} className="bg-slate-100 text-slate-700 py-3 rounded-xl font-bold text-sm border border-slate-200">エラー</button>
+                            <button onClick={() => handleInPlayFinalResult('野手選択', 0)} className="bg-slate-100 text-slate-700 py-3 rounded-xl font-bold text-sm border border-slate-200">野選</button>
+                            <button onClick={() => handleInPlayFinalResult('犠打', 1)} className="bg-slate-100 text-slate-700 py-3 rounded-xl font-bold text-sm border border-slate-200">犠打</button>
+                            <button onClick={() => handleInPlayFinalResult('犠飛', 1)} className="bg-slate-100 text-slate-700 py-3 rounded-xl font-bold text-sm border border-slate-200">犠飛</button>
+                          </div></div>
+                        ) : (
+                          <div className="bg-white p-4 rounded-2xl border border-amber-300 shadow-sm">
+                            <div className="flex items-center justify-between mb-3">
+                              <span className="text-xs font-black text-amber-700">エラーの種類を選択</span>
+                              <button onClick={() => setShowErrorTypeSelect(false)} className="text-[10px] bg-slate-100 text-slate-500 border border-slate-200 px-2 py-1 rounded-lg font-bold">← 戻る</button>
+                            </div>
+                            <div className="grid grid-cols-3 gap-3">
+                              <button onClick={() => handleInPlayFinalResult('捕球エラー', 0)} className="bg-amber-50 text-amber-800 py-3 rounded-xl font-bold text-sm border border-amber-200 active:scale-95">捕球</button>
+                              <button onClick={() => handleInPlayFinalResult('送球エラー', 0)} className="bg-amber-50 text-amber-800 py-3 rounded-xl font-bold text-sm border border-amber-200 active:scale-95">送球</button>
+                              <button onClick={() => handleInPlayFinalResult('落球エラー', 0)} className="bg-amber-50 text-amber-800 py-3 rounded-xl font-bold text-sm border border-amber-200 active:scale-95">落球</button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
