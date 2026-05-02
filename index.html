@@ -705,7 +705,8 @@
         setLineups(prev => ({ ...prev, [team]: currentLineup }));
 
         // イベントとして履歴に記録
-        const eventText = `選手交代: [退]${oldPlayer.name} ➡️ [入]${newName} (${type})`;
+        const orderLabel = order === 10 ? '控/投' : `${order}番`;
+        const eventText = `選手交代: [退]${orderLabel}/${oldPlayer.pos || '?'} ${oldPlayer.name} ➡️ [入]${newPos} ${newName} (${type})`;
         
         const dummyPitcher = lineups[gameState.isTop ? 'bottom' : 'top'].find(p => p.pos === '投' || p.pos === '1' || p.pos === '①') || { name: '投手未設定', throws: '右' };
         const dummyBatterIndex = (gameState.isTop ? gameState.batterTop : gameState.batterBottom) - 1;
@@ -1870,8 +1871,9 @@
                       <select value={subData.order} onChange={e=>setSubData({...subData, order: Number(e.target.value)})} className="bg-white border border-slate-300 rounded-lg px-2 py-2 text-sm font-bold">
                         {[1,2,3,4,5,6,7,8,9,10].map(n => <option key={n} value={n}>{n === 10 ? '控/投' : `${n}番`}</option>)}
                       </select>
-                      <div className="flex-1 bg-slate-200/50 border border-slate-200 rounded-lg px-3 py-2 text-sm font-bold text-slate-600 truncate">
-                        {lineups[subData.team][subData.order-1]?.name || '未設定'}
+                      <div className="flex-1 bg-slate-200/50 border border-slate-200 rounded-lg px-3 py-2 text-sm font-bold text-slate-600 flex items-center gap-2 min-w-0">
+                        <span className="shrink-0 bg-slate-500 text-white text-[10px] font-black rounded px-1.5 py-0.5">{lineups[subData.team][subData.order-1]?.pos || '?'}</span>
+                        <span className="truncate">{lineups[subData.team][subData.order-1]?.name || '未設定'}</span>
                       </div>
                     </div>
                   </div>
