@@ -236,7 +236,7 @@
       +'<button onclick="window.print()" style="background:#1e293b;color:#fff;border:none;padding:8px 18px;border-radius:8px;font-size:13px;font-weight:bold;cursor:pointer;">🖨️ 印刷 / PDF</button>'
       +'<button onclick="window.close()" style="background:#e2e8f0;color:#334155;border:none;padding:8px 18px;border-radius:8px;font-size:13px;font-weight:bold;cursor:pointer;">✕ 閉じる</button>'
       +'</div>';
-    w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>試合分析レポート<\/title><style>@page{margin:12mm 10mm;}body{margin:0;background:#f1f5f9;}@media print{body{background:#fff !important;}*{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;}.pb{page-break-before:always;break-before:page;}.bdc{break-inside:avoid;page-break-inside:avoid;}.bif{break-inside:avoid;page-break-inside:avoid;}.no-print{display:none !important;}}table{page-break-inside:auto;}tr{page-break-inside:avoid;}h1,h3{break-after:avoid;page-break-after:avoid;}<\/style><\/head><body>'+closeBtn+body+'<\/body><\/html>');
+    w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>試合分析レポート<\/title><style>@page{margin:12mm 10mm;}body{margin:0;background:#f1f5f9;}@media print{body{background:#fff !important;}*{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;}.pb{page-break-before:always;break-before:page;}.bdc{break-inside:avoid;page-break-inside:avoid;}.no-print{display:none !important;}}table{page-break-inside:auto;}tr{page-break-inside:avoid;}h1,h3{break-after:avoid;page-break-after:avoid;}<\/style><\/head><body>'+closeBtn+body+'<\/body><\/html>');
     w.document.close();
     setTimeout(function(){w.print();},800);
     return true;
