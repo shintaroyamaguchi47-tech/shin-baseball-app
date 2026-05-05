@@ -48,12 +48,16 @@
     var topTotal = gs.runs.top.reduce(function(a,b){return a+b;},0);
     var bottomTotal = gs.runs.bottom.reduce(function(a,b){return a+b;},0);
     function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-    function heatmapSvg(d, mx, color, label) {
-      var GS=7, sz=55, cs=sz/GS;
-      var h='<div style="display:inline-block;text-align:center;margin:2px;"><div style="font-size:9px;font-weight:bold;color:'+(color==='red'?'#ef4444':color==='indigo'?'#8b5cf6':'#3b82f6')+';margin-bottom:2px;">'+esc(label)+'</div>';
+    function heatmapSvg(d, mx, color, label, sz) {
+      sz = sz || 55;
+      var GS=7, cs=sz/GS;
+      var clrHex=color==='red'?'#ef4444':color==='indigo'?'#8b5cf6':'#3b82f6';
+      var h='<div style="display:inline-block;text-align:center;margin:1px;">';
+      if(label){h+='<div style="font-size:9px;font-weight:bold;color:'+clrHex+';margin-bottom:2px;">'+esc(label)+'</div>';}
       h+='<svg width="'+sz+'" height="'+sz+'" viewBox="0 0 '+sz+' '+sz+'" style="background:#f8fafc;border:1px solid #cbd5e1;border-radius:4px;box-shadow:inset 0 2px 4px rgba(0,0,0,0.05);">';
       h+='<rect x="'+(cs*2)+'" y="'+(cs*2)+'" width="'+(cs*3)+'" height="'+(cs*3)+'" fill="none" stroke="#64748b" stroke-width="1.5"/>';
-      for(var i=0;i<GS*GS;i++){var row=Math.floor(i/GS),col=i%GS,v=d[i]||0;if(v>0){var op=mx>0?(v/mx)*0.85:0;var fill=color==='red'?'rgba(239,68,68,'+op+')':color==='indigo'?'rgba(139,92,246,'+op+')':'rgba(59,130,246,'+op+')';h+='<rect x="'+(col*cs)+'" y="'+(row*cs)+'" width="'+cs+'" height="'+cs+'" fill="'+fill+'"/>';h+='<text x="'+(col*cs+cs/2)+'" y="'+(row*cs+cs/2+3)+'" text-anchor="middle" fill="'+(op>0.5?'#fff':'#334155')+'" font-size="8" font-family="monospace" font-weight="bold">'+v+'</text>';}}
+      var fnt=cs>=10?9:8;
+      for(var i=0;i<GS*GS;i++){var row=Math.floor(i/GS),col=i%GS,v=d[i]||0;if(v>0){var op=mx>0?(v/mx)*0.85:0;var fill=color==='red'?'rgba(239,68,68,'+op+')':color==='indigo'?'rgba(139,92,246,'+op+')':'rgba(59,130,246,'+op+')';h+='<rect x="'+(col*cs)+'" y="'+(row*cs)+'" width="'+cs+'" height="'+cs+'" fill="'+fill+'"/>';h+='<text x="'+(col*cs+cs/2)+'" y="'+(row*cs+cs/2+3)+'" text-anchor="middle" fill="'+(op>0.5?'#fff':'#334155')+'" font-size="'+fnt+'" font-family="monospace" font-weight="bold">'+v+'</text>';}}
       h+='</svg></div>';return h;
     }
     function sprayChartSvg(hits, label, size) {
@@ -173,24 +177,38 @@
         h+=countDistHtml(p.counts.vsLeft, '対左');
         h+='</div></div>';
         h+='</div>';
-        // 球種別ヒートマップ（3列）
-        h+='<div style="font-size:11px;font-weight:bold;margin-bottom:4px;color:#475569;">球種別ヒートマップ</div>';
-        h+='<div style="display:flex;flex-wrap:wrap;gap:5px;">';
-        Object.entries(p.pitchTypeHeatmaps||{}).sort(function(a,b){var ta=0,tb=0;Object.values(a[1].all||{}).forEach(function(v){ta+=v;});Object.values(b[1].all||{}).forEach(function(v){tb+=v;});return tb-ta;}).forEach(function(e){
-            var tn=e[0], th=e[1], isFB=tn.indexOf('ストレート')>=0||tn.indexOf('シュート')>=0, clr=isFB?'red':'indigo', cnt=0;
-            Object.values(th.all||{}).forEach(function(v){cnt+=v;});
-            if(cnt > 0) {
-                h+='<div style="width:calc(33.33% - 4px);background:#f8fafc;padding:6px;border-radius:7px;border:1px solid #e2e8f0;box-sizing:border-box;">';
-                h+='<div style="font-size:10px;font-weight:bold;margin-bottom:4px;text-align:center;">'+esc(tn)+' ('+cnt+'球)</div>';
-                h+='<div style="display:flex;gap:2px;justify-content:center;">';
-                h+=heatmapSvg(th.all, th.max.all, clr, '全体');
-                h+=heatmapSvg(th.ahead, th.max.ahead, clr, '有利');
-                h+=heatmapSvg(th.even, th.max.even, clr, '平行');
-                h+=heatmapSvg(th.behind, th.max.behind, clr, '不利');
-                h+='</div></div>';
-            }
-        });
-        h+='</div>';
+        // 球種別ヒートマップ（マトリクス: 行=球種, 列=カウント）
+        h+='<div style="font-size:11px;font-weight:bold;margin-bottom:6px;color:#475569;">球種別ヒートマップ</div>';
+        var sortedTypedHm = Object.entries(p.pitchTypeHeatmaps||{}).sort(function(a,b){var ta=0,tb=0;Object.values(a[1].all||{}).forEach(function(v){ta+=v;});Object.values(b[1].all||{}).forEach(function(v){tb+=v;});return tb-ta;}).filter(function(e){var cnt=0;Object.values(e[1].all||{}).forEach(function(v){cnt+=v;});return cnt>0;});
+        if(sortedTypedHm.length > 0) {
+          var hmSz=80;
+          var hmCols=['all','ahead','even','behind'];
+          var hmColLabels=['全体','有利','平行','不利'];
+          h+='<table style="border-collapse:collapse;width:100%;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;">';
+          h+='<thead><tr style="background:#f1f5f9;border-bottom:1px solid #e2e8f0;">';
+          h+='<th style="padding:5px 8px;font-size:9px;font-weight:bold;color:#94a3b8;text-align:left;min-width:72px;"></th>';
+          hmColLabels.forEach(function(lbl){h+='<th style="padding:5px 8px;font-size:10px;font-weight:bold;color:#475569;text-align:center;">'+lbl+'</th>';});
+          h+='</tr></thead><tbody>';
+          sortedTypedHm.forEach(function(e,ei){
+            var tn=e[0], th=e[1];
+            var isFB=tn.indexOf('ストレート')>=0||tn.indexOf('シュート')>=0;
+            var clr=isFB?'red':'indigo';
+            var clrHex=clr==='red'?'#ef4444':'#8b5cf6';
+            var cnt=0; Object.values(th.all||{}).forEach(function(v){cnt+=v;});
+            var rowBg=ei%2===0?'#ffffff':'#f9fafb';
+            h+='<tr style="background:'+rowBg+';border-top:1px solid #f1f5f9;">';
+            h+='<td style="padding:6px 8px;font-size:10px;font-weight:bold;color:'+clrHex+';vertical-align:middle;white-space:nowrap;border-right:1px solid #e2e8f0;">'+esc(tn)+'<br><span style="font-size:8px;color:#94a3b8;font-weight:normal;">'+cnt+'球</span></td>';
+            hmCols.forEach(function(ck){
+              var hmData=th[ck]||{};
+              var hmMax=th.max?th.max[ck]||0:0;
+              h+='<td style="padding:4px;text-align:center;vertical-align:middle;">';
+              h+=heatmapSvg(hmData,hmMax,clr,'',hmSz);
+              h+='</td>';
+            });
+            h+='</tr>';
+          });
+          h+='</tbody></table>';
+        }
         h+='</div>';
       });
       return h;
