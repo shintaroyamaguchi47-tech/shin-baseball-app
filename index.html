@@ -89,12 +89,12 @@
       h+='</svg></div>';return h;
     }
     function batterTable(batting, teamName) {
-      var h='<h3 style="margin:20px 0 10px;font-size:16px;font-weight:bold;color:#1e293b;border-bottom:2px solid #e2e8f0;padding-bottom:4px;">打者成績: '+esc(teamName)+'</h3><table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:16px;"><thead><tr style="background:#f1f5f9;color:#475569;border-bottom:2px solid #cbd5e1;"><th style="padding:8px 6px;text-align:left;">順</th><th style="padding:8px 6px;text-align:left;">選手名</th><th style="padding:8px 6px;text-align:right;">打数</th><th style="padding:8px 6px;text-align:right;">安打</th><th style="padding:8px 6px;text-align:right;">四死</th><th style="padding:8px 6px;text-align:right;">打率</th><th style="padding:8px 6px;text-align:right;">OPS</th><th style="padding:8px 6px;text-align:right;">K%</th><th style="padding:8px 6px;text-align:left;">打席結果</th></tr></thead><tbody>';
+      var h='<section class="report-section"><h3 class="report-heading" style="margin:0 0 10px;font-size:16px;font-weight:bold;color:#1e293b;border-bottom:2px solid #e2e8f0;padding-bottom:4px;">打者成績: '+esc(teamName)+'</h3><table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:16px;"><thead><tr style="background:#f1f5f9;color:#475569;border-bottom:2px solid #cbd5e1;"><th style="padding:8px 6px;text-align:left;">順</th><th style="padding:8px 6px;text-align:left;">選手名</th><th style="padding:8px 6px;text-align:right;">打数</th><th style="padding:8px 6px;text-align:right;">安打</th><th style="padding:8px 6px;text-align:right;">四死</th><th style="padding:8px 6px;text-align:right;">打率</th><th style="padding:8px 6px;text-align:right;">OPS</th><th style="padding:8px 6px;text-align:right;">K%</th><th style="padding:8px 6px;text-align:left;">打席結果</th></tr></thead><tbody>';
       batting.players.forEach(function(p, i){var bg=i%2===0?'#ffffff':'#f8fafc'; h+='<tr style="background:'+bg+';border-bottom:1px solid #e2e8f0;"><td style="padding:6px;">'+p.order+'</td><td style="padding:6px;font-weight:bold;">'+esc(p.name)+'</td><td style="padding:6px;text-align:right;">'+p.AB+'</td><td style="padding:6px;text-align:right;">'+p.H+'</td><td style="padding:6px;text-align:right;">'+p.BB_HBP+'</td><td style="padding:6px;text-align:right;color:#0ea5e9;font-weight:bold;">'+p.AVG+'</td><td style="padding:6px;text-align:right;color:#d97706;font-weight:bold;">'+p.OPS+'</td><td style="padding:6px;text-align:right;">'+p.KPct+'%</td><td style="padding:6px;font-size:10px;">'+(p.results.map(function(r){return esc(r);}).join(', ')||'-')+'</td></tr>';});
-      h+='</tbody></table>';return h;
+      h+='</tbody></table></section>';return h;
     }
     function batterDetails(batting, teamName) {
-      var h='<div style="margin:12px 0 6px;font-size:15px;font-weight:bold;color:#1e293b;border-bottom:2px solid #e2e8f0;padding-bottom:3px;break-after:avoid;page-break-after:avoid;">打者詳細: '+esc(teamName)+'</div>';
+      var h='<section class="report-section"><div class="report-heading" style="margin:0 0 6px;font-size:15px;font-weight:bold;color:#1e293b;border-bottom:2px solid #e2e8f0;padding-bottom:3px;break-after:avoid;page-break-after:avoid;">打者詳細: '+esc(teamName)+'</div>';
       h+='<div style="display:flex;flex-wrap:wrap;gap:6px;">';
       batting.players.forEach(function(p){
         if(p.PA<=0) return;
@@ -106,7 +106,7 @@
         h+='<div style="flex:1;font-size:10px;line-height:1.5;"><div>AB:'+p.AB+' H:'+p.H+'</div><div>四死:'+p.BB_HBP+' K:'+p.K+'</div><div style="font-size:9px;margin-top:3px;color:#64748b;word-break:break-all;">'+(p.results.join(', ')||'-')+'</div></div>';
         h+='</div></div>';
       });
-      h+='</div>';
+      h+='</div></section>';
       return h;
     }
     function atBatZoneSvg(abPitches) {
@@ -150,7 +150,7 @@
       var players = (batting.players || []).filter(function(p){ return p.PA > 0 && p.atBats && p.atBats.length > 0; });
       if (players.length === 0) return '';
       var colors = { 'ストレート':'#ef4444', 'スライダー':'#3b82f6', 'シュート':'#10b981', 'カーブ':'#f59e0b', '落ちる球':'#6366f1', 'シンカー':'#06b6d4' };
-      var h='<div style="margin:14px 0 6px;font-size:14px;font-weight:bold;color:#334155;border-bottom:1px solid #cbd5e1;padding-bottom:3px;break-after:avoid;page-break-after:avoid;">打席内容: '+esc(teamName)+' <span style="font-size:10px;font-weight:normal;color:#64748b;">(コース・球種)</span></div>';
+      var h='<section class="report-section"><div class="report-heading" style="margin:0 0 6px;font-size:14px;font-weight:bold;color:#334155;border-bottom:1px solid #cbd5e1;padding-bottom:3px;break-after:avoid;page-break-after:avoid;">打席内容: '+esc(teamName)+' <span style="font-size:10px;font-weight:normal;color:#64748b;">(コース・球種)</span></div>';
       h+='<div style="display:flex;flex-wrap:wrap;gap:8px 12px;margin-bottom:8px;font-size:9px;color:#64748b;align-items:center;">';
       Object.entries(colors).forEach(function(e){ h+='<span style="white-space:nowrap;"><span style="display:inline-block;width:8px;height:8px;background:'+e[1]+';border-radius:50%;margin-right:3px;"></span>'+esc(e[0])+'</span>'; });
       h+='<span>○=ボール ●=ストライク系 数字=投球順 点線=最終球</span></div>';
@@ -169,7 +169,7 @@
         });
         h+='</div></div>';
       });
-      h+='</div>';
+      h+='</div></section>';
       return h;
     }
     function countDistHtml(counts, title) {
@@ -193,14 +193,14 @@
     function pitcherDetails(pitching, teamName) {
       var h='';
       pitching.pitchers.forEach(function(p, idx){
-        h+='<div class="pb">';
+        h+='<section class="report-section pitcher-section">';
         h+='<div style="font-size:11px;font-weight:bold;color:#64748b;margin-bottom:4px;break-after:avoid;page-break-after:avoid;">投手詳細: '+esc(teamName)+'</div>';
         h+='<div style="font-size:19px;font-weight:bold;margin-bottom:8px;border-bottom:2px solid #f1f5f9;padding-bottom:6px;break-after:avoid;page-break-after:avoid;">'+esc(p.name)+' <span style="font-size:13px;color:#64748b;font-weight:normal;">('+p.total+'球)</span></div>';
         h+='<div style="display:flex;gap:8px;margin-bottom:8px;break-inside:avoid;page-break-inside:avoid;">';
         h+='<div style="flex:1;background:#f8fafc;padding:6px 10px;border-radius:7px;text-align:center;"><div style="font-size:10px;color:#64748b;">CSW%</div><div style="font-size:22px;font-weight:bold;color:#d97706;">'+p.csw+'%</div></div>';
         h+='<div style="flex:1;background:#f8fafc;padding:6px 10px;border-radius:7px;text-align:center;"><div style="font-size:10px;color:#64748b;">Whiff%</div><div style="font-size:22px;font-weight:bold;color:#ef4444;">'+p.whiff+'%</div></div>';
         h+='<div style="flex:1;background:#f8fafc;padding:6px 10px;border-radius:7px;text-align:center;"><div style="font-size:10px;color:#64748b;">初球S率</div><div style="font-size:22px;font-weight:bold;color:#0ea5e9;">'+p.fStrikePct+'%</div></div>';
-        h+='</div>';
+        h+='</section>';
         // スプリット表 + カウント別配球を横並び
         h+='<div style="display:flex;gap:8px;margin-bottom:8px;break-inside:avoid;page-break-inside:avoid;">';
         // スプリット表（左）
@@ -302,11 +302,9 @@
     var body='<div style="max-width:900px;margin:0 auto;padding:24px 28px;font-family:sans-serif;">';
     body+='<h1 style="font-size:24px;font-weight:bold;margin-bottom:6px;">試合分析レポート</h1><div style="color:#64748b;margin-bottom:16px;">'+esc(gi.date)+' / 総投球数: '+ps.filter(function(p){return !p.isEvent;}).length+'球</div>';
     body+=scoreBoardH+summaryH+sprayH;
-    body+='<div class="pb"></div>';
     body+=batterTable(t.topBatting,gi.teamTop);
     body+=batterDetails(t.topBatting,gi.teamTop);
     body+=batterAtBatDetails(t.topBatting,gi.teamTop);
-    body+='<div class="pb"></div>';
     body+=batterTable(t.bottomBatting,gi.teamBottom);
     body+=batterDetails(t.bottomBatting,gi.teamBottom);
     body+=batterAtBatDetails(t.bottomBatting,gi.teamBottom);
@@ -319,7 +317,7 @@
       +'<button onclick="window.print()" style="background:#1e293b;color:#fff;border:none;padding:8px 18px;border-radius:8px;font-size:13px;font-weight:bold;cursor:pointer;">🖨️ 印刷 / PDF</button>'
       +'<button onclick="window.close()" style="background:#e2e8f0;color:#334155;border:none;padding:8px 18px;border-radius:8px;font-size:13px;font-weight:bold;cursor:pointer;">✕ 閉じる</button>'
       +'</div>';
-    w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>試合分析レポート<\/title><style>@page{margin:12mm 10mm;}body{margin:0;background:#f1f5f9;}@media print{body{background:#fff !important;}*{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;}.pb{page-break-before:always;break-before:page;}.bdc{break-inside:avoid;page-break-inside:avoid;}.no-print{display:none !important;}}table{page-break-inside:auto;}tr{page-break-inside:avoid;}h1,h3{break-after:avoid;page-break-after:avoid;}<\/style><\/head><body>'+closeBtn+body+'<\/body><\/html>');
+    w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>試合分析レポート<\/title><style>@page{margin:12mm 10mm;}body{margin:0;background:#f1f5f9;}.report-section{margin:0 0 18px;}.report-heading{break-after:avoid;page-break-after:avoid;}@media print{body{background:#fff !important;}*{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;}.report-section{page-break-before:always;break-before:page;break-inside:auto;page-break-inside:auto;padding-top:0;}.report-heading{break-after:avoid;page-break-after:avoid;orphans:3;widows:3;}.bdc,.abc,.bif,.pitcher-section table,.pitcher-section [style*="display:flex"]{break-inside:avoid;page-break-inside:avoid;}.no-print{display:none !important;}}table{page-break-inside:auto;}tr{page-break-inside:avoid;}h1,h3{break-after:avoid;page-break-after:avoid;}<\/style><\/head><body>'+closeBtn+body+'<\/body><\/html>');
     w.document.close();
     setTimeout(function(){w.print();},800);
     return true;
