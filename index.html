@@ -980,11 +980,11 @@
           if (currentAb.length > 0) abs.push(currentAb);
           const teamStats = { PA:0, AB:0, H:0, TB:0, BB_HBP:0, K:0, sprayHits: [] };
           const playerStats = {};
-          (isTopQuery?lineups.top:lineups.bottom).forEach((p,i) => playerStats[`${i+1}-${p.name}`] = { order: i+1, name: p.name, pos: p.pos, PA:0, AB:0, H:0, TB:0, BB_HBP:0, K:0, results: [], sprayHits: [] });
+          (isTopQuery?lineups.top:lineups.bottom).forEach((p,i) => playerStats[`${i+1}-${p.name}`] = { order: i+1, name: p.name, pos: p.pos, PA:0, AB:0, H:0, TB:0, BB_HBP:0, K:0, results: [], sprayHits: [], atBats: [] });
           abs.forEach(ab => {
             const lastPitch = ab[ab.length - 1]; if (!lastPitch) return;
             const bKey = `${lastPitch.batter}-${lastPitch.batterName}`;
-            if (!playerStats[bKey]) playerStats[bKey] = { order: lastPitch.batter, name: lastPitch.batterName, pos: '途中', PA:0, AB:0, H:0, TB:0, BB_HBP:0, K:0, results: [], sprayHits: [] };
+            if (!playerStats[bKey]) playerStats[bKey] = { order: lastPitch.batter, name: lastPitch.batterName, pos: '途中', PA:0, AB:0, H:0, TB:0, BB_HBP:0, K:0, results: [], sprayHits: [], atBats: [] };
             const pStat = playerStats[bKey], res = lastPitch.result;
             teamStats.PA++; pStat.PA++;
             let s=0, b=0; ab.forEach(p => { if(['ボール','ウエスト'].includes(p.result)) b++; else if(['ストライク','空振り','バント空振り'].includes(p.result)) s++; else if(['ファウル','バントファウル'].includes(p.result)&&s<2) s++; });
@@ -1002,6 +1002,8 @@
               teamStats.sprayHits.push(sEnt); pStat.sprayHits.push(sEnt);
             }
             if (!['牽制','盗塁死','その他出塁'].includes(res)) pStat.results.push(res);
+            if (!pStat.atBats) pStat.atBats = [];
+            pStat.atBats.push({ pitches: ab, result: res, inning: lastPitch.inning, isTop: lastPitch.isTop });
           });
           const calcRates = (st) => ({ AVG: st.AB>0?(st.H/st.AB).toFixed(3).replace(/^0/, ''):'.000', OPS: ((st.AB>0?st.H/st.AB:0) + (st.PA>0?(st.H+st.BB_HBP)/st.PA:0)).toFixed(3).replace(/^0/, ''), KPct: st.PA>0?Math.round((st.K/st.PA)*100):0, BBPct: st.PA>0?Math.round((st.BB_HBP/st.PA)*100):0 });
           Object.assign(teamStats, calcRates(teamStats));
@@ -2421,6 +2423,92 @@
                           </tbody>
                         </table>
                       </div>
+                      {/* Per-at-bat pitch breakdown */}
+                      {(() => {
+                        const ptColors = {
+                          'ストレート': {bg:'#fee2e2',bd:'#ef4444',tx:'#b91c1c'},
+                          'スライダー': {bg:'#dbeafe',bd:'#3b82f6',tx:'#1d4ed8'},
+                          'シュート':   {bg:'#d1fae5',bd:'#10b981',tx:'#065f46'},
+                          'カーブ':     {bg:'#fef3c7',bd:'#f59e0b',tx:'#92400e'},
+                          '落ちる球':  {bg:'#e0e7ff',bd:'#6366f1',tx:'#3730a3'},
+                          'シンカー':  {bg:'#cffafe',bd:'#06b6d4',tx:'#0e7490'},
+                        };
+                        const ballStyle = {bg:'#f8fafc',bd:'#94a3b8',tx:'#64748b'};
+                        const getPitchBadge = (pitch, isLastPitch) => {
+                          const isBall = ['ボール','ウエスト'].includes(pitch.result);
+                          const bc = isBall ? ballStyle : (ptColors[pitch.type] || {bg:'#f1f5f9',bd:'#cbd5e1',tx:'#475569'});
+                          let sym;
+                          if (isBall) sym = 'B';
+                          else if (pitch.result === 'ストライク') sym = '●';
+                          else if (['空振り','バント空振り'].includes(pitch.result)) sym = '×';
+                          else if (['ファウル','バントファウル'].includes(pitch.result)) sym = 'F';
+                          else if (pitch.result === '死球') sym = '死';
+                          else if (pitch.result === '四球') sym = '四';
+                          else sym = '◆';
+                          return { bc, sym, isBall };
+                        };
+                        const playersWithABs = data.players.filter(bp => bp.PA > 0 && bp.atBats && bp.atBats.length > 0);
+                        if (!playersWithABs.length) return null;
+                        return (
+                          <div className="mt-6 border-t border-slate-200 pt-5">
+                            <h4 className="text-sm font-black text-slate-700 mb-2">📋 打席内容 <span className="text-xs font-normal text-slate-400">(球種・結果)</span></h4>
+                            <div className="flex flex-wrap gap-x-4 gap-y-1 mb-3 text-[10px] text-slate-500 items-center">
+                              {[['ストレート','#ef4444'],['スライダー','#3b82f6'],['シュート','#10b981'],['カーブ','#f59e0b'],['落ちる球','#6366f1'],['シンカー','#06b6d4']].map(([n,c]) => (
+                                <span key={n} className="flex items-center gap-1">
+                                  <span style={{background:c,width:8,height:8,display:'inline-block',borderRadius:2,flexShrink:0}}></span>{n}
+                                </span>
+                              ))}
+                              <span className="text-slate-300 mx-1">|</span>
+                              <span>○=ボール ●=見逃し ×=空振り F=ファウル ◆=打球</span>
+                            </div>
+                            <div className="space-y-3">
+                              {playersWithABs.map((batter, bi) => (
+                                <div key={bi} className="bg-slate-50 rounded-xl border border-slate-100 p-3">
+                                  <div className="text-xs font-black text-slate-700 mb-2">
+                                    {batter.order}番 {batter.name}
+                                    <span className="ml-2 text-slate-400 font-normal text-[10px]">{batter.AB}打数 {batter.H}安打 打率{batter.AVG}</span>
+                                  </div>
+                                  <div className="space-y-2">
+                                    {batter.atBats.map((ab, abIdx) => (
+                                      <div key={abIdx} className="flex items-center gap-2 flex-wrap">
+                                        <span className="text-[10px] text-slate-400 shrink-0" style={{minWidth:44}}>{ab.inning}回{ab.isTop?'表':'裏'}</span>
+                                        <div className="flex items-center gap-1 flex-wrap">
+                                          {ab.pitches.map((pitch, pIdx) => {
+                                            const isLastPitch = pIdx === ab.pitches.length - 1;
+                                            const {bc, sym, isBall} = getPitchBadge(pitch, isLastPitch);
+                                            const sz = isLastPitch ? 22 : 18;
+                                            const fs = isLastPitch ? 9 : 8;
+                                            const radius = isBall ? '9999px' : '3px';
+                                            return (
+                                              <span key={pIdx} title={`${pitch.type||'不明'} / ${pitch.result}`} style={{
+                                                background: bc.bg,
+                                                border: `1.5px solid ${bc.bd}`,
+                                                color: bc.tx,
+                                                borderRadius: radius,
+                                                width: sz,
+                                                height: sz,
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                fontSize: fs,
+                                                fontWeight: 900,
+                                                flexShrink: 0,
+                                                boxShadow: isLastPitch ? `0 0 0 2.5px ${(ptColors[pitch.type]||{bd:'#94a3b8'}).bd}60` : undefined,
+                                              }}>{sym}</span>
+                                            );
+                                          })}
+                                        </div>
+                                        <span className="text-[10px] font-bold text-slate-600">→ {ab.result}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })()}
+
                       <div className="mt-6">
                         <h4 className="text-sm font-black text-slate-700 mb-3">🎯 打者別 打球方向</h4>
                         <div className="flex flex-wrap gap-4 justify-center">
