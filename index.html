@@ -277,30 +277,30 @@
       return h;
     }
     var t=stats;
-    var scoreBoardH='<table style="width:100%;border-collapse:collapse;text-align:center;font-size:14px;margin-bottom:24px;border:1px solid #cbd5e1;"><thead><tr style="background:#1e293b;color:#fff;"><th style="padding:10px;text-align:left;">TEAM</th>';
+    var scoreBoardH='<table style="width:100%;border-collapse:collapse;text-align:center;font-size:13px;margin-bottom:12px;border:1px solid #cbd5e1;"><thead><tr style="background:#1e293b;color:#fff;"><th style="padding:7px 8px;text-align:left;">TEAM</th>';
     for(var i=1;i<=9;i++) scoreBoardH+='<th style="padding:10px;width:30px;">'+i+'</th>';
-    scoreBoardH+='<th style="padding:10px;width:40px;">R</th><th style="padding:10px;width:40px;">H</th><th style="padding:10px;width:40px;">E</th></tr></thead>';
-    scoreBoardH+='<tbody><tr style="border-bottom:1px solid #e2e8f0;"><td style="padding:12px;text-align:left;font-weight:bold;">'+esc(gi.teamTop)+'</td>';
-    for(var i=0;i<9;i++) scoreBoardH+='<td style="padding:12px;">'+(gs.runs.top[i]>0?gs.runs.top[i]:(gs.inning>i+1||(gs.inning===i+1&&!gs.isTop)?'0':''))+'</td>';
-    scoreBoardH+='<td style="padding:12px;font-weight:bold;background:#f0f9ff;color:#0369a1;">'+topTotal+'</td><td style="padding:12px;">'+hAndE.top.hits+'</td><td style="padding:12px;">'+hAndE.top.errors+'</td></tr>';
-    scoreBoardH+='<tr><td style="padding:12px;text-align:left;font-weight:bold;">'+esc(gi.teamBottom)+'</td>';
-    for(var i=0;i<9;i++) scoreBoardH+='<td style="padding:12px;">'+(gs.runs.bottom[i]>0?gs.runs.bottom[i]:(gs.inning>i+1?'0':''))+'</td>';
-    scoreBoardH+='<td style="padding:12px;font-weight:bold;background:#f0f9ff;color:#0369a1;">'+bottomTotal+'</td><td style="padding:12px;">'+hAndE.bottom.hits+'</td><td style="padding:12px;">'+hAndE.bottom.errors+'</td></tr>';
+    scoreBoardH+='<th style="padding:7px 8px;width:40px;">R</th><th style="padding:7px 8px;width:40px;">H</th><th style="padding:7px 8px;width:40px;">E</th></tr></thead>';
+    scoreBoardH+='<tbody><tr style="border-bottom:1px solid #e2e8f0;"><td style="padding:8px;text-align:left;font-weight:bold;">'+esc(gi.teamTop)+'</td>';
+    for(var i=0;i<9;i++) scoreBoardH+='<td style="padding:8px;">'+(gs.runs.top[i]>0?gs.runs.top[i]:(gs.inning>i+1||(gs.inning===i+1&&!gs.isTop)?'0':''))+'</td>';
+    scoreBoardH+='<td style="padding:8px;font-weight:bold;background:#f0f9ff;color:#0369a1;">'+topTotal+'</td><td style="padding:8px;">'+hAndE.top.hits+'</td><td style="padding:8px;">'+hAndE.top.errors+'</td></tr>';
+    scoreBoardH+='<tr><td style="padding:8px;text-align:left;font-weight:bold;">'+esc(gi.teamBottom)+'</td>';
+    for(var i=0;i<9;i++) scoreBoardH+='<td style="padding:8px;">'+(gs.runs.bottom[i]>0?gs.runs.bottom[i]:(gs.inning>i+1?'0':''))+'</td>';
+    scoreBoardH+='<td style="padding:8px;font-weight:bold;background:#f0f9ff;color:#0369a1;">'+bottomTotal+'</td><td style="padding:8px;">'+hAndE.bottom.hits+'</td><td style="padding:8px;">'+hAndE.bottom.errors+'</td></tr>';
     scoreBoardH+='</tbody></table>';
-    var summaryH='<h3 style="margin:24px 0 10px;font-size:16px;font-weight:bold;">チーム比較</h3><table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:20px;"><tbody>';
-    summaryH+='<tr style="background:#f1f5f9;"><td></td><td style="padding:10px;text-align:center;font-weight:bold;">'+esc(gi.teamTop)+'</td><td style="padding:10px;text-align:center;font-weight:bold;">'+esc(gi.teamBottom)+'</td></tr>';
-    function sRow(l,a,b){return '<tr style="border-bottom:1px solid #e2e8f0;"><td style="padding:10px;font-weight:bold;background:#f8fafc;">'+l+'</td><td style="padding:10px;text-align:center;">'+a+'</td><td style="padding:10px;text-align:center;">'+b+'</td></tr>';}
+    var summaryH='<h3 style="margin:12px 0 6px;font-size:15px;font-weight:bold;">チーム比較</h3><table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:10px;"><tbody>';
+    summaryH+='<tr style="background:#f1f5f9;"><td></td><td style="padding:6px 8px;text-align:center;font-weight:bold;">'+esc(gi.teamTop)+'</td><td style="padding:6px 8px;text-align:center;font-weight:bold;">'+esc(gi.teamBottom)+'</td></tr>';
+    function sRow(l,a,b){return '<tr style="border-bottom:1px solid #e2e8f0;"><td style="padding:6px 8px;font-weight:bold;background:#f8fafc;">'+l+'</td><td style="padding:6px 8px;text-align:center;">'+a+'</td><td style="padding:6px 8px;text-align:center;">'+b+'</td></tr>';}
     summaryH+=sRow('打率',t.topBatting.team.AVG,t.bottomBatting.team.AVG);
     summaryH+=sRow('OPS',t.topBatting.team.OPS,t.bottomBatting.team.OPS);
     summaryH+=sRow('K%',t.topBatting.team.KPct+'%',t.bottomBatting.team.KPct+'%');
     summaryH+=sRow('BB%',t.topBatting.team.BBPct+'%',t.bottomBatting.team.BBPct+'%');
     summaryH+='</tbody></table>';
-    var sprayH='<h3 style="margin:24px 0 10px;font-size:16px;font-weight:bold;">チーム打球方向</h3><div class="bif" style="display:flex;gap:20px;flex-wrap:wrap;justify-content:center;margin-bottom:16px;">';
-    sprayH+=sprayChartSvg(t.topBatting.team.sprayHits,gi.teamTop);
-    sprayH+=sprayChartSvg(t.bottomBatting.team.sprayHits,gi.teamBottom);
+    var sprayH='<h3 style="margin:12px 0 6px;font-size:15px;font-weight:bold;">チーム打球方向</h3><div class="bif" style="display:flex;gap:14px;flex-wrap:nowrap;justify-content:center;margin-bottom:8px;">';
+    sprayH+=sprayChartSvg(t.topBatting.team.sprayHits,gi.teamTop,185);
+    sprayH+=sprayChartSvg(t.bottomBatting.team.sprayHits,gi.teamBottom,185);
     sprayH+='</div>';
-    var body='<div style="max-width:900px;margin:0 auto;padding:24px 28px;font-family:sans-serif;">';
-    body+='<h1 style="font-size:24px;font-weight:bold;margin-bottom:6px;">試合分析レポート</h1><div style="color:#64748b;margin-bottom:16px;">'+esc(gi.date)+' / 総投球数: '+ps.filter(function(p){return !p.isEvent;}).length+'球</div>';
+    var body='<div style="max-width:900px;margin:0 auto;padding:16px 24px;font-family:sans-serif;">';
+    body+='<h1 style="font-size:22px;font-weight:bold;margin:0 0 3px;">試合分析レポート</h1><div style="color:#64748b;margin-bottom:10px;font-size:12px;">'+esc(gi.date)+' / 総投球数: '+ps.filter(function(p){return !p.isEvent;}).length+'球</div>';
     body+=scoreBoardH+summaryH+sprayH;
     body+=batterTable(t.topBatting,gi.teamTop);
     body+=batterDetails(t.topBatting,gi.teamTop);
