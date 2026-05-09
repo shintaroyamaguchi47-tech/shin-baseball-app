@@ -411,6 +411,10 @@
 
       const showToast = (text, type = 'success') => { setToast({ text, type }); setTimeout(() => setToast(null), 3000); };
       const findRegisteredTeam = (name) => registeredTeams.find(t => t.name === name);
+      const addPlayerToTeam = (teamName, playerName, throws = '右', bats = '右') => {
+        setRegisteredTeams(prev => prev.map(t => t.name === teamName ? {...t, players: [...(t.players||[]), {name: playerName, throws, bats}]} : t));
+        showToast(`${playerName}を${teamName}に追加しました`);
+      };
       const compressData = (obj) => btoa(encodeURIComponent(JSON.stringify(obj)));
       const decompressData = (str) => { try { return JSON.parse(decodeURIComponent(atob(str))); } catch(e) { return null; } };
 
@@ -1952,7 +1956,16 @@
                   {/* 新しい選手 */}
                   <div className="flex flex-col gap-2">
                     <label className="text-[10px] font-bold text-slate-500 block">入る選手</label>
-                    <input type="text" value={subData.newName} onChange={e=>setSubData({...subData, newName: e.target.value})} placeholder="新しい選手名" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-bold" />
+                    <datalist id="sub-roster-list">
+                      {getRosterPlayers(subData.team === 'top' ? gameInfo.teamTop : gameInfo.teamBottom).map((pl, idx) => <option key={idx} value={pl.name} />)}
+                    </datalist>
+                    <div className="flex gap-1.5">
+                      <input type="text" list="sub-roster-list" autoComplete="off" value={subData.newName} onChange={e => { const pl = getRosterPlayers(subData.team === 'top' ? gameInfo.teamTop : gameInfo.teamBottom).find(r => r.name === e.target.value); setSubData({...subData, newName: e.target.value, ...(pl ? {newThrows: pl.throws||'右', newBats: pl.bats||'右'} : {})}); }} placeholder="新しい選手名" className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm font-bold" />
+                      {subData.newName && <button type="button" onClick={() => setSubData({...subData, newName: ''})} className="text-slate-300 hover:text-slate-500 font-bold text-sm px-2 border border-slate-300 rounded-lg bg-white">×</button>}
+                    </div>
+                    {subData.newName && findRegisteredTeam(subData.team === 'top' ? gameInfo.teamTop : gameInfo.teamBottom) && !getRosterPlayers(subData.team === 'top' ? gameInfo.teamTop : gameInfo.teamBottom).some(pl => pl.name === subData.newName) && (
+                      <button type="button" onClick={() => addPlayerToTeam(subData.team === 'top' ? gameInfo.teamTop : gameInfo.teamBottom, subData.newName, subData.newThrows||'右', subData.newBats||'右')} className="text-[11px] bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg px-3 py-1.5 font-bold self-start">＋ チームに追加登録</button>
+                    )}
                     {subData.type === '守備' ? (
                       <>
                         {/* 入るポジション選択（守備タイプ専用） */}
@@ -2050,7 +2063,11 @@
                               <select value={p.pos} onChange={e => { const nl = [...lineups.top]; nl[i] = {...nl[i], pos: e.target.value}; setLineups(prev => ({...prev, top: nl})); }} className="w-9 text-[10px] font-bold border border-slate-200 rounded px-0.5 py-1 bg-slate-50 text-center shrink-0">
                                 {posOptions.map(po => <option key={po} value={po}>{po}</option>)}
                               </select>
-                              <input type="text" list="roster-top-list" value={p.name} onChange={e => onLineupNameChange('top', i, e.target.value)} className="flex-1 text-xs font-bold border border-slate-200 rounded px-2 py-1 min-w-0" placeholder="選手名" />
+                              <input type="text" list="roster-top-list" autoComplete="off" value={p.name} onChange={e => onLineupNameChange('top', i, e.target.value)} className="flex-1 text-xs font-bold border border-slate-200 rounded px-2 py-1 min-w-0" placeholder="選手名" />
+                              {p.name && <button type="button" onClick={() => onLineupNameChange('top', i, '')} className="shrink-0 text-slate-300 hover:text-slate-500 text-[10px] font-bold px-1.5 py-1 bg-white border border-slate-200 rounded">×</button>}
+                              {p.name && findRegisteredTeam(gameInfo.teamTop) && !getRosterPlayers(gameInfo.teamTop).some(pl => pl.name === p.name) && (
+                                <button type="button" onClick={() => addPlayerToTeam(gameInfo.teamTop, p.name, p.throws||'右', p.bats||'右')} title="チームに追加登録" className="shrink-0 text-[9px] bg-emerald-50 text-emerald-600 border border-emerald-200 rounded px-1.5 py-1 font-bold">+登録</button>
+                              )}
                               <select value={parseThrowBat(p.bats, p.throws)} onChange={e => { const {bats, throws} = splitThrowBat(e.target.value); const nl = [...lineups.top]; nl[i] = {...nl[i], bats, throws}; setLineups(prev => ({...prev, top: nl})); }} className="w-[70px] text-[10px] font-bold border border-slate-200 rounded px-0.5 py-1 bg-slate-50 shrink-0">
                                 {throwBatOptions.map(o => <option key={o} value={o}>{o}</option>)}
                               </select>
@@ -2081,7 +2098,11 @@
                               <select value={p.pos} onChange={e => { const nl = [...lineups.bottom]; nl[i] = {...nl[i], pos: e.target.value}; setLineups(prev => ({...prev, bottom: nl})); }} className="w-9 text-[10px] font-bold border border-slate-200 rounded px-0.5 py-1 bg-slate-50 text-center shrink-0">
                                 {posOptions.map(po => <option key={po} value={po}>{po}</option>)}
                               </select>
-                              <input type="text" list="roster-bottom-list" value={p.name} onChange={e => onLineupNameChange('bottom', i, e.target.value)} className="flex-1 text-xs font-bold border border-slate-200 rounded px-2 py-1 min-w-0" placeholder="選手名" />
+                              <input type="text" list="roster-bottom-list" autoComplete="off" value={p.name} onChange={e => onLineupNameChange('bottom', i, e.target.value)} className="flex-1 text-xs font-bold border border-slate-200 rounded px-2 py-1 min-w-0" placeholder="選手名" />
+                              {p.name && <button type="button" onClick={() => onLineupNameChange('bottom', i, '')} className="shrink-0 text-slate-300 hover:text-slate-500 text-[10px] font-bold px-1.5 py-1 bg-white border border-slate-200 rounded">×</button>}
+                              {p.name && findRegisteredTeam(gameInfo.teamBottom) && !getRosterPlayers(gameInfo.teamBottom).some(pl => pl.name === p.name) && (
+                                <button type="button" onClick={() => addPlayerToTeam(gameInfo.teamBottom, p.name, p.throws||'右', p.bats||'右')} title="チームに追加登録" className="shrink-0 text-[9px] bg-emerald-50 text-emerald-600 border border-emerald-200 rounded px-1.5 py-1 font-bold">+登録</button>
+                              )}
                               <select value={parseThrowBat(p.bats, p.throws)} onChange={e => { const {bats, throws} = splitThrowBat(e.target.value); const nl = [...lineups.bottom]; nl[i] = {...nl[i], bats, throws}; setLineups(prev => ({...prev, bottom: nl})); }} className="w-[70px] text-[10px] font-bold border border-slate-200 rounded px-0.5 py-1 bg-slate-50 shrink-0">
                                 {throwBatOptions.map(o => <option key={o} value={o}>{o}</option>)}
                               </select>
@@ -2119,9 +2140,9 @@
                       <div className="space-y-1.5">
                         <label className="text-xs font-bold text-slate-500">選手一覧 (1行1名)</label>
                         {((registeredTeams[editingTeamIndex]||{}).players||[]).map((p, i) => (
-                          <div key={i} className="flex items-center gap-1.5">
+                          <div key={`player-${i}-${typeof p === 'string' ? p : p.name}`} className="flex items-center gap-1.5">
                             <span className="text-[10px] font-bold text-slate-400 w-5 text-right">{i+1}</span>
-                            <input type="text" value={typeof p === 'string' ? p : p.name} onChange={e => { const t = [...registeredTeams]; const pl = [...(t[editingTeamIndex].players||[])]; pl[i] = typeof p === 'string' ? e.target.value : {...p, name: e.target.value}; t[editingTeamIndex] = {...t[editingTeamIndex], players: pl}; setRegisteredTeams(t); }} className="flex-1 border border-slate-200 rounded px-2 py-1.5 text-xs font-bold min-w-0" />
+                            <input type="text" autoComplete="off" value={typeof p === 'string' ? p : p.name} onChange={e => { const t = [...registeredTeams]; const pl = [...(t[editingTeamIndex].players||[])]; pl[i] = typeof p === 'string' ? e.target.value : {...p, name: e.target.value}; t[editingTeamIndex] = {...t[editingTeamIndex], players: pl}; setRegisteredTeams(t); }} className="flex-1 border border-slate-200 rounded px-2 py-1.5 text-xs font-bold min-w-0" />
                             <select value={typeof p === 'string' ? '右' : (p.throws||'右')} onChange={e => { const t = [...registeredTeams]; const pl = [...(t[editingTeamIndex].players||[])]; pl[i] = typeof pl[i] === 'string' ? {name: pl[i], throws: e.target.value, bats: '右'} : {...pl[i], throws: e.target.value}; t[editingTeamIndex] = {...t[editingTeamIndex], players: pl}; setRegisteredTeams(t); }} className="text-[10px] border border-slate-200 rounded px-1 py-1.5 w-10"><option value="右">右投</option><option value="左">左投</option></select>
                             <select value={typeof p === 'string' ? '右' : (p.bats||'右')} onChange={e => { const t = [...registeredTeams]; const pl = [...(t[editingTeamIndex].players||[])]; pl[i] = typeof pl[i] === 'string' ? {name: pl[i], throws: '右', bats: e.target.value} : {...pl[i], bats: e.target.value}; t[editingTeamIndex] = {...t[editingTeamIndex], players: pl}; setRegisteredTeams(t); }} className="text-[10px] border border-slate-200 rounded px-1 py-1.5 w-10"><option value="右">右打</option><option value="左">左打</option><option value="両">両打</option></select>
                             <button onClick={() => { const t = [...registeredTeams]; const pl = [...(t[editingTeamIndex].players||[])]; pl.splice(i, 1); t[editingTeamIndex] = {...t[editingTeamIndex], players: pl}; setRegisteredTeams(t); }} className="text-rose-400 hover:text-rose-600 text-xs font-bold px-1">✕</button>
