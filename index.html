@@ -313,11 +313,12 @@
       body+=pitcherDetails(t.pitchingBottom,gi.teamBottom);
     }
     body+='</div>';
+    var reportFileName = [gi.date, gi.teamTop, 'vs', gi.teamBottom].join('_').replace(/[\\\/:*?"<>|]/g, '').replace(/\s+/g, '_');
     var closeBtn='<div class="no-print" style="position:fixed;top:12px;right:16px;z-index:999;display:flex;gap:8px;">'
       +'<button onclick="window.print()" style="background:#1e293b;color:#fff;border:none;padding:8px 18px;border-radius:8px;font-size:13px;font-weight:bold;cursor:pointer;">🖨️ 印刷 / PDF</button>'
       +'<button onclick="window.close()" style="background:#e2e8f0;color:#334155;border:none;padding:8px 18px;border-radius:8px;font-size:13px;font-weight:bold;cursor:pointer;">✕ 閉じる</button>'
       +'</div>';
-    w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>試合分析レポート<\/title><style>@page{margin:12mm 10mm;}body{margin:0;background:#f1f5f9;}.report-section{margin:0 0 18px;}.report-heading{break-after:avoid;page-break-after:avoid;}@media print{body{background:#fff !important;}*{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;}.report-section{page-break-before:always;break-before:page;break-inside:auto;page-break-inside:auto;padding-top:0;}.report-heading{break-after:avoid;page-break-after:avoid;orphans:3;widows:3;}.bdc,.abc,.bif,.pitcher-section table,.pitcher-section [style*="display:flex"]{break-inside:avoid;page-break-inside:avoid;}.no-print{display:none !important;}}table{page-break-inside:auto;}tr{page-break-inside:avoid;}h1,h3{break-after:avoid;page-break-after:avoid;}<\/style><\/head><body>'+closeBtn+body+'<\/body><\/html>');
+    w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>'+esc(reportFileName)+'<\/title><style>@page{margin:12mm 10mm;}body{margin:0;background:#f1f5f9;}.report-section{margin:0 0 18px;}.report-heading{break-after:avoid;page-break-after:avoid;}@media print{body{background:#fff !important;}*{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;}.report-section{page-break-before:always;break-before:page;break-inside:auto;page-break-inside:auto;padding-top:0;}.report-heading{break-after:avoid;page-break-after:avoid;orphans:3;widows:3;}.bdc,.abc,.bif,.pitcher-section table,.pitcher-section [style*="display:flex"]{break-inside:avoid;page-break-inside:avoid;}.no-print{display:none !important;}}table{page-break-inside:auto;}tr{page-break-inside:avoid;}h1,h3{break-after:avoid;page-break-after:avoid;}<\/style><\/head><body>'+closeBtn+body+'<\/body><\/html>');
     w.document.close();
     setTimeout(function(){w.print();},800);
     return true;
