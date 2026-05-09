@@ -109,6 +109,69 @@
       h+='</div>';
       return h;
     }
+    function atBatZoneSvg(abPitches) {
+      var ptColors = { 'ストレート':'#ef4444', 'スライダー':'#3b82f6', 'シュート':'#10b981', 'カーブ':'#f59e0b', '落ちる球':'#6366f1', 'シンカー':'#06b6d4' };
+      var cs = 10, svgSz = cs * 7, byPos = {};
+      (abPitches || []).forEach(function(p, i) {
+        if (p.course !== null && p.course !== undefined && p.course !== '') {
+          if (!byPos[p.course]) byPos[p.course] = [];
+          byPos[p.course].push(Object.assign({}, p, { seq: i + 1 }));
+        }
+      });
+      var h='<svg width="'+svgSz+'" height="'+svgSz+'" viewBox="0 0 '+svgSz+' '+svgSz+'" style="display:block;background:#fff;">';
+      for (var idx=0; idx<49; idx++) {
+        var row=Math.floor(idx/7), col=idx%7, isZone=row>=2&&row<=4&&col>=2&&col<=4;
+        h+='<rect x="'+(col*cs)+'" y="'+(row*cs)+'" width="'+(cs-0.5)+'" height="'+(cs-0.5)+'" fill="'+(isZone?'#f0f9ff':'#f8fafc')+'" stroke="'+(isZone?'#bae6fd':'#e2e8f0')+'" stroke-width="0.4"/>';
+      }
+      h+='<rect x="'+(2*cs)+'" y="'+(2*cs)+'" width="'+(3*cs)+'" height="'+(3*cs)+'" fill="none" stroke="#475569" stroke-width="1.4" rx="0.5"/>';
+      Object.entries(byPos).forEach(function(entry) {
+        var cIdx=parseInt(entry[0],10), ps=entry[1], row=Math.floor(cIdx/7), col=cIdx%7;
+        if (!Number.isFinite(cIdx)) return;
+        var baseCx=col*cs+cs/2, baseCy=row*cs+cs/2, r=cs/2-1.2;
+        ps.forEach(function(p, pIdx) {
+          var angle=ps.length>1?(pIdx/ps.length)*Math.PI*2-Math.PI/2:0, dist=ps.length>1?r*0.55:0;
+          var cx=baseCx+Math.cos(angle)*dist, cy=baseCy+Math.sin(angle)*dist;
+          var color=ptColors[p.type] || '#94a3b8', isBall=['ボール','ウエスト'].includes(p.result), isLast=p.seq===(abPitches||[]).length;
+          if (isLast) h+='<circle cx="'+cx+'" cy="'+cy+'" r="'+(r+2)+'" fill="none" stroke="'+color+'" stroke-width="1.3" stroke-dasharray="2 1" opacity="0.7"/>';
+          h+='<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="'+(isBall?'white':color)+'" stroke="'+color+'" stroke-width="'+(isBall?1.2:0)+'" opacity="0.92"/>';
+          h+='<text x="'+cx+'" y="'+(cy+2.2)+'" text-anchor="middle" font-size="5" font-weight="900" fill="'+(isBall?color:'white')+'">'+p.seq+'</text>';
+        });
+      });
+      h+='</svg>';
+      return h;
+    }
+    function atBatResultLabel(result) {
+      if (['ボール','ウエスト'].includes(result)) return { text:'BB/HBP', color:'#64748b' };
+      if (result === '三振' || result === '振り逃げ') return { text:'三振', color:'#ef4444' };
+      if (['安打','二塁打','三塁打','本塁打'].some(function(w){return String(result).indexOf(w)>=0;})) return { text:result, color:'#1d4ed8' };
+      return { text:result || '-', color:'#475569' };
+    }
+    function batterAtBatDetails(batting, teamName) {
+      var players = (batting.players || []).filter(function(p){ return p.PA > 0 && p.atBats && p.atBats.length > 0; });
+      if (players.length === 0) return '';
+      var colors = { 'ストレート':'#ef4444', 'スライダー':'#3b82f6', 'シュート':'#10b981', 'カーブ':'#f59e0b', '落ちる球':'#6366f1', 'シンカー':'#06b6d4' };
+      var h='<div style="margin:14px 0 6px;font-size:14px;font-weight:bold;color:#334155;border-bottom:1px solid #cbd5e1;padding-bottom:3px;break-after:avoid;page-break-after:avoid;">打席内容: '+esc(teamName)+' <span style="font-size:10px;font-weight:normal;color:#64748b;">(コース・球種)</span></div>';
+      h+='<div style="display:flex;flex-wrap:wrap;gap:8px 12px;margin-bottom:8px;font-size:9px;color:#64748b;align-items:center;">';
+      Object.entries(colors).forEach(function(e){ h+='<span style="white-space:nowrap;"><span style="display:inline-block;width:8px;height:8px;background:'+e[1]+';border-radius:50%;margin-right:3px;"></span>'+esc(e[0])+'</span>'; });
+      h+='<span>○=ボール ●=ストライク系 数字=投球順 点線=最終球</span></div>';
+      h+='<div style="display:block;">';
+      players.forEach(function(batter) {
+        h+='<div class="abc" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:7px;padding:7px;margin-bottom:8px;break-inside:avoid;page-break-inside:avoid;">';
+        h+='<div style="font-size:11px;font-weight:bold;color:#334155;margin-bottom:6px;">'+batter.order+'番 '+esc(batter.name)+' <span style="font-size:9px;font-weight:normal;color:#64748b;">'+batter.AB+'打数 '+batter.H+'安打 打率'+batter.AVG+'</span></div>';
+        h+='<div style="display:flex;flex-wrap:wrap;gap:8px;">';
+        batter.atBats.forEach(function(ab) {
+          var rl=atBatResultLabel(ab.result);
+          h+='<div style="width:74px;text-align:center;break-inside:avoid;page-break-inside:avoid;">';
+          h+='<div style="font-size:9px;color:#64748b;font-weight:bold;margin-bottom:2px;">'+ab.inning+'回'+(ab.isTop?'表':'裏')+'</div>';
+          h+='<div style="border:1px solid #e2e8f0;border-radius:5px;overflow:hidden;background:#fff;display:inline-block;">'+atBatZoneSvg(ab.pitches)+'</div>';
+          h+='<div style="font-size:8px;font-weight:bold;line-height:1.25;color:'+rl.color+';word-break:break-all;">'+esc(rl.text)+'</div>';
+          h+='</div>';
+        });
+        h+='</div></div>';
+      });
+      h+='</div>';
+      return h;
+    }
     function countDistHtml(counts, title) {
       var h='<div style="background:#f8fafc;border:1px solid #cbd5e1;border-radius:7px;padding:7px;flex:1;min-width:0;"><div style="font-size:10px;font-weight:bold;text-align:center;margin-bottom:5px;border-bottom:1px solid #cbd5e1;padding-bottom:4px;">'+esc(title)+'</div>';
       h+='<div style="display:flex;gap:4px;">';
@@ -242,9 +305,11 @@
     body+='<div class="pb"></div>';
     body+=batterTable(t.topBatting,gi.teamTop);
     body+=batterDetails(t.topBatting,gi.teamTop);
+    body+=batterAtBatDetails(t.topBatting,gi.teamTop);
     body+='<div class="pb"></div>';
     body+=batterTable(t.bottomBatting,gi.teamBottom);
     body+=batterDetails(t.bottomBatting,gi.teamBottom);
+    body+=batterAtBatDetails(t.bottomBatting,gi.teamBottom);
     body+=pitcherDetails(t.pitchingTop,gi.teamTop);
     if(t.pitchingBottom.pitchers.length>0){
       body+=pitcherDetails(t.pitchingBottom,gi.teamBottom);
@@ -327,34 +392,122 @@
     }
 
     function App() {
+      const makeInitialGameState = () => ({ inning: 1, isTop: true, outs: 0, balls: 0, strikes: 0, batterTop: 1, batterBottom: 1, runners: { first: false, second: false, third: false }, runs: { top: [0,0,0,0,0,0,0,0,0], bottom: [0,0,0,0,0,0,0,0,0] } });
+      const makeInitialLineups = () => ({
+        top: Array.from({length: 10}, (_,i)=>({ order: i<9 ? i+1 : '投', name: i<9 ? `先攻${i+1}番` : `先発投手`, pos: i===9?'投':'未', throws: '右', bats: '右' })),
+        bottom: Array.from({length: 10}, (_,i)=>({ order: i<9 ? i+1 : '投', name: i<9 ? `後攻${i+1}番` : `先発投手`, pos: i===9?'投':'未', throws: '右', bats: '右' }))
+      });
+      const loadStored = (key, fallback) => {
+        const saved = localStorage.getItem(key);
+        if (!saved) return fallback;
+        try { return JSON.parse(saved); } catch(e) { return fallback; }
+      };
+      const ensureRunArray = (arr, inning) => {
+        const runs = Array.isArray(arr) ? arr.map(v => Number.isFinite(Number(v)) ? Number(v) : 0) : [];
+        while (runs.length < Math.max(9, inning)) runs.push(0);
+        return runs;
+      };
+      const normalizeGameState = (state) => {
+        const base = makeInitialGameState();
+        const merged = { ...base, ...(state || {}) };
+        const inning = Math.max(1, merged.inning || 1);
+        return {
+          ...merged,
+          inning,
+          runs: {
+            top: ensureRunArray(merged.runs?.top, inning),
+            bottom: ensureRunArray(merged.runs?.bottom, inning)
+          },
+          runners: { ...base.runners, ...(merged.runners || {}) }
+        };
+      };
+      const advanceGameState = (prev, eventType, addedOuts = 0) => {
+        const state = normalizeGameState(prev);
+        let newOuts = state.outs + addedOuts, newInning = state.inning, newIsTop = state.isTop, newBatterTop = state.batterTop, newBatterBottom = state.batterBottom;
+        let newRunners = { ...state.runners }, newRunsArray = ensureRunArray(state.runs[state.isTop ? 'top' : 'bottom'], newInning), runScored = 0;
+        if (newOuts < 3) {
+          if (eventType === 'walk' || eventType === 'other') {
+            if (newRunners.first && newRunners.second && newRunners.third) runScored = 1; else if (newRunners.first && newRunners.second) newRunners.third = true; else if (newRunners.first) newRunners.second = true; newRunners.first = true;
+          } else if (['single', 'error'].includes(eventType)) {
+            if (newRunners.third) runScored++; newRunners.third = newRunners.second; newRunners.second = newRunners.first; newRunners.first = true;
+          } else if (eventType === 'double') {
+            if (newRunners.third) runScored++; if (newRunners.second) runScored++; newRunners.third = newRunners.first; newRunners.second = true; newRunners.first = false;
+          } else if (eventType === 'triple') {
+            if (newRunners.third) runScored++; if (newRunners.second) runScored++; if (newRunners.first) runScored++; newRunners.third = true; newRunners.second = false; newRunners.first = false;
+          } else if (eventType === 'homerun') {
+            if (newRunners.third) runScored++; if (newRunners.second) runScored++; if (newRunners.first) runScored++; runScored++; newRunners = { first: false, second: false, third: false };
+          } else if (eventType === 'sac_bunt') {
+            if (newRunners.third) runScored++; newRunners.third = newRunners.second; newRunners.second = newRunners.first; newRunners.first = false;
+          } else if (eventType === 'sac_fly') {
+            if (newRunners.third) runScored++; newRunners.third = false;
+          }
+        }
+        if (runScored > 0) newRunsArray[newInning - 1] = (newRunsArray[newInning - 1] || 0) + runScored;
+        if (state.isTop) newBatterTop = newBatterTop === 9 ? 1 : newBatterTop + 1; else newBatterBottom = newBatterBottom === 9 ? 1 : newBatterBottom + 1;
+        if (newOuts >= 3) { newOuts = 0; newRunners = { first: false, second: false, third: false }; if (state.isTop) newIsTop = false; else { newIsTop = true; newInning++; } }
+        const nextRuns = { ...state.runs, [state.isTop ? 'top' : 'bottom']: newRunsArray };
+        nextRuns.top = ensureRunArray(nextRuns.top, newInning);
+        nextRuns.bottom = ensureRunArray(nextRuns.bottom, newInning);
+        return { ...state, outs: newOuts, balls: 0, strikes: 0, batterTop: newBatterTop, batterBottom: newBatterBottom, inning: newInning, isTop: newIsTop, runners: newRunners, runs: nextRuns };
+      };
+      const resultToEventType = (result) => {
+        if (result.includes('本塁打')) return 'homerun';
+        if (result.includes('三塁打')) return 'triple';
+        if (result.includes('二塁打')) return 'double';
+        if (result.includes('安')) return 'single';
+        if (['エラー','敵失(エラー)','野手選択'].some(w => result.includes(w))) return 'error';
+        if (result.includes('犠打')) return 'sac_bunt';
+        if (result.includes('犠飛')) return 'sac_fly';
+        return 'out';
+      };
+      const rebuildGameStateFromPitches = (records) => {
+        let state = makeInitialGameState();
+        records.forEach(p => {
+          state = normalizeGameState({ ...state, inning: p.inning || state.inning, isTop: p.isTop, ...(p.isTop ? { batterTop: p.batter || state.batterTop } : { batterBottom: p.batter || state.batterBottom }) });
+          if (p.isEvent) {
+            const runnerKey = p.result?.startsWith('1塁走者') ? 'first' : p.result?.startsWith('2塁走者') ? 'second' : p.result?.startsWith('3塁走者') ? 'third' : null;
+            if (runnerKey && p.result.includes('が')) {
+              let newOuts = state.outs + 1, newRunners = { ...state.runners, [runnerKey]: false }, newInning = state.inning, newIsTop = state.isTop;
+              if (newOuts >= 3) { newOuts = 0; newRunners = { first: false, second: false, third: false }; if (state.isTop) newIsTop = false; else { newIsTop = true; newInning++; } }
+              state = normalizeGameState({ ...state, outs: newOuts, inning: newInning, isTop: newIsTop, runners: newRunners, balls: 0, strikes: 0 });
+            } else if (runnerKey && p.result.includes('で')) {
+              const newRunners = { ...state.runners, [runnerKey]: false };
+              const runs = { ...state.runs };
+              if (p.result.includes('2塁へ')) newRunners.second = true;
+              else if (p.result.includes('3塁へ')) newRunners.third = true;
+              else if (p.result.includes('本塁へ')) { const team = state.isTop ? 'top' : 'bottom'; const arr = ensureRunArray(runs[team], state.inning); arr[state.inning - 1] = (arr[state.inning - 1] || 0) + 1; runs[team] = arr; }
+              state = normalizeGameState({ ...state, runners: newRunners, runs });
+            }
+            return;
+          }
+          const res = p.result || '';
+          if (['ボール','ウエスト'].includes(res)) state = state.balls >= 3 ? advanceGameState(state, 'walk', 0) : { ...state, balls: state.balls + 1 };
+          else if (res === '死球' || res === 'その他出塁') state = advanceGameState(state, res === 'その他出塁' ? 'other' : 'walk', 0);
+          else if (['ストライク','空振り','バント空振り'].includes(res)) state = state.strikes >= 2 ? advanceGameState(state, 'out', 1) : { ...state, strikes: state.strikes + 1 };
+          else if (['ファウル','バントファウル'].includes(res)) state = state.strikes < 2 ? { ...state, strikes: state.strikes + 1 } : state;
+          else if (res === 'スリーバント失敗' || res === '三振' || res === '振り逃げアウト') state = advanceGameState(state, 'out', 1);
+          else if (res === '振り逃げ') state = advanceGameState(state, 'error', 0);
+          else if (res !== '牽制') state = advanceGameState(state, resultToEventType(res), resultToEventType(res) === 'out' ? 1 : 0);
+        });
+        return normalizeGameState(state);
+      };
       const [gameState, setGameState] = useState(() => {
-        const saved = localStorage.getItem('baseball_gameState_v2');
-        const initial = { inning: 1, isTop: true, outs: 0, balls: 0, strikes: 0, batterTop: 1, batterBottom: 1, runners: { first: false, second: false, third: false }, runs: { top: [0,0,0,0,0,0,0,0,0], bottom: [0,0,0,0,0,0,0,0,0] } };
-        if (!saved) return initial;
-        try { return JSON.parse(saved); } catch(e) { return initial; }
+        return normalizeGameState(loadStored('baseball_gameState_v2', makeInitialGameState()));
       });
       const [gameInfo, setGameInfo] = useState(() => {
-        const saved = localStorage.getItem('baseball_gameInfo_v2');
-        return saved ? JSON.parse(saved) : { date: new Date().toLocaleDateString('ja-JP').replace(/\//g, '-'), teamTop: '先攻チーム', teamBottom: '後攻チーム' };
+        return loadStored('baseball_gameInfo_v2', { date: new Date().toLocaleDateString('ja-JP').replace(/\//g, '-'), teamTop: '先攻チーム', teamBottom: '後攻チーム' });
       });
       const [lineups, setLineups] = useState(() => {
-        const saved = localStorage.getItem('baseball_lineups_v2');
-        if (saved) return JSON.parse(saved);
-        return {
-          top: Array.from({length: 10}, (_,i)=>({ order: i<9 ? i+1 : '投', name: i<9 ? `先攻${i+1}番` : `先発投手`, pos: i===9?'投':'未', throws: '右', bats: '右' })),
-          bottom: Array.from({length: 10}, (_,i)=>({ order: i<9 ? i+1 : '投', name: i<9 ? `後攻${i+1}番` : `先発投手`, pos: i===9?'投':'未', throws: '右', bats: '右' }))
-        };
+        return loadStored('baseball_lineups_v2', makeInitialLineups());
       });
       const [pitches, setPitches] = useState(() => {
-        const saved = localStorage.getItem('baseball_pitches_v2');
-        return saved ? JSON.parse(saved) : [];
+        return loadStored('baseball_pitches_v2', []);
       });
       const [undoStack, setUndoStack] = useState([]);
       const [redoStack, setRedoStack] = useState([]);
-      const [savedGames, setSavedGames] = useState(() => { const saved = localStorage.getItem('baseball_savedGames_v2'); return saved ? JSON.parse(saved) : []; });
+      const [savedGames, setSavedGames] = useState(() => loadStored('baseball_savedGames_v2', []));
       const [registeredTeams, setRegisteredTeams] = useState(() => {
-        const saved = localStorage.getItem('baseball_registeredTeams_v2');
-        return saved ? JSON.parse(saved) : [];
+        return loadStored('baseball_registeredTeams_v2', []);
       });
       const [showArchiveModal, setShowArchiveModal] = useState(false);
       const [showTeamManager, setShowTeamManager] = useState(false);
@@ -452,12 +605,9 @@
         setConfirmDialog({
           title: '🔄 新試合の開始', message: '現在の試合データをすべて消去して、新しい試合を開始しますか？', subMessage: '※この操作は取り消せません', isDanger: true,
           onConfirm: () => {
-            setGameState({ inning: 1, isTop: true, outs: 0, balls: 0, strikes: 0, batterTop: 1, batterBottom: 1, runners: { first: false, second: false, third: false }, runs: { top: [0,0,0,0,0,0,0,0,0], bottom: [0,0,0,0,0,0,0,0,0] } });
+            setGameState(makeInitialGameState());
             setGameInfo({ date: new Date().toLocaleDateString('ja-JP').replace(/\//g, '-'), teamTop: '先攻チーム', teamBottom: '後攻チーム' });
-            setLineups({
-              top: Array.from({length: 10}, (_,i)=>({ order: i<9 ? i+1 : '投', name: i<9 ? `先攻${i+1}番` : `先発投手`, pos: i===9?'投':'未', throws: '右', bats: '右' })),
-              bottom: Array.from({length: 10}, (_,i)=>({ order: i<9 ? i+1 : '投', name: i<9 ? `後攻${i+1}番` : `先発投手`, pos: i===9?'投':'未', throws: '右', bats: '右' }))
-            });
+            setLineups(makeInitialLineups());
             setPitches([]); setUndoStack([]); setRedoStack([]); setConfirmDialog(null); showToast('新しい試合を開始しました');
           }
         });
@@ -542,7 +692,7 @@
           title: '📂 データの読み込み', message: '現在の作業中データは上書きされます。本当に読み込みますか？', isDanger: true,
           onConfirm: () => {
             const target = savedGames.find(g => g.id === gameId);
-            if (target) { setGameState(target.data.gameState); setGameInfo(target.data.gameInfo); setLineups(target.data.lineups); setPitches(target.data.pitches); setUndoStack([]); setRedoStack([]); setShowArchiveModal(false); setConfirmDialog(null); showToast('試合データを読み込みました'); }
+            if (target) { setGameState(normalizeGameState(target.data.gameState)); setGameInfo(target.data.gameInfo); setLineups(target.data.lineups || makeInitialLineups()); setPitches(target.data.pitches || []); setUndoStack([]); setRedoStack([]); setShowArchiveModal(false); setConfirmDialog(null); showToast('試合データを読み込みました'); }
           }
         });
       };
@@ -598,35 +748,11 @@
       const toggleRunner = (base) => { recordAction(); setGameState(prev => ({ ...prev, runners: { ...prev.runners, [base]: !prev.runners[base] } })); };
       const changeScore = (team, delta) => {
         recordAction();
-        setGameState(prev => { const newRuns = [...prev.runs[team]]; newRuns[prev.inning - 1] = Math.max(0, newRuns[prev.inning - 1] + delta); return { ...prev, runs: { ...prev.runs, [team]: newRuns } }; });
+        setGameState(prev => { const newRuns = ensureRunArray(prev.runs[team], prev.inning); newRuns[prev.inning - 1] = Math.max(0, (newRuns[prev.inning - 1] || 0) + delta); return { ...prev, runs: { ...prev.runs, [team]: newRuns } }; });
       };
 
       const handleAdvanceAndNextBatter = (eventType, addedOuts = 0) => {
-        setGameState(prev => {
-          let newOuts = prev.outs + addedOuts, newInning = prev.inning, newIsTop = prev.isTop, newBatterTop = prev.batterTop, newBatterBottom = prev.batterBottom;
-          let newRunners = { ...prev.runners }, newRunsArray = [...prev.runs[prev.isTop ? 'top' : 'bottom']], runScored = 0;
-          if (newOuts < 3) {
-            if (eventType === 'walk' || eventType === 'other') {
-              if (newRunners.first && newRunners.second && newRunners.third) runScored = 1; else if (newRunners.first && newRunners.second) newRunners.third = true; else if (newRunners.first) newRunners.second = true; newRunners.first = true;
-            } else if (['single', 'error'].includes(eventType)) {
-              if (newRunners.third) runScored++; newRunners.third = newRunners.second; newRunners.second = newRunners.first; newRunners.first = true;
-            } else if (eventType === 'double') {
-              if (newRunners.third) runScored++; if (newRunners.second) runScored++; newRunners.third = newRunners.first; newRunners.second = true; newRunners.first = false;
-            } else if (eventType === 'triple') {
-              if (newRunners.third) runScored++; if (newRunners.second) runScored++; if (newRunners.first) runScored++; newRunners.third = true; newRunners.second = false; newRunners.first = false;
-            } else if (eventType === 'homerun') {
-              if (newRunners.third) runScored++; if (newRunners.second) runScored++; if (newRunners.first) runScored++; runScored++; newRunners = { first: false, second: false, third: false };
-            } else if (eventType === 'sac_bunt') {
-              if (newRunners.third) runScored++; newRunners.third = newRunners.second; newRunners.second = newRunners.first; newRunners.first = false;
-            } else if (eventType === 'sac_fly') {
-              if (newRunners.third) runScored++; newRunners.third = false;
-            }
-          }
-          if (runScored > 0) newRunsArray[newInning - 1] += runScored;
-          if (prev.isTop) newBatterTop = newBatterTop === 9 ? 1 : newBatterTop + 1; else newBatterBottom = newBatterBottom === 9 ? 1 : newBatterBottom + 1;
-          if (newOuts >= 3) { newOuts = 0; newRunners = { first: false, second: false, third: false }; if (prev.isTop) newIsTop = false; else { newIsTop = true; newInning++; } }
-          return { ...prev, outs: newOuts, balls: 0, strikes: 0, batterTop: newBatterTop, batterBottom: newBatterBottom, inning: newInning, isTop: newIsTop, runners: newRunners, runs: { ...prev.runs, [prev.isTop ? 'top' : 'bottom']: newRunsArray } };
-        });
+        setGameState(prev => advanceGameState(prev, eventType, addedOuts));
         setShowInPlayResult(false); setSelectedPosition(null); setSelectedHitCoord(null); setShowErrorTypeSelect(false);
       };
 
@@ -692,7 +818,7 @@
         setGameState(prev => {
           const newRunners = { ...prev.runners }, newRuns = { ...prev.runs };
           if (advanceData.to !== 'same') { newRunners[advanceData.runner] = false; if (advanceData.to !== 'home') newRunners[advanceData.to] = true; }
-          if (advanceData.to === 'home') { const team = prev.isTop ? 'top' : 'bottom'; const newRunsArray = [...newRuns[team]]; newRunsArray[prev.inning - 1]++; newRuns[team] = newRunsArray; }
+          if (advanceData.to === 'home') { const team = prev.isTop ? 'top' : 'bottom'; const newRunsArray = ensureRunArray(newRuns[team], prev.inning); newRunsArray[prev.inning - 1] = (newRunsArray[prev.inning - 1] || 0) + 1; newRuns[team] = newRunsArray; }
           return { ...prev, runners: newRunners, runs: newRuns };
         });
         setShowAdvanceModal(false); setAdvanceData({ runner: '', reason: '', to: '' });
@@ -773,18 +899,26 @@
       };
 
       const handleEditPitchClick = (pitch) => { const globalIndex = pitches.indexOf(pitch); if (globalIndex !== -1) { setEditingPitchIndex(globalIndex); setEditPitchData({ ...pitch, runners: pitch.runners || { first: false, second: false, third: false } }); } };
-      const savePitchEdit = () => { recordAction(); const newPitches = [...pitches]; newPitches[editingPitchIndex] = editPitchData; setPitches(newPitches); setEditingPitchIndex(null); setEditPitchData(null); };
+      const savePitchEdit = () => {
+        recordAction();
+        const newPitches = [...pitches];
+        newPitches[editingPitchIndex] = editPitchData;
+        setPitches(newPitches);
+        setGameState(rebuildGameStateFromPitches(newPitches));
+        setEditingPitchIndex(null);
+        setEditPitchData(null);
+      };
       const cancelPitchEdit = () => { setEditingPitchIndex(null); setEditPitchData(null); };
       const toggleEditRunner = (base) => { setEditPitchData(prev => ({ ...prev, runners: { ...prev.runners, [base]: !prev.runners[base] } })); };
 
       const deletePitchRecord = () => {
         setConfirmDialog({
-          title: '🗑️ 記録の削除', message: 'この記録を削除しますか？', subMessage: '※ランナーやアウト数は自動で戻りません。', isDanger: true,
+          title: '🗑️ 記録の削除', message: 'この記録を削除しますか？', subMessage: '※ランナーやアウト数を履歴から再計算します。', isDanger: true,
           onConfirm: () => {
             recordAction();
             const newPitches = [...pitches]; const deletedPitch = newPitches.splice(editingPitchIndex, 1)[0];
             if (!deletedPitch.isEvent) { let currentNum = 1; newPitches.forEach(p => { if (p.inning === deletedPitch.inning && p.isTop === deletedPitch.isTop && p.batter === deletedPitch.batter && !p.isEvent) p.pitchNumber = currentNum++; }); }
-            setPitches(newPitches); setEditingPitchIndex(null); setEditPitchData(null); setConfirmDialog(null); showToast("記録を削除しました");
+            setPitches(newPitches); setGameState(rebuildGameStateFromPitches(newPitches)); setEditingPitchIndex(null); setEditPitchData(null); setConfirmDialog(null); showToast("記録を削除しました");
           }
         });
       };
@@ -860,7 +994,7 @@
           try {
             const data = JSON.parse(e.target.result);
             if (data.gameState && data.lineups && data.pitches) {
-              setGameState(data.gameState); setGameInfo(data.gameInfo || { date: new Date().toLocaleDateString('ja-JP').replace(/\//g, '-'), teamTop: '先攻チーム', teamBottom: '後攻チーム' }); setLineups(data.lineups); setPitches(data.pitches);
+              setGameState(normalizeGameState(data.gameState)); setGameInfo(data.gameInfo || { date: new Date().toLocaleDateString('ja-JP').replace(/\//g, '-'), teamTop: '先攻チーム', teamBottom: '後攻チーム' }); setLineups(data.lineups); setPitches(data.pitches);
               setUndoStack([]); setRedoStack([]); showToast('データを復元しました！'); setShowArchiveModal(false); setShowExport(false);
             } else showToast('無効なデータ形式です。', 'error');
           } catch (error) { showToast('読み込みに失敗しました。', 'error'); }
@@ -1005,7 +1139,7 @@
             if (!pStat.atBats) pStat.atBats = [];
             pStat.atBats.push({ pitches: ab, result: res, inning: lastPitch.inning, isTop: lastPitch.isTop });
           });
-          const calcRates = (st) => ({ AVG: st.AB>0?(st.H/st.AB).toFixed(3).replace(/^0/, ''):'.000', OPS: ((st.AB>0?st.H/st.AB:0) + (st.PA>0?(st.H+st.BB_HBP)/st.PA:0)).toFixed(3).replace(/^0/, ''), KPct: st.PA>0?Math.round((st.K/st.PA)*100):0, BBPct: st.PA>0?Math.round((st.BB_HBP/st.PA)*100):0 });
+          const calcRates = (st) => ({ AVG: st.AB>0?(st.H/st.AB).toFixed(3).replace(/^0/, ''):'.000', OPS: ((st.AB>0?st.TB/st.AB:0) + (st.PA>0?(st.H+st.BB_HBP)/st.PA:0)).toFixed(3).replace(/^0/, ''), KPct: st.PA>0?Math.round((st.K/st.PA)*100):0, BBPct: st.PA>0?Math.round((st.BB_HBP/st.PA)*100):0 });
           Object.assign(teamStats, calcRates(teamStats));
           const playersArray = Object.values(playerStats).map(p => ({...p, ...calcRates(p)})).sort((a,b) => a.order - b.order);
           return { team: teamStats, players: playersArray };
