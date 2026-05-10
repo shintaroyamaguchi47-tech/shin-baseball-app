@@ -60,6 +60,13 @@
       for(var i=0;i<GS*GS;i++){var row=Math.floor(i/GS),col=i%GS,v=d[i]||0;if(v>0){var op=mx>0?(v/mx)*0.85:0;var fill=color==='red'?'rgba(239,68,68,'+op+')':color==='indigo'?'rgba(139,92,246,'+op+')':'rgba(59,130,246,'+op+')';h+='<rect x="'+(col*cs)+'" y="'+(row*cs)+'" width="'+cs+'" height="'+cs+'" fill="'+fill+'"/>';h+='<text x="'+(col*cs+cs/2)+'" y="'+(row*cs+cs/2+3)+'" text-anchor="middle" fill="'+(op>0.5?'#fff':'#334155')+'" font-size="'+fnt+'" font-family="monospace" font-weight="bold">'+v+'</text>';}}
       h+='</svg></div>';return h;
     }
+    function formatResultTagsHtml(results) {
+      var list = (results || []).filter(Boolean);
+      if (!list.length) return '<span style="color:#94a3b8;">-</span>';
+      return list.map(function(r){
+        return '<span style="display:inline-block;margin:1px 3px 1px 0;padding:1px 5px;border-radius:999px;background:#eef2ff;color:#334155;font-size:9px;line-height:1.3;">'+esc(r)+'</span>';
+      }).join('');
+    }
     function sprayChartSvg(hits, label, size) {
       size = size || 240;
       var svgH = Math.round(200 * size / 240);
@@ -90,7 +97,7 @@
     }
     function batterTable(batting, teamName) {
       var h='<section class="report-section"><h3 class="report-heading" style="margin:0 0 10px;font-size:16px;font-weight:bold;color:#1e293b;border-bottom:2px solid #e2e8f0;padding-bottom:4px;">打者成績: '+esc(teamName)+'</h3><table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:16px;"><thead><tr style="background:#f1f5f9;color:#475569;border-bottom:2px solid #cbd5e1;"><th style="padding:8px 6px;text-align:left;">順</th><th style="padding:8px 6px;text-align:left;">選手名</th><th style="padding:8px 6px;text-align:right;">打数</th><th style="padding:8px 6px;text-align:right;">安打</th><th style="padding:8px 6px;text-align:right;">四死</th><th style="padding:8px 6px;text-align:right;">打率</th><th style="padding:8px 6px;text-align:right;">OPS</th><th style="padding:8px 6px;text-align:right;">K%</th><th style="padding:8px 6px;text-align:left;">打席結果</th></tr></thead><tbody>';
-      batting.players.forEach(function(p, i){var bg=i%2===0?'#ffffff':'#f8fafc'; h+='<tr style="background:'+bg+';border-bottom:1px solid #e2e8f0;"><td style="padding:6px;">'+p.order+'</td><td style="padding:6px;font-weight:bold;">'+esc(p.name)+'</td><td style="padding:6px;text-align:right;">'+p.AB+'</td><td style="padding:6px;text-align:right;">'+p.H+'</td><td style="padding:6px;text-align:right;">'+p.BB_HBP+'</td><td style="padding:6px;text-align:right;color:#0ea5e9;font-weight:bold;">'+p.AVG+'</td><td style="padding:6px;text-align:right;color:#d97706;font-weight:bold;">'+p.OPS+'</td><td style="padding:6px;text-align:right;">'+p.KPct+'%</td><td style="padding:6px;font-size:10px;">'+(p.results.map(function(r){return esc(r);}).join(', ')||'-')+'</td></tr>';});
+      batting.players.forEach(function(p, i){var bg=i%2===0?'#ffffff':'#f8fafc'; h+='<tr style="background:'+bg+';border-bottom:1px solid #e2e8f0;"><td style="padding:6px;">'+p.order+'</td><td style="padding:6px;font-weight:bold;">'+esc(p.name)+'</td><td style="padding:6px;text-align:right;">'+p.AB+'</td><td style="padding:6px;text-align:right;">'+p.H+'</td><td style="padding:6px;text-align:right;">'+p.BB_HBP+'</td><td style="padding:6px;text-align:right;color:#0ea5e9;font-weight:bold;">'+p.AVG+'</td><td style="padding:6px;text-align:right;color:#d97706;font-weight:bold;">'+p.OPS+'</td><td style="padding:6px;text-align:right;">'+p.KPct+'%</td><td style="padding:6px;font-size:10px;line-height:1.6;word-break:keep-all;overflow-wrap:anywhere;">'+formatResultTagsHtml(p.results)+'</td></tr>';});
       h+='</tbody></table></section>';return h;
     }
     function batterDetails(batting, teamName) {
@@ -98,12 +105,12 @@
       h+='<div style="display:flex;flex-wrap:wrap;gap:6px;">';
       batting.players.forEach(function(p){
         if(p.PA<=0) return;
-        h+='<div class="bdc" style="width:calc(33.33% - 4px);background:#ffffff;border:1px solid #cbd5e1;border-radius:7px;padding:7px;box-sizing:border-box;">';
+        h+='<div class="bdc" style="width:calc(50% - 4px);min-width:240px;background:#ffffff;border:1px solid #cbd5e1;border-radius:7px;padding:7px;box-sizing:border-box;">';
         h+='<div style="font-size:12px;font-weight:bold;margin-bottom:4px;border-bottom:1px solid #e2e8f0;padding-bottom:3px;">'+p.order+'番 '+esc(p.name)+'</div>';
         h+='<div style="font-size:10px;color:#0ea5e9;font-weight:bold;margin-bottom:4px;">AVG:'+p.AVG+' OPS:'+p.OPS+' K:'+p.KPct+'%</div>';
         h+='<div style="display:flex;gap:6px;align-items:flex-start;">';
         h+=sprayChartSvg(p.sprayHits,'',130);
-        h+='<div style="flex:1;font-size:10px;line-height:1.5;"><div>AB:'+p.AB+' H:'+p.H+'</div><div>四死:'+p.BB_HBP+' K:'+p.K+'</div><div style="font-size:9px;margin-top:3px;color:#64748b;word-break:break-all;">'+(p.results.join(', ')||'-')+'</div></div>';
+        h+='<div style="flex:1;font-size:10px;line-height:1.5;"><div>AB:'+p.AB+' H:'+p.H+'</div><div>四死:'+p.BB_HBP+' K:'+p.K+'</div><div style="font-size:9px;margin-top:3px;color:#64748b;line-height:1.6;word-break:keep-all;overflow-wrap:anywhere;">'+formatResultTagsHtml(p.results)+'</div></div>';
         h+='</div></div>';
       });
       h+='</div></section>';
@@ -2550,7 +2557,11 @@
                                 <td className="py-2 px-2 font-bold text-slate-400">{p.order}</td><td className="py-2 px-2 font-black text-slate-800">{p.name}</td>
                                 <td className="py-2 px-2 text-right">{p.AB}</td><td className="py-2 px-2 text-right">{p.H}</td><td className="py-2 px-2 text-right">{p.BB_HBP}</td>
                                 <td className="py-2 px-2 text-right text-blue-600 font-bold">{p.AVG}</td><td className="py-2 px-2 text-right text-amber-600 font-bold">{p.OPS}</td><td className="py-2 px-2 text-right text-rose-600">{p.KPct}%</td>
-                                <td className="py-2 px-2 text-[10px] text-slate-500 truncate max-w-[150px]">{p.results.join(', ') || '-'}</td>
+                                <td className="py-2 px-2 text-[10px] text-slate-500 max-w-[260px] align-top">
+                                  <div className="flex flex-wrap gap-1">
+                                    {p.results.length ? p.results.map((r, ri) => <span key={ri} className="inline-block px-2 py-[1px] rounded-full bg-indigo-50 text-slate-700 leading-snug">{r}</span>) : <span className="text-slate-400">-</span>}
+                                  </div>
+                                </td>
                               </tr>
                             ))}
                           </tbody>
@@ -2649,12 +2660,12 @@
                                     {batter.atBats.map((ab, abIdx) => {
                                       const rl = getResultLabel(ab.result);
                                       return (
-                                        <div key={abIdx} className="flex flex-col items-center gap-1" style={{minWidth: svgSz}}>
+                                        <div key={abIdx} className="flex flex-col items-center gap-1" style={{minWidth: svgSz, maxWidth: svgSz + 12}}>
                                           <div className="text-[10px] text-slate-500 font-bold">{ab.inning}回{ab.isTop?'表':'裏'}</div>
                                           <div style={{border:'1px solid #e2e8f0',borderRadius:6,overflow:'hidden',background:'white'}}>
                                             {renderAbZone(ab.pitches)}
                                           </div>
-                                          <div className="text-[9px] font-black text-center leading-tight" style={{color: rl.color, maxWidth: svgSz}}>{rl.text}</div>
+                                          <div className="text-[10px] font-black text-center leading-snug px-1" style={{color: rl.color, maxWidth: svgSz + 8, overflowWrap: 'anywhere'}}>{rl.text}</div>
                                         </div>
                                       );
                                     })}
