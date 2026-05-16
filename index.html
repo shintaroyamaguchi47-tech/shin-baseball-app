@@ -493,7 +493,7 @@
           else if (['ファウル','バントファウル'].includes(res)) state = state.strikes < 2 ? { ...state, strikes: state.strikes + 1 } : state;
           else if (res === 'スリーバント失敗' || res === '三振' || res === '振り逃げアウト') state = advanceGameState(state, 'out', 1);
           else if (res === '振り逃げ') state = advanceGameState(state, 'error', 0);
-          else if (res !== '牽制') state = advanceGameState(state, resultToEventType(res), resultToEventType(res) === 'out' ? 1 : 0);
+          else if (!res?.startsWith('牽制')) state = advanceGameState(state, resultToEventType(res), resultToEventType(res) === 'out' ? 1 : 0);
         });
         return normalizeGameState(state);
       };
@@ -525,6 +525,7 @@
       const [showAdvanceModal, setShowAdvanceModal] = useState(false);
       const [advanceData, setAdvanceData] = useState({ runner: '', reason: '', to: '' });
       const [showOutRunnerModal, setShowOutRunnerModal] = useState(false);
+      const [showPickoffModal, setShowPickoffModal] = useState(false);
       const [showFurinigeModal, setShowFurinigeModal] = useState(false);
       const [outRunnerData, setOutRunnerData] = useState({ runner: '', reason: '盗塁死' });
       
@@ -763,7 +764,7 @@
       };
 
       const recordPitch = (result, detailedResult = '') => {
-        if (!['牽制','その他出塁','ウエスト','死球'].includes(result) && currentPitch.course === null) { showToast("先にコースを選択してください！", "error"); return; }
+        if (!result?.startsWith('牽制') && !['その他出塁','ウエスト','死球'].includes(result) && currentPitch.course === null) { showToast("先にコースを選択してください！", "error"); return; }
         recordAction();
         const currentBatterIndex = (gameState.isTop ? gameState.batterTop : gameState.batterBottom) - 1;
         const currentPitcherObj = lineups[gameState.isTop ? 'bottom' : 'top'].find(p => p.pos === '投' || p.pos === '1' || p.pos === '①') || { name: '投手未設定', throws: '右' };
@@ -772,9 +773,9 @@
         const isThreeBunt = result === 'バントファウル' && gameState.strikes === 2;
         const actualResult = isThreeBunt ? 'スリーバント失敗' : detailedResult || result;
         setPitches([...pitches, {
-          ...currentPitch, course: ['牽制','その他出塁','ウエスト'].includes(result) ? null : currentPitch.course, type: ['牽制','その他出塁'].includes(result) ? '-' : currentPitch.type, result: actualResult, inning: gameState.inning, isTop: gameState.isTop, batter: currentBatterIndex + 1, pitchNumber: currentBatterPitches.length + 1, pitcherName: currentPitcherObj.name, pitcherThrows: currentPitcherObj.throws, batterName: currentBatterObj.name, batterBats: currentBatterObj.bats, isEvent: false, runners: { ...gameState.runners }, outs: gameState.outs
+          ...currentPitch, course: result?.startsWith('牽制') || ['その他出塁','ウエスト'].includes(result) ? null : currentPitch.course, type: result?.startsWith('牽制') || result === 'その他出塁' ? '-' : currentPitch.type, result: actualResult, inning: gameState.inning, isTop: gameState.isTop, batter: currentBatterIndex + 1, pitchNumber: currentBatterPitches.length + 1, pitcherName: currentPitcherObj.name, pitcherThrows: currentPitcherObj.throws, batterName: currentBatterObj.name, batterBats: currentBatterObj.bats, isEvent: false, runners: { ...gameState.runners }, outs: gameState.outs
         }]);
-        if (result === '牽制') { setCurrentPitch(p => ({ ...p, course: null })); return; }
+        if (result?.startsWith('牽制')) { setCurrentPitch(p => ({ ...p, course: null })); return; }
         if (isThreeBunt) { handleAdvanceAndNextBatter('out', 1); }
         else if (result === 'ストライク' || result === '空振り' || result === 'バント空振り') { if (gameState.strikes === 2) setShowFurinigeModal(true); else setGameState(prev => ({ ...prev, strikes: prev.strikes + 1 })); }
         else if (result === 'ファウル' || result === 'バントファウル') { if (gameState.strikes < 2) setGameState(prev => ({ ...prev, strikes: prev.strikes + 1 })); }
@@ -1028,7 +1029,7 @@
           lineups.top.forEach((p, i) => bStats.top[i+1] = { name: p.name, pos: p.pos, res: [] });
           lineups.bottom.forEach((p, i) => bStats.bottom[i+1] = { name: p.name, pos: p.pos, res: [] });
           const abs = {};
-          pitches.forEach(p => { if (!p.isEvent && !['牽制','盗塁死','その他出塁'].includes(p.result)) { const pName = p.pitcherName || '不明'; if (!pStats[pName]) pStats[pName] = { p: 0, k: 0, bb: 0, h: 0 }; pStats[pName].p++; } const key = `${p.inning}-${p.isTop}-${p.batter}`; if (!abs[key]) abs[key] = []; abs[key].push(p); });
+          pitches.forEach(p => { if (!p.isEvent && !(p.result?.startsWith('牽制') || ['盗塁死','その他出塁'].includes(p.result))) { const pName = p.pitcherName || '不明'; if (!pStats[pName]) pStats[pName] = { p: 0, k: 0, bb: 0, h: 0 }; pStats[pName].p++; } const key = `${p.inning}-${p.isTop}-${p.batter}`; if (!abs[key]) abs[key] = []; abs[key].push(p); });
           Object.values(abs).forEach(ab => {
             const noEv = ab.filter(p => !p.isEvent); if (noEv.length === 0) return;
             const last = noEv[noEv.length-1]; const pName = last.pitcherName || '不明'; if (!pStats[pName]) pStats[pName] = { p: 0, k: 0, bb: 0, h: 0 };
@@ -1037,7 +1038,7 @@
             if (['安','塁打','本塁打'].some(w=>res.includes(w))) { pStats[pName].h++; }
             else if (['死球','四球','ウエスト'].includes(res) || b>=4) { pStats[pName].bb++; finalRes = res==='死球'?'死球':'四球'; }
             else if (res==='三振' || res==='スリーバント失敗' || res==='振り逃げ' || res==='振り逃げアウト' || s>=3) { pStats[pName].k++; finalRes = res==='スリーバント失敗'?'スリーバント失敗':res==='振り逃げ'?'振り逃げ':res==='振り逃げアウト'?'振り逃げアウト':'三振'; }
-            if (!['牽制','盗塁死'].includes(finalRes)) { const tk = last.isTop ? 'top' : 'bottom'; if(bStats[tk][last.batter]) bStats[tk][last.batter].res.push(finalRes); }
+            if (!(finalRes?.startsWith('牽制') || finalRes === '盗塁死')) { const tk = last.isTop ? 'top' : 'bottom'; if(bStats[tk][last.batter]) bStats[tk][last.batter].res.push(finalRes); }
           });
           text += `【投手】\n`; Object.entries(pStats).forEach(([n, s]) => text += `${n}: ${s.p}球 / 奪三振${s.k} / 与四死${s.bb} / 被安打${s.h}\n`);
           text += `\n【打席: ${gameInfo.teamTop}】\n`; Object.entries(bStats.top).forEach(([o, b]) => text += `${o}番(${b.pos}) ${b.name}: ${b.res.length>0?b.res.join('、'):'-'}\n`);
@@ -1051,7 +1052,7 @@
       const pitchesWithCountState = useMemo(() => {
          const result = []; let currentAbKey = null, b = 0, s = 0;
          pitches.forEach(p => {
-             if (p.isEvent || ['牽制','盗塁死','その他出塁'].includes(p.result)) { result.push({...p, countState: 'even'}); return; }
+             if (p.isEvent || p.result?.startsWith('牽制') || ['盗塁死','その他出塁'].includes(p.result)) { result.push({...p, countState: 'even'}); return; }
              const key = `${p.inning}-${p.isTop}-${p.batter}`;
              if (currentAbKey !== key) { currentAbKey = key; b = 0; s = 0; }
              let countState = 'even'; if (s > b) countState = 'ahead'; else if (b > s) countState = 'behind';
@@ -1062,7 +1063,7 @@
       }, [pitches]);
 
       const analysisData = useMemo(() => {
-        const valid = pitchesWithCountState.filter(p => !p.isEvent && !['牽制','盗塁死','その他出塁'].includes(p.result) && (analysisFilter.pitcher === 'ALL' || p.pitcherName === analysisFilter.pitcher) && (analysisFilter.batterSide === 'ALL' || p.batterBats === analysisFilter.batterSide));
+        const valid = pitchesWithCountState.filter(p => !p.isEvent && !(p.result?.startsWith('牽制') || ['盗塁死','その他出塁'].includes(p.result)) && (analysisFilter.pitcher === 'ALL' || p.pitcherName === analysisFilter.pitcher) && (analysisFilter.batterSide === 'ALL' || p.batterBats === analysisFilter.batterSide));
         const makeBucket = () => ({ all: {}, ahead: {}, even: {}, behind: {}, max: {all:0, ahead:0, even:0, behind:0} });
         const heatmaps = { all: makeBucket(), fastball: makeBucket(), breaking: makeBucket() };
         const pitchTypeHeatmaps = {};
@@ -1114,7 +1115,7 @@
         const getSprayResultType = (res) => ['安','塁打','本塁打'].some(w=>res.includes(w))?'hit':['エラー','野手選択'].some(w=>res.includes(w))?'error':res.includes('ファウル')?'foul':'out';
         const getBallFlight = (res) => res.includes('本塁打')?'hr':['ゴロ','併殺打','バント'].some(w=>res.includes(w))?'grounder':['直','ライナー','安','二塁打','三塁打'].some(w=>res.includes(w))?'liner':'fly';
         const calcBatting = (isTopQuery) => {
-          const teamPitches = pitchesWithCountState.filter(p => p.isTop === isTopQuery && !p.isEvent && !['牽制','盗塁死','その他出塁'].includes(p.result));
+          const teamPitches = pitchesWithCountState.filter(p => p.isTop === isTopQuery && !p.isEvent && !(p.result?.startsWith('牽制') || ['盗塁死','その他出塁'].includes(p.result)));
           const abs = []; let currentAb = [];
           teamPitches.forEach(p => { if (p.pitchNumber === 1 && currentAb.length > 0) { abs.push(currentAb); currentAb = []; } currentAb.push(p); });
           if (currentAb.length > 0) abs.push(currentAb);
@@ -1141,7 +1142,7 @@
               const sEnt = { x: sp.x, y: sp.y, type: getSprayResultType(res), flight: getBallFlight(res), result: res, isManual: lastPitch.hitX !== undefined };
               teamStats.sprayHits.push(sEnt); pStat.sprayHits.push(sEnt);
             }
-            if (!['牽制','盗塁死','その他出塁'].includes(res)) pStat.results.push(res);
+            if (!(res?.startsWith('牽制') || ['盗塁死','その他出塁'].includes(res))) pStat.results.push(res);
             if (!pStat.atBats) pStat.atBats = [];
             pStat.atBats.push({ pitches: ab, result: res, inning: lastPitch.inning, isTop: lastPitch.isTop });
           });
@@ -1151,7 +1152,7 @@
           return { team: teamStats, players: playersArray };
         };
         const calcTeamPitching = (isTopQuery) => {
-          const vP = pitchesWithCountState.filter(p => p.isTop === isTopQuery && !p.isEvent && !['牽制','盗塁死','その他出塁'].includes(p.result));
+          const vP = pitchesWithCountState.filter(p => p.isTop === isTopQuery && !p.isEvent && !(p.result?.startsWith('牽制') || ['盗塁死','その他出塁'].includes(p.result)));
           const pStats = {};
           vP.forEach(p => {
               const pName = p.pitcherName || '不明';
@@ -1259,7 +1260,7 @@
           const targetIsTop = g.teamTop === cumulativeTeam;
           const battingIsTop = targetIsTop ? true : false;
           // ---- 打者集計 ----
-          const batPitches = gpitches.filter(p => p.isTop === battingIsTop && !p.isEvent && !['牽制','盗塁死','その他出塁'].includes(p.result));
+          const batPitches = gpitches.filter(p => p.isTop === battingIsTop && !p.isEvent && !(p.result?.startsWith('牽制') || ['盗塁死','その他出塁'].includes(p.result)));
           const abs = []; let cur = [];
           batPitches.forEach(p => { if (p.pitchNumber === 1 && cur.length > 0) { abs.push(cur); cur = []; } cur.push(p); });
           if (cur.length > 0) abs.push(cur);
@@ -1300,7 +1301,7 @@
 
           // ---- 投手集計 ----
           const pitchingIsTop = !battingIsTop;
-          const pitPitches = gpitches.filter(p => p.isTop === pitchingIsTop && !p.isEvent && !['牽制','盗塁死','その他出塁'].includes(p.result));
+          const pitPitches = gpitches.filter(p => p.isTop === pitchingIsTop && !p.isEvent && !(p.result?.startsWith('牽制') || ['盗塁死','その他出塁'].includes(p.result)));
           const pAbs = []; cur = [];
           pitPitches.forEach(p => { if (p.pitchNumber === 1 && cur.length > 0) { pAbs.push(cur); cur = []; } cur.push(p); });
           if (cur.length > 0) pAbs.push(cur);
@@ -1659,7 +1660,7 @@
                           <div className="grid grid-cols-5 gap-1.5 pt-2 border-t border-slate-200">
                             <button onClick={() => recordPitch('死球')} className="bg-purple-600 text-white py-2.5 rounded-lg font-bold text-[10px] shadow-sm active:scale-95">死球</button>
                             <button onClick={() => recordPitch('ウエスト')} className="bg-teal-600 text-white py-2.5 rounded-lg font-bold text-[10px] shadow-sm active:scale-95">ｳｴｽﾄ</button>
-                            <button onClick={() => recordPitch('牽制')} className="bg-orange-500 text-white py-2.5 rounded-lg font-bold text-[10px] shadow-sm active:scale-95">牽制</button>
+                            <button onClick={() => setShowPickoffModal(true)} className="bg-orange-500 text-white py-2.5 rounded-lg font-bold text-[10px] shadow-sm active:scale-95">牽制</button>
                             <button onClick={() => { setOutRunnerData({ runner: '', reason: '盗塁死' }); setShowOutRunnerModal(true); }} className="bg-rose-600 text-white py-2.5 rounded-lg font-bold text-[10px] shadow-sm active:scale-95">走者ｱｳﾄ</button>
                             <button onClick={() => recordPitch('その他出塁')} className="bg-cyan-600 text-white py-2.5 rounded-lg font-bold text-[10px] shadow-sm active:scale-95">他出塁</button>
                           </div>
@@ -1903,7 +1904,7 @@
                           <div className="flex-1 flex flex-col justify-center min-w-0 pr-2">
                             <div className="truncate font-bold text-xs text-slate-700">{p.type ? p.type.replace(/系$/, '') : ''}</div>
                           </div>
-                          <div className={`text-white text-[10px] font-black px-3 py-1.5 rounded-lg shadow-sm whitespace-nowrap shrink-0 ${p.result.includes('ストライク')||p.result.includes('空振')||p.result==='スリーバント失敗'?'bg-amber-500':p.result==='振り逃げ'?'bg-cyan-600':p.result==='振り逃げアウト'?'bg-cyan-800':p.result==='ボール'?'bg-emerald-500':p.result==='ウエスト'?'bg-teal-600':p.result==='死球'?'bg-purple-600':['安','塁打','本塁打'].some(w=>p.result.includes(w))?'bg-blue-600':p.result.includes('ファウル')?'bg-orange-500':'bg-rose-500'}`}>{p.result}</div>
+                          <div className={`text-white text-[10px] font-black px-3 py-1.5 rounded-lg shadow-sm whitespace-nowrap shrink-0 ${p.result.includes('ストライク')||p.result.includes('空振')||p.result==='スリーバント失敗'?'bg-amber-500':p.result==='振り逃げ'?'bg-cyan-600':p.result==='振り逃げアウト'?'bg-cyan-800':p.result==='ボール'?'bg-emerald-500':p.result==='ウエスト'?'bg-teal-600':p.result==='死球'?'bg-purple-600':['安','塁打','本塁打'].some(w=>p.result.includes(w))?'bg-blue-600':p.result?.startsWith('牽制')?'bg-orange-500':p.result.includes('ファウル')?'bg-orange-400':'bg-rose-500'}`}>{p.result}</div>
                         </div>
                       )
                     ))
@@ -2473,6 +2474,30 @@
                 <div className="p-4 border-t border-slate-200 flex gap-3 bg-slate-50">
                   <button onClick={() => setShowOutRunnerModal(false)} className="flex-1 bg-slate-100 text-slate-700 py-3 rounded-xl font-bold">キャンセル</button>
                   <button onClick={handleOutRunnerRecord} className="flex-1 bg-rose-600 text-white py-3 rounded-xl font-black shadow-md active:scale-95">アウトを記録</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ============================================================ */}
+          {/* ========== MODAL: 牽制 塁選択 (PICKOFF BASE SELECT) ======== */}
+          {/* ============================================================ */}
+          {showPickoffModal && (
+            <div className="fixed inset-0 bg-slate-900/70 z-[300] flex items-center justify-center p-4 backdrop-blur-sm">
+              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-xs overflow-hidden flex flex-col border border-slate-200">
+                <div className="p-4 border-b border-orange-200 bg-orange-50 flex justify-between items-center">
+                  <h2 className="text-lg font-black text-orange-800">🏃 牽制 — 何塁へ？</h2>
+                  <button onClick={() => setShowPickoffModal(false)} className="text-orange-400 hover:text-orange-800 font-bold text-xl px-2">✕</button>
+                </div>
+                <div className="p-6">
+                  <div className="grid grid-cols-3 gap-3">
+                    {['1塁','2塁','3塁'].map(base => (
+                      <button key={base} onClick={() => { setShowPickoffModal(false); recordPitch(`牽制(${base})`); }} className="py-5 rounded-2xl font-black text-lg border-2 border-orange-300 bg-orange-50 text-orange-700 active:scale-95 hover:bg-orange-500 hover:text-white hover:border-orange-500 shadow-sm transition-colors">{base}</button>
+                    ))}
+                  </div>
+                </div>
+                <div className="p-4 border-t border-slate-200 bg-slate-50">
+                  <button onClick={() => setShowPickoffModal(false)} className="w-full bg-slate-100 text-slate-700 py-3 rounded-xl font-bold">キャンセル</button>
                 </div>
               </div>
             </div>
