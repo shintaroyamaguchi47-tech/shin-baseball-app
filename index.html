@@ -190,7 +190,7 @@
         if(d.total>0){
             Object.entries(d.types).sort(function(a,b){return b[1]-a[1];}).forEach(function(e){
                 var pct=Math.round((e[1]/d.total)*100);
-                h+='<div style="display:flex;align-items:center;gap:3px;font-size:8px;margin:2px 0;"><span style="width:36px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;flex-shrink:0;">'+esc(e[0])+'</span><div style="flex:1;height:5px;background:#e2e8f0;border-radius:2px;"><div style="width:'+pct+'%;height:100%;background:#3b82f6;border-radius:2px;"></div></div><span style="width:22px;text-align:right;flex-shrink:0;">'+pct+'%</span></div>';
+                h+='<div style="margin:2px 0;font-size:8px;"><div style="overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:#334155;">'+esc(e[0])+'</div><div style="display:flex;align-items:center;gap:2px;"><div style="flex:1;height:4px;background:#e2e8f0;border-radius:2px;"><div style="width:'+pct+'%;height:100%;background:#3b82f6;border-radius:2px;"></div></div><span style="flex-shrink:0;font-size:7px;color:#475569;">'+pct+'%</span></div></div>';
             });
         }else{h+='<div style="text-align:center;font-size:9px;color:#94a3b8;">-</div>';}
         h+='</div>';
