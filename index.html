@@ -307,7 +307,7 @@
     sprayH+=sprayChartSvg(t.bottomBatting.team.sprayHits,gi.teamBottom,185);
     sprayH+='</div>';
     var body='<div style="max-width:900px;margin:0 auto;padding:16px 24px;font-family:sans-serif;">';
-    body+='<h1 style="font-size:22px;font-weight:bold;margin:0 0 3px;">試合分析レポート</h1><div style="color:#64748b;margin-bottom:10px;font-size:12px;">'+esc(gi.date)+' / 総投球数: '+ps.filter(function(p){return !p.isEvent;}).length+'球</div>';
+    body+='<h1 style="font-size:22px;font-weight:bold;margin:0 0 3px;">試合分析レポート</h1><div style="color:#64748b;margin-bottom:10px;font-size:12px;">'+esc(gi.date)+' / 総投球数: '+ps.filter(function(p){return !p.isEvent||p.countAsPitch;}).length+'球</div>';
     body+=scoreBoardH+summaryH+sprayH;
     body+=batterTable(t.topBatting,gi.teamTop);
     body+=batterDetails(t.topBatting,gi.teamTop);
@@ -523,7 +523,7 @@
       const [showInPlayResult, setShowInPlayResult] = useState(false);
       const [showErrorTypeSelect, setShowErrorTypeSelect] = useState(false);
       const [showAdvanceModal, setShowAdvanceModal] = useState(false);
-      const [advanceData, setAdvanceData] = useState({ runner: '', reason: '', to: '' });
+      const [advanceData, setAdvanceData] = useState({ runner: '', reason: '', to: '', countAsPitch: null });
       const [showOutRunnerModal, setShowOutRunnerModal] = useState(false);
       const [showPickoffModal, setShowPickoffModal] = useState(false);
       const [showFurinigeModal, setShowFurinigeModal] = useState(false);
@@ -686,7 +686,7 @@
         setConfirmDialog({
           title: '💾 アーカイブに保存', message: '現在の試合状態をアーカイブに保存しますか？', isDanger: false,
           onConfirm: () => {
-            const newGame = { id: Date.now().toString(), date: gameInfo.date, teamTop: gameInfo.teamTop, teamBottom: gameInfo.teamBottom, scoreTop: gameState.runs.top.reduce((a,b)=>a+b,0), scoreBottom: gameState.runs.bottom.reduce((a,b)=>a+b,0), pitchesCount: pitches.filter(p=>!p.isEvent).length, data: { gameState, gameInfo, lineups, pitches } };
+            const newGame = { id: Date.now().toString(), date: gameInfo.date, teamTop: gameInfo.teamTop, teamBottom: gameInfo.teamBottom, scoreTop: gameState.runs.top.reduce((a,b)=>a+b,0), scoreBottom: gameState.runs.bottom.reduce((a,b)=>a+b,0), pitchesCount: pitches.filter(p=>!p.isEvent||p.countAsPitch).length, data: { gameState, gameInfo, lineups, pitches } };
             setSavedGames([newGame, ...savedGames]);
             autoRegisterFromGame(gameInfo, lineups);
             setConfirmDialog(null); showToast('試合を保存しました！チーム/選手を自動登録しました');
@@ -769,7 +769,7 @@
         const currentBatterIndex = (gameState.isTop ? gameState.batterTop : gameState.batterBottom) - 1;
         const currentPitcherObj = lineups[gameState.isTop ? 'bottom' : 'top'].find(p => p.pos === '投' || p.pos === '1' || p.pos === '①') || { name: '投手未設定', throws: '右' };
         const currentBatterObj = lineups[gameState.isTop ? 'top' : 'bottom'][currentBatterIndex] || { name: '打者未設定', bats: '右' };
-        const currentBatterPitches = pitches.filter(p => p.inning === gameState.inning && p.isTop === gameState.isTop && p.batter === currentBatterIndex + 1 && !p.isEvent);
+        const currentBatterPitches = pitches.filter(p => p.inning === gameState.inning && p.isTop === gameState.isTop && p.batter === currentBatterIndex + 1 && (!p.isEvent || p.countAsPitch));
         const isThreeBunt = result === 'バントファウル' && gameState.strikes === 2;
         const actualResult = isThreeBunt ? 'スリーバント失敗' : detailedResult || result;
         setPitches([...pitches, {
@@ -813,6 +813,7 @@
 
       const handleAdvanceRecord = () => {
         if (!advanceData.runner || !advanceData.reason || !advanceData.to) { showToast("全ての項目を選択してください", "error"); return; }
+        if (advanceData.reason === 'ボーク' && advanceData.countAsPitch === null) { showToast("投球の有無を選択してください", "error"); return; }
         recordAction();
         const runnerName = advanceData.runner === 'first' ? '1塁走者' : advanceData.runner === 'second' ? '2塁走者' : '3塁走者';
         const toName = advanceData.to === 'second' ? '2塁' : advanceData.to === 'third' ? '3塁' : advanceData.to === 'same' ? 'そのまま' : '本塁';
@@ -821,14 +822,16 @@
         const currentBatterIndex = (gameState.isTop ? gameState.batterTop : gameState.batterBottom) - 1;
         const currentPitcherObj = lineups[gameState.isTop ? 'bottom' : 'top'].find(p => p.pos === '投' || p.pos === '1' || p.pos === '①') || { name: '投手未設定', throws: '右' };
         const currentBatterObj = lineups[gameState.isTop ? 'top' : 'bottom'][currentBatterIndex] || { name: '打者未設定', bats: '右' };
-        setPitches([...pitches, { course: null, type: '-', result: resultText, inning: gameState.inning, isTop: gameState.isTop, batter: currentBatterIndex + 1, pitchNumber: '-', pitcherName: currentPitcherObj.name, pitcherThrows: currentPitcherObj.throws, batterName: currentBatterObj.name, batterBats: currentBatterObj.bats, isEvent: true, runners: { ...gameState.runners }, outs: gameState.outs }]);
+        const isBalkWithPitch = advanceData.reason === 'ボーク' && advanceData.countAsPitch === true;
+        const balkPitchNum = isBalkWithPitch ? pitches.filter(p => p.inning === gameState.inning && p.isTop === gameState.isTop && p.batter === currentBatterIndex + 1 && (!p.isEvent || p.countAsPitch)).length + 1 : '-';
+        setPitches([...pitches, { course: null, type: '-', result: resultText, inning: gameState.inning, isTop: gameState.isTop, batter: currentBatterIndex + 1, pitchNumber: balkPitchNum, pitcherName: currentPitcherObj.name, pitcherThrows: currentPitcherObj.throws, batterName: currentBatterObj.name, batterBats: currentBatterObj.bats, isEvent: true, countAsPitch: isBalkWithPitch || undefined, runners: { ...gameState.runners }, outs: gameState.outs }]);
         setGameState(prev => {
           const newRunners = { ...prev.runners }, newRuns = { ...prev.runs };
           if (advanceData.to !== 'same') { newRunners[advanceData.runner] = false; if (advanceData.to !== 'home') newRunners[advanceData.to] = true; }
           if (advanceData.to === 'home') { const team = prev.isTop ? 'top' : 'bottom'; const newRunsArray = ensureRunArray(newRuns[team], prev.inning); newRunsArray[prev.inning - 1] = (newRunsArray[prev.inning - 1] || 0) + 1; newRuns[team] = newRunsArray; }
           return { ...prev, runners: newRunners, runs: newRuns };
         });
-        setShowAdvanceModal(false); setAdvanceData({ runner: '', reason: '', to: '' });
+        setShowAdvanceModal(false); setAdvanceData({ runner: '', reason: '', to: '', countAsPitch: null });
       };
 
       const handleOutRunnerRecord = () => {
@@ -924,7 +927,7 @@
           onConfirm: () => {
             recordAction();
             const newPitches = [...pitches]; const deletedPitch = newPitches.splice(editingPitchIndex, 1)[0];
-            if (!deletedPitch.isEvent) { let currentNum = 1; newPitches.forEach(p => { if (p.inning === deletedPitch.inning && p.isTop === deletedPitch.isTop && p.batter === deletedPitch.batter && !p.isEvent) p.pitchNumber = currentNum++; }); }
+            if (!deletedPitch.isEvent || deletedPitch.countAsPitch) { let currentNum = 1; newPitches.forEach(p => { if (p.inning === deletedPitch.inning && p.isTop === deletedPitch.isTop && p.batter === deletedPitch.batter && (!p.isEvent || p.countAsPitch)) p.pitchNumber = currentNum++; }); }
             setPitches(newPitches); setGameState(rebuildGameStateFromPitches(newPitches)); setEditingPitchIndex(null); setEditPitchData(null); setConfirmDialog(null); showToast("記録を削除しました");
           }
         });
@@ -1885,7 +1888,7 @@
                     <h2 className="text-sm font-black text-slate-700">📝 打席履歴</h2>
                     <span className="text-[10px] text-slate-500 font-bold mt-0.5">{currentBatterObj.name} vs {currentPitcherObj.name}</span>
                   </div>
-                  <span className="text-xs bg-white border border-slate-300 px-3 py-1 rounded-lg shadow-sm font-mono font-black text-slate-700">{currentAtBatPitches.filter(p => !p.isEvent).length} 球</span>
+                  <span className="text-xs bg-white border border-slate-300 px-3 py-1 rounded-lg shadow-sm font-mono font-black text-slate-700">{currentAtBatPitches.filter(p => !p.isEvent || p.countAsPitch).length} 球</span>
                 </div>
                 <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-2 bg-slate-100/50">
                   {currentAtBatPitches.length === 0 ? (
@@ -1893,7 +1896,11 @@
                   ) : (
                     currentAtBatPitches.map((p, idx) => (
                       p.isEvent ? (
-                        <div key={idx} onClick={() => handleEditPitchClick(p)} className="bg-blue-50/50 p-3 rounded-xl shadow-sm border border-blue-100 flex justify-center items-center text-blue-800 font-bold text-xs cursor-pointer hover:bg-blue-100">{p.result}</div>
+                        <div key={idx} onClick={() => handleEditPitchClick(p)} className="bg-blue-50/50 p-3 rounded-xl shadow-sm border border-blue-100 flex items-center gap-2 text-blue-800 font-bold text-xs cursor-pointer hover:bg-blue-100">
+                          {p.countAsPitch && <span className="font-black text-lg text-slate-400 font-mono w-6 text-center shrink-0">{p.pitchNumber}</span>}
+                          <span className="flex-1 text-center">{p.result}</span>
+                          {p.countAsPitch && <span className="text-[10px] bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded font-bold shrink-0">球数+1</span>}
+                        </div>
                       ) : (
                         <div key={idx} onClick={() => handleEditPitchClick(p)} className="bg-white p-2.5 rounded-xl shadow-sm border border-slate-200 flex items-center gap-3 cursor-pointer hover:border-blue-400 group">
                           <div className="font-black text-xl text-slate-300 group-hover:text-blue-400 w-6 text-center font-mono">{p.pitchNumber}</div>
@@ -1917,7 +1924,7 @@
               <div className="bg-white rounded-3xl shadow-sm border border-slate-200 flex-1 flex flex-col overflow-hidden">
                 <div className="bg-slate-800 p-4 flex justify-between items-center shrink-0">
                   <h2 className="text-sm font-bold text-white">📰 テキスト速報</h2>
-                  <div className="text-xs text-slate-300 font-mono bg-slate-700 px-3 py-1 rounded-lg">{pitches.filter(p => !p.isEvent).length}球</div>
+                  <div className="text-xs text-slate-300 font-mono bg-slate-700 px-3 py-1 rounded-lg">{pitches.filter(p => !p.isEvent || p.countAsPitch).length}球</div>
                 </div>
                 <div className="flex-1 overflow-y-auto bg-slate-900 p-3 md:p-4">
                   {playByPlayData.length === 0 ? <div className="flex h-full items-center justify-center text-slate-500 text-sm font-bold">まだ記録がありません</div> : (
@@ -2421,10 +2428,19 @@
                     <label className="text-xs font-bold text-slate-500 mb-2 block">理由</label>
                     <div className="grid grid-cols-3 gap-2">
                       {['盗塁','暴投','捕逸','ボーク','代走','その他'].map(r => (
-                        <button key={r} onClick={() => setAdvanceData(prev => ({...prev, reason: r}))} className={`py-2.5 rounded-xl font-bold text-xs border-2 ${advanceData.reason === r ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-white text-slate-600 border-slate-300'}`}>{r}</button>
+                        <button key={r} onClick={() => setAdvanceData(prev => ({...prev, reason: r, countAsPitch: null}))} className={`py-2.5 rounded-xl font-bold text-xs border-2 ${advanceData.reason === r ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-white text-slate-600 border-slate-300'}`}>{r}</button>
                       ))}
                     </div>
                   </div>
+                  {advanceData.reason === 'ボーク' && (
+                    <div>
+                      <label className="text-xs font-bold text-slate-500 mb-2 block">投球の有無</label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button onClick={() => setAdvanceData(prev => ({...prev, countAsPitch: true}))} className={`py-2.5 rounded-xl font-bold text-xs border-2 ${advanceData.countAsPitch === true ? 'bg-orange-500 text-white border-orange-500 shadow-md' : 'bg-white text-slate-600 border-slate-300'}`}>投球あり（球数+1）</button>
+                        <button onClick={() => setAdvanceData(prev => ({...prev, countAsPitch: false}))} className={`py-2.5 rounded-xl font-bold text-xs border-2 ${advanceData.countAsPitch === false ? 'bg-slate-600 text-white border-slate-600 shadow-md' : 'bg-white text-slate-600 border-slate-300'}`}>投球なし（球数変わらず）</button>
+                      </div>
+                    </div>
+                  )}
                   <div>
                     <label className="text-xs font-bold text-slate-500 mb-2 block">進塁先</label>
                     <div className="grid grid-cols-4 gap-2">
@@ -2435,7 +2451,7 @@
                   </div>
                 </div>
                 <div className="p-4 border-t border-slate-200 flex gap-3 bg-slate-50">
-                  <button onClick={() => { setShowAdvanceModal(false); setAdvanceData({ runner: '', reason: '', to: '' }); }} className="flex-1 bg-slate-100 text-slate-700 py-3 rounded-xl font-bold">キャンセル</button>
+                  <button onClick={() => { setShowAdvanceModal(false); setAdvanceData({ runner: '', reason: '', to: '', countAsPitch: null }); }} className="flex-1 bg-slate-100 text-slate-700 py-3 rounded-xl font-bold">キャンセル</button>
                   <button onClick={handleAdvanceRecord} className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-black shadow-md active:scale-95">記録する</button>
                 </div>
               </div>
@@ -2550,7 +2566,7 @@
                       {gameState.runs.top.reduce((a,b)=>a+b,0)} - {gameState.runs.bottom.reduce((a,b)=>a+b,0)}
                     </div>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
-                      <div className="bg-slate-50 p-3 rounded-xl"><div className="text-[10px] font-bold text-slate-500 uppercase">投球数</div><div className="text-2xl font-black text-slate-800">{pitches.filter(p=>!p.isEvent).length}</div></div>
+                      <div className="bg-slate-50 p-3 rounded-xl"><div className="text-[10px] font-bold text-slate-500 uppercase">投球数</div><div className="text-2xl font-black text-slate-800">{pitches.filter(p=>!p.isEvent||p.countAsPitch).length}</div></div>
                       <div className="bg-slate-50 p-3 rounded-xl"><div className="text-[10px] font-bold text-slate-500 uppercase">{gameInfo.teamTop} 打率</div><div className="text-2xl font-black text-blue-700">{advancedStats.topBatting.team.AVG}</div></div>
                       <div className="bg-slate-50 p-3 rounded-xl"><div className="text-[10px] font-bold text-slate-500 uppercase">{gameInfo.teamBottom} 打率</div><div className="text-2xl font-black text-blue-700">{advancedStats.bottomBatting.team.AVG}</div></div>
                       <div className="bg-slate-50 p-3 rounded-xl"><div className="text-[10px] font-bold text-slate-500 uppercase">H / E</div><div className="text-lg font-black text-slate-800">{hitsAndErrors.top.hits}H-{hitsAndErrors.top.errors}E / {hitsAndErrors.bottom.hits}H-{hitsAndErrors.bottom.errors}E</div></div>
