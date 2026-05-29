@@ -44,7 +44,7 @@
   window.generatePdfReport = function(data) {
     var w = window.open('', '_blank');
     if (!w) return false;
-    var gi = data.gameInfo, gs = data.gameState, stats = data.advancedStats, ps = data.pitches, hAndE = data.hitsAndErrors;
+    var gi = data.gameInfo, gs = data.gameState, stats = data.advancedStats, ps = data.pitches, hAndE = data.hitsAndErrors, analyst = data.analystInsights;
     var topTotal = gs.runs.top.reduce(function(a,b){return a+b;},0);
     var bottomTotal = gs.runs.bottom.reduce(function(a,b){return a+b;},0);
     function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -283,6 +283,45 @@
       });
       return h;
     }
+    function analystHtml(a){
+      if(!a || !a.hasData) return '';
+      var PTC={'ストレート':'#ef4444','スライダー':'#3b82f6','シュート':'#10b981','カーブ':'#f59e0b','落ちる球':'#6366f1','シンカー':'#06b6d4'};
+      function pf(v){return v==null?'–':v+'%';}
+      function mixTxt(mix){
+        if(!mix||!mix.items.length) return '<span style="color:#94a3b8;">データなし</span>';
+        return mix.items.map(function(it){return '<span style="display:inline-block;margin:1px 4px 1px 0;padding:1px 6px;border-radius:999px;background:'+(PTC[it.type]||'#94a3b8')+';color:#fff;font-size:9px;">'+esc(it.type)+' '+it.pct+'%</span>';}).join('');
+      }
+      function statTable(rows){
+        var h='<table style="width:100%;border-collapse:collapse;font-size:10px;margin-bottom:6px;"><tbody>';
+        rows.forEach(function(r){h+='<tr style="border-bottom:1px solid #eef2f7;"><td style="padding:3px 6px;color:#475569;font-weight:bold;background:#f8fafc;width:38%;">'+r[0]+'</td><td style="padding:3px 6px;text-align:right;font-weight:bold;color:#1e293b;width:14%;">'+pf(r[1])+'</td><td style="padding:3px 6px;color:#94a3b8;font-size:9px;">'+r[2]+'</td></tr>';});
+        h+='</tbody></table>';return h;
+      }
+      function segTxt(label,segs,total){
+        if(!total) return '<div style="font-size:10px;margin:2px 0;color:#94a3b8;">'+label+': データなし</div>';
+        var parts=segs.map(function(s){var p=total>0?Math.round(s.v/total*1000)/10:0;return '<span style="color:'+s.c+';font-weight:bold;">'+s.label+' '+p+'%</span>';}).join(' / ');
+        return '<div style="font-size:10px;margin:2px 0;"><span style="color:#475569;font-weight:bold;">'+label+':</span> '+parts+' <span style="color:#94a3b8;">(n='+total+')</span></div>';
+      }
+      function teamBlock(tm){
+        var bp=tm.batting.pd, pp=tm.pitching.pd, bb=tm.batting.battedBall;
+        var h='<section class="report-section"><div class="report-heading" style="font-size:15px;font-weight:bold;color:#1e293b;border-bottom:2px solid #e2e8f0;padding-bottom:3px;margin-bottom:8px;">アナリスト指標: '+esc(tm.name)+'</div>';
+        h+='<div style="display:flex;gap:14px;flex-wrap:wrap;">';
+        h+='<div style="flex:1;min-width:240px;"><div style="font-size:11px;font-weight:bold;color:#2563eb;margin-bottom:3px;">打撃アプローチ（選球眼）</div>';
+        h+=statTable([['Swing%',bp.swingPct,'全投球を振った率'],['Chase%',bp.chasePct,'ボール球を振った率'],['Z-Swing%',bp.zSwingPct,'ゾーンを振った率'],['Contact%',bp.contactPct,'スイング時コンタクト'],['空振り率',bp.swStrPct,'全投球の空振り']]);
+        h+=segTxt('打球性質',[{label:'ゴロ',v:bb.flight.gb,c:'#d97706'},{label:'ライナー/安',v:bb.flight.ld,c:'#2563eb'},{label:'フライ',v:bb.flight.fb,c:'#059669'},{label:'本塁打',v:bb.flight.hr,c:'#db2777'}],bb.bip);
+        h+=segTxt('打球方向',[{label:'引っ張り',v:bb.dir.pull,c:'#dc2626'},{label:'センター',v:bb.dir.center,c:'#475569'},{label:'流し',v:bb.dir.oppo,c:'#16a34a'}],bb.dir.known);
+        h+='</div>';
+        h+='<div style="flex:1;min-width:240px;"><div style="font-size:11px;font-weight:bold;color:#e11d48;margin-bottom:3px;">投手陣（制球・支配力） 総'+tm.pitching.pitches+'球</div>';
+        h+=statTable([['Zone%',pp.zonePct,'ゾーン投球率'],['初球S%',pp.fpStrikePct,'初球ストライク率'],['CSW%',pp.cswPct,'見逃し+空振り'],['奪空振り率',pp.swStrPct,'空振り奪取率'],['誘い率',pp.chasePct,'ボール球誘発'],['被Contact%',pp.contactPct,'被コンタクト率']]);
+        h+='<div style="font-size:10px;margin:3px 0;"><span style="color:#475569;font-weight:bold;">球種構成:</span><br>'+mixTxt(tm.pitching.mix)+'</div>';
+        h+='<div style="font-size:10px;margin:3px 0;"><span style="color:#475569;font-weight:bold;">決め球(2S):</span><br>'+mixTxt(tm.pitching.twoStrike)+'</div>';
+        h+='</div></div></section>';
+        return h;
+      }
+      var h='<section class="report-section"><div class="report-heading" style="font-size:16px;font-weight:bold;color:#1e293b;border-bottom:2px solid #e2e8f0;padding-bottom:4px;margin-bottom:6px;">アナリスト指標ガイド</div>';
+      h+='<div style="font-size:10px;color:#64748b;margin-bottom:6px;line-height:1.5;">記録した球種・コース・結果・カウント・投打の左右・打球方向から算出。<b>算出可:</b> 選球眼(Swing/Chase/Contact/空振り)、制球・支配力(Zone/初球S/CSW/誘い率)、配球(球種構成・決め球)、打球プロファイル。 <b>算出不可(要トラッキング):</b> 球速・回転数・打球初速・打球角度・守備/走力指標。</div></section>';
+      h+=teamBlock(a.top)+teamBlock(a.bottom);
+      return h;
+    }
     var t=stats;
     var scoreBoardH='<table style="width:100%;border-collapse:collapse;text-align:center;font-size:13px;margin-bottom:12px;border:1px solid #cbd5e1;"><thead><tr style="background:#1e293b;color:#fff;"><th style="padding:7px 8px;text-align:left;">TEAM</th>';
     for(var i=1;i<=9;i++) scoreBoardH+='<th style="padding:10px;width:30px;">'+i+'</th>';
@@ -319,6 +358,7 @@
     if(t.pitchingBottom.pitchers.length>0){
       body+=pitcherDetails(t.pitchingBottom,gi.teamBottom);
     }
+    body+=analystHtml(analyst);
     body+='</div>';
     var reportFileName = [gi.date, gi.teamTop, 'vs', gi.teamBottom].join('_').replace(/[\\\/:*?"<>|]/g, '').replace(/\s+/g, '_');
     var closeBtn='<div class="no-print" style="position:fixed;top:12px;right:16px;z-index:999;display:flex;gap:8px;">'
@@ -393,6 +433,294 @@
               }
             })}
           </svg>
+        </div>
+      );
+    }
+
+    // ============================================================
+    // アナリスト指標の算出（収集データの範囲で算出可能な指標のみ）
+    // MLB/NPBのアナリストが重視する指標のうち、本アプリが記録している
+    // 「球種・コース・結果・カウント・投打の左右・打球方向」から
+    // 計算できるものだけを算出する。球速/回転数/打球初速などの
+    // トラッキング系指標はデータ未収集のため対象外。
+    // ============================================================
+    function buildAnalystInsights(pwcs, lineups, gameInfo) {
+      const inZone = (c) => { if (c === null || c === undefined) return false; const row = Math.floor(c / 7), col = c % 7; return row >= 2 && row <= 4 && col >= 2 && col <= 4; };
+      const isReal = (p) => p && !p.isEvent && !(p.result && (p.result.startsWith('牽制') || ['盗塁死', 'その他出塁'].includes(p.result)));
+      const WHIFF = (r) => r.includes('空振り');
+      const CALLED = (r) => r === 'ストライク' || r.includes('見逃し');
+      const CONTACT = (r) => ['ファウル', 'バントファウル', 'スリーバント失敗', 'インプレー', 'バント', 'ゴロ', '飛', '安', '塁打', '二塁打', '三塁打', '本塁打', 'エラー', '犠', '直', '野手選択', '併殺'].some(w => r.includes(w));
+      const ISSTRIKE = (r) => !['ボール', 'ウエスト', '死球'].includes(r);
+      const cleanType = (t) => t ? t.replace(/系$/, '') : '不明';
+      const pct1 = (n, d) => d > 0 ? Math.round((n / d) * 1000) / 10 : null;
+
+      // 各投球に「その時点でのストライク数(_sb)」を付与（決め球＝2ストライク時の判定用）
+      let curKey = null, b = 0, s = 0;
+      const enr = [];
+      pwcs.forEach(p => {
+        if (!isReal(p)) return;
+        const key = `${p.inning}-${p.isTop}-${p.batter}`;
+        if (key !== curKey) { curKey = key; b = 0; s = 0; }
+        enr.push({ ...p, _sb: s });
+        if (['ボール', 'ウエスト'].includes(p.result)) b++;
+        else if (['ストライク', '空振り', 'バント空振り'].includes(p.result)) s++;
+        else if (['ファウル', 'バントファウル'].includes(p.result) && s < 2) s++;
+      });
+
+      // プレートディシプリン（選球眼・制球）の集計
+      const pdAgg = (list) => {
+        let total = 0, withC = 0, zone = 0, swing = 0, whiff = 0, called = 0, contact = 0, zSw = 0, zWhiff = 0, oSw = 0, oContact = 0, firstP = 0, firstS = 0, strikeN = 0;
+        list.forEach(p => {
+          const r = p.result; total++;
+          if (ISSTRIKE(r)) strikeN++;
+          const hasC = p.course !== null && p.course !== undefined;
+          const z = hasC && inZone(p.course);
+          if (hasC) { withC++; if (z) zone++; }
+          const w = WHIFF(r), ct = CONTACT(r), sw = w || ct, cl = CALLED(r);
+          if (sw) swing++; if (w) whiff++; if (cl) called++; if (ct) contact++;
+          if (hasC) {
+            if (z) { if (sw) { zSw++; if (w) zWhiff++; } }
+            else { if (sw) { oSw++; if (ct) oContact++; } }
+          }
+          if (p.pitchNumber === 1) { firstP++; if (ISSTRIKE(r)) firstS++; }
+        });
+        const oZone = withC - zone;
+        return {
+          pitches: total,
+          zonePct: pct1(zone, withC),
+          strikePct: pct1(strikeN, total),
+          swingPct: pct1(swing, total),
+          swStrPct: pct1(whiff, total),
+          cswPct: pct1(called + whiff, total),
+          contactPct: pct1(contact, swing),
+          zSwingPct: pct1(zSw, zone),
+          chasePct: pct1(oSw, oZone),
+          zContactPct: pct1(zSw - zWhiff, zSw),
+          oContactPct: pct1(oContact, oSw),
+          fpStrikePct: pct1(firstS, firstP),
+        };
+      };
+
+      // 球種構成比
+      const mixAgg = (list) => {
+        const m = {}; let tot = 0;
+        list.forEach(p => { const t = cleanType(p.type); if (t === '不明' || t === '-') return; m[t] = (m[t] || 0) + 1; tot++; });
+        return { total: tot, items: Object.entries(m).map(([type, count]) => ({ type, count, pct: pct1(count, tot) })).sort((a, b) => b.count - a.count) };
+      };
+
+      // 打球方向（守備位置の文字列から左/中/右を判定）
+      const fieldSide = (res) => {
+        if (/レフト|左翼|サード|ショート|三遊間/.test(res)) return 'L';
+        if (/ライト|右翼|ファースト|セカンド|一二間/.test(res)) return 'R';
+        if (/センター|中堅|ピッチャー|キャッチャー|二遊間|左中|右中|投/.test(res)) return 'C';
+        return null;
+      };
+      const ballFlight = (res) => res.includes('本塁打') ? 'hr' : ['ゴロ', '併殺', 'バント'].some(w => res.includes(w)) ? 'gb' : ['直', 'ライナー', '安', '二塁打', '三塁打'].some(w => res.includes(w)) ? 'ld' : 'fb';
+
+      // 打球プロファイル（ゴロ/ライナー/フライ/HR ＆ 引っ張り/センター/流し）
+      const battedBallAgg = (list) => {
+        const abs = []; let cur = [];
+        list.forEach(p => { if (p.pitchNumber === 1 && cur.length > 0) { abs.push(cur); cur = []; } cur.push(p); });
+        if (cur.length) abs.push(cur);
+        const flight = { gb: 0, ld: 0, fb: 0, hr: 0 };
+        const dir = { pull: 0, center: 0, oppo: 0, known: 0 };
+        let bip = 0;
+        abs.forEach(ab => {
+          const last = ab[ab.length - 1]; if (!last) return; const res = last.result || '';
+          const isHit = ['安', '塁打', '本塁打'].some(w => res.includes(w));
+          const inPlay = isHit || ['ゴロ', '飛', '直', 'エラー', 'バント', '併殺', '野手選択'].some(w => res.includes(w));
+          if (!inPlay) return;
+          bip++;
+          flight[ballFlight(res)]++;
+          const side = fieldSide(res), hand = last.batterBats;
+          if (side && (hand === '右' || hand === '左')) {
+            if (side === 'C') { dir.center++; dir.known++; }
+            else { const pull = (hand === '右' && side === 'L') || (hand === '左' && side === 'R'); if (pull) dir.pull++; else dir.oppo++; dir.known++; }
+          }
+        });
+        return { bip, flight, dir };
+      };
+
+      const buildTeam = (battingIsTop, name) => {
+        const batList = enr.filter(p => p.isTop === battingIsTop);   // 自チームが打席に立った投球（被投球）
+        const pitchList = enr.filter(p => p.isTop !== battingIsTop);  // 自チームが投げた投球
+        const batting = { pitches: batList.length, pd: pdAgg(batList), battedBall: battedBallAgg(batList) };
+        const byPitcher = {};
+        pitchList.forEach(p => { const n = p.pitcherName || '不明'; (byPitcher[n] = byPitcher[n] || []).push(p); });
+        const pitchers = Object.entries(byPitcher).map(([n, list]) => ({
+          name: n, throws: (list[0] && list[0].pitcherThrows) || '右',
+          pd: pdAgg(list), mix: mixAgg(list), twoStrike: mixAgg(list.filter(p => p._sb >= 2)),
+        })).sort((a, b) => b.pd.pitches - a.pd.pitches);
+        const pitching = { pitches: pitchList.length, pd: pdAgg(pitchList), mix: mixAgg(pitchList), twoStrike: mixAgg(pitchList.filter(p => p._sb >= 2)), pitchers };
+        return { name, batting, pitching };
+      };
+
+      return { hasData: enr.length > 0, top: buildTeam(true, gameInfo.teamTop), bottom: buildTeam(false, gameInfo.teamBottom) };
+    }
+
+    const PT_COLORS = { 'ストレート': '#ef4444', 'スライダー': '#3b82f6', 'シュート': '#10b981', 'カーブ': '#f59e0b', '落ちる球': '#6366f1', 'シンカー': '#06b6d4' };
+
+    function AnalystReport({ insights }) {
+      if (!insights || !insights.hasData) {
+        return <div className="text-center text-slate-400 text-sm py-10">投球データがありません。試合を記録すると分析が表示されます。</div>;
+      }
+      const pf = (v) => v == null ? '–' : v + '%';
+
+      const Stat = ({ label, value, hint }) => (
+        <div className="bg-slate-50 rounded-xl p-3 border border-slate-200">
+          <div className="text-[10px] font-bold text-slate-500 leading-tight">{label}</div>
+          <div className="text-xl font-black text-slate-800 mt-0.5">{pf(value)}</div>
+          {hint && <div className="text-[9px] text-slate-400 mt-1 leading-snug">{hint}</div>}
+        </div>
+      );
+
+      const MixBar = ({ mix }) => {
+        if (!mix || !mix.items.length) return <div className="text-[11px] text-slate-400">データなし</div>;
+        return (
+          <div>
+            <div className="flex w-full h-5 rounded-md overflow-hidden border border-slate-200 bg-slate-100">
+              {mix.items.map((it, i) => (<div key={i} style={{ width: (it.pct || 0) + '%', background: PT_COLORS[it.type] || '#94a3b8' }} title={`${it.type} ${it.pct}%`}></div>))}
+            </div>
+            <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2">
+              {mix.items.map((it, i) => (<span key={i} className="text-[10px] font-bold text-slate-600 flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ background: PT_COLORS[it.type] || '#94a3b8' }}></span>{it.type} {it.pct}% <span className="text-slate-400 font-normal">({it.count})</span></span>))}
+            </div>
+          </div>
+        );
+      };
+
+      const SegBar = ({ segs, total, note }) => {
+        if (!total) return <div className="text-[11px] text-slate-400">データなし</div>;
+        return (
+          <div>
+            <div className="flex w-full h-5 rounded-md overflow-hidden border border-slate-200 bg-slate-100">
+              {segs.map((s, i) => { const p = total > 0 ? Math.round(s.v / total * 1000) / 10 : 0; return <div key={i} style={{ width: p + '%', background: s.c }} title={`${s.label} ${p}%`}></div>; })}
+            </div>
+            <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2">
+              {segs.map((s, i) => { const p = total > 0 ? Math.round(s.v / total * 1000) / 10 : 0; return <span key={i} className="text-[10px] font-bold text-slate-600 flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ background: s.c }}></span>{s.label} {p}% <span className="text-slate-400 font-normal">({s.v})</span></span>; })}
+            </div>
+            {note && <div className="text-[9px] text-slate-400 mt-1">{note}</div>}
+          </div>
+        );
+      };
+
+      const TeamBlock = ({ team }) => {
+        const bb = team.batting.battedBall;
+        return (
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 md:p-6 space-y-6 report-section">
+            <h3 className="text-lg font-black text-slate-800 border-b-2 border-slate-200 pb-2 report-heading">{team.name}</h3>
+
+            {/* 打撃：選球眼 */}
+            <div>
+              <div className="text-sm font-black text-blue-700 mb-2 flex items-center gap-1.5">🏏 打撃アプローチ（選球眼）</div>
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+                <Stat label="Swing%" value={team.batting.pd.swingPct} hint="全投球を振った率" />
+                <Stat label="Chase%（追いかけ）" value={team.batting.pd.chasePct} hint="ボール球を振った率。低いほど好選球眼" />
+                <Stat label="Z-Swing%" value={team.batting.pd.zSwingPct} hint="ストライクを振った率（積極性）" />
+                <Stat label="Contact%" value={team.batting.pd.contactPct} hint="スイング時に当てた率" />
+                <Stat label="空振り率(SwStr%)" value={team.batting.pd.swStrPct} hint="全投球での空振り率" />
+              </div>
+            </div>
+
+            {/* 打撃：打球プロファイル */}
+            <div className="grid md:grid-cols-2 gap-4">
+              <div>
+                <div className="text-[11px] font-black text-slate-600 mb-2">打球性質 <span className="text-slate-400 font-normal">(インプレー {bb.bip})</span></div>
+                <SegBar total={bb.bip} segs={[{ label: 'ゴロ', v: bb.flight.gb, c: '#f59e0b' }, { label: 'ライナー/安', v: bb.flight.ld, c: '#3b82f6' }, { label: 'フライ', v: bb.flight.fb, c: '#10b981' }, { label: '本塁打', v: bb.flight.hr, c: '#ec4899' }]} />
+              </div>
+              <div>
+                <div className="text-[11px] font-black text-slate-600 mb-2">打球方向 <span className="text-slate-400 font-normal">(方向判明 {bb.dir.known})</span></div>
+                <SegBar total={bb.dir.known} segs={[{ label: '引っ張り', v: bb.dir.pull, c: '#ef4444' }, { label: 'センター', v: bb.dir.center, c: '#64748b' }, { label: '流し', v: bb.dir.oppo, c: '#22c55e' }]} note="打者の左右と守備位置から判定" />
+              </div>
+            </div>
+
+            {/* 投手：制球・支配力 */}
+            <div className="pt-1">
+              <div className="text-sm font-black text-rose-700 mb-2 flex items-center gap-1.5">⚾ 投手陣（制球・支配力）<span className="text-[10px] font-normal text-slate-400">総投球 {team.pitching.pitches}</span></div>
+              <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
+                <Stat label="Zone%" value={team.pitching.pd.zonePct} hint="ゾーンへの投球率（制球）" />
+                <Stat label="初球S%" value={team.pitching.pd.fpStrikePct} hint="初球ストライク率" />
+                <Stat label="CSW%" value={team.pitching.pd.cswPct} hint="見逃し+空振り率（支配力）" />
+                <Stat label="奪空振り率" value={team.pitching.pd.swStrPct} hint="全投球で空振りを奪った率" />
+                <Stat label="誘い率" value={team.pitching.pd.chasePct} hint="ボール球を振らせた率" />
+                <Stat label="被Contact%" value={team.pitching.pd.contactPct} hint="打者がスイング時に当てた率" />
+              </div>
+            </div>
+
+            {/* 投手：球種構成 */}
+            <div className="grid md:grid-cols-2 gap-4">
+              <div>
+                <div className="text-[11px] font-black text-slate-600 mb-2">球種構成（全カウント）</div>
+                <MixBar mix={team.pitching.mix} />
+              </div>
+              <div>
+                <div className="text-[11px] font-black text-slate-600 mb-2">2ストライク時の球種（決め球）</div>
+                <MixBar mix={team.pitching.twoStrike} />
+              </div>
+            </div>
+
+            {/* 投手別 */}
+            {team.pitching.pitchers.length > 0 && (
+              <div>
+                <div className="text-[11px] font-black text-slate-600 mb-2">投手別サマリー</div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-[11px] border-collapse">
+                    <thead><tr className="bg-slate-100 border-b-2 border-slate-300 text-slate-600">
+                      <th className="py-1.5 px-2 text-left">投手</th><th className="py-1.5 px-2 text-right">球数</th><th className="py-1.5 px-2 text-right">Zone%</th><th className="py-1.5 px-2 text-right">初球S%</th><th className="py-1.5 px-2 text-right">CSW%</th><th className="py-1.5 px-2 text-right">空振り%</th><th className="py-1.5 px-2 text-right">誘い率</th><th className="py-1.5 px-2 text-left">決め球</th>
+                    </tr></thead>
+                    <tbody>
+                      {team.pitching.pitchers.map((pt, i) => (
+                        <tr key={i} className={`border-b border-slate-100 ${i % 2 ? 'bg-slate-50' : ''}`}>
+                          <td className="py-1.5 px-2 font-black text-slate-800">{pt.name}<span className="text-[9px] text-slate-400 font-normal ml-1">{pt.throws}投</span></td>
+                          <td className="py-1.5 px-2 text-right">{pt.pd.pitches}</td>
+                          <td className="py-1.5 px-2 text-right">{pf(pt.pd.zonePct)}</td>
+                          <td className="py-1.5 px-2 text-right">{pf(pt.pd.fpStrikePct)}</td>
+                          <td className="py-1.5 px-2 text-right font-bold text-rose-600">{pf(pt.pd.cswPct)}</td>
+                          <td className="py-1.5 px-2 text-right">{pf(pt.pd.swStrPct)}</td>
+                          <td className="py-1.5 px-2 text-right">{pf(pt.pd.chasePct)}</td>
+                          <td className="py-1.5 px-2 text-left text-[10px] text-slate-500">{pt.twoStrike.items.length ? pt.twoStrike.items.slice(0, 2).map(it => `${it.type} ${it.pct}%`).join(' / ') : '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      return (
+        <div className="space-y-6">
+          {/* 指標ガイド：アナリストが見る指標と、本アプリで算出できる範囲 */}
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 md:p-6 report-section">
+            <h3 className="text-base font-black text-slate-800 mb-1 report-heading">📈 アナリスト指標ガイド</h3>
+            <p className="text-[11px] text-slate-500 mb-3 leading-relaxed">MLB/NPBのアナリストは「選球眼・制球」「配球（球種構成）」「打球プロファイル」などを定量化します。本アプリが記録する<span className="font-bold">球種・コース・結果・カウント・投打の左右・打球方向</span>から、以下の指標を算出しています。</p>
+            <div className="grid md:grid-cols-2 gap-3">
+              <div className="bg-emerald-50 rounded-xl p-3 border border-emerald-200">
+                <div className="text-[11px] font-black text-emerald-700 mb-1.5">✅ 算出できる指標</div>
+                <ul className="text-[10px] text-slate-600 space-y-0.5 leading-snug list-disc pl-4">
+                  <li>選球眼: Swing% / Chase%(ボール球スイング) / Z-Swing% / Contact% / 空振り率(SwStr%)</li>
+                  <li>制球・支配力: Zone% / 初球ストライク% / CSW% / 誘い率 / 被Contact%</li>
+                  <li>配球: 球種構成比・カウント別傾向・2ストライク時の決め球</li>
+                  <li>打球プロファイル: ゴロ/ライナー/フライ/HR・引っ張り/センター/流し</li>
+                  <li>ヒートマップ・スプレーチャート（既存レポート参照）</li>
+                </ul>
+              </div>
+              <div className="bg-slate-50 rounded-xl p-3 border border-slate-200">
+                <div className="text-[11px] font-black text-slate-500 mb-1.5">⚠️ 算出できない指標（要トラッキング機材）</div>
+                <ul className="text-[10px] text-slate-500 space-y-0.5 leading-snug list-disc pl-4">
+                  <li>球速・球速帯</li>
+                  <li>回転数・回転軸・変化量</li>
+                  <li>打球初速(Exit Velocity)・打球角度(Launch Angle)・Barrel%</li>
+                  <li>Extension・リリースポイント</li>
+                  <li>守備指標(OAA等)・走力(Sprint Speed)</li>
+                </ul>
+                <div className="text-[9px] text-slate-400 mt-1.5">これらはTrackMan/Statcast等の計測機が必要です。</div>
+              </div>
+            </div>
+          </div>
+          <TeamBlock team={insights.top} />
+          <TeamBlock team={insights.bottom} />
         </div>
       );
     }
@@ -534,6 +862,7 @@
       const [subData, setSubData] = useState({ team: 'top', type: '代打', order: 1, newName: '', newPos: '打', newThrows: '右', newBats: '右', shiftOrder: null, shiftNewPos: '' });
 
       const [showPostGameAnalysis, setShowPostGameAnalysis] = useState(false);
+      const [showAnalystReport, setShowAnalystReport] = useState(false);
       const [showShareModal, setShowShareModal] = useState(false);
       const [shareTextData, setShareTextData] = useState(null);
       const [showImportTextModal, setShowImportTextModal] = useState(false);
@@ -1018,6 +1347,7 @@
           gameInfo,
           gameState,
           advancedStats,
+          analystInsights,
           pitches,
           hitsAndErrors,
         });
@@ -1242,6 +1572,12 @@
         return { topBatting: calcBatting(true), bottomBatting: calcBatting(false), pitchingTop: calcTeamPitching(false), pitchingBottom: calcTeamPitching(true) };
       }, [pitchesWithCountState, showPostGameAnalysis, lineups]);
 
+      // アナリスト指標（試合後レポート・独立画面の両方で利用）
+      const analystInsights = useMemo(() => {
+        if (!showPostGameAnalysis && !showAnalystReport) return null;
+        return buildAnalystInsights(pitchesWithCountState, lineups, gameInfo);
+      }, [pitchesWithCountState, lineups, gameInfo, showPostGameAnalysis, showAnalystReport]);
+
       // ---------- 累計成績（複数試合横断集計） ----------
       const cumulativeStats = useMemo(() => {
         if (!showCumulativeStats || !cumulativeTeam) return { games: [], batters: [], pitchers: [] };
@@ -1462,6 +1798,7 @@
                 <button onClick={handleTieBreak} className="whitespace-nowrap shrink-0 bg-purple-50 text-purple-700 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-purple-200 shadow-sm">⚡ 特延</button>
                 <button onClick={handleNewGame} className="whitespace-nowrap shrink-0 bg-rose-50 text-rose-700 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-rose-200 shadow-sm">🔄 リセット</button>
                 <button onClick={() => setShowPostGameAnalysis(true)} className="whitespace-nowrap shrink-0 bg-blue-600 text-white px-3 py-1.5 rounded-lg text-[11px] font-bold shadow-sm">🏁 分析レポート</button>
+                <button onClick={() => setShowAnalystReport(true)} className="whitespace-nowrap shrink-0 bg-indigo-600 text-white px-3 py-1.5 rounded-lg text-[11px] font-bold shadow-sm">📈 アナリスト分析</button>
               </div>
             </div>
 
@@ -1523,6 +1860,7 @@
                   <button onClick={handleTieBreak} className="flex-1 bg-purple-50 text-purple-700 px-2 py-1.5 rounded-lg text-[10px] font-bold border border-purple-200">⚡ 特延</button>
                   <button onClick={handleNewGame} className="flex-1 bg-rose-50 text-rose-700 px-2 py-1.5 rounded-lg text-[10px] font-bold border border-rose-200">🔄 リセット</button>
                   <button onClick={() => setShowPostGameAnalysis(true)} className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-[11px] font-bold shadow-md">🏁 試合分析へ</button>
+                  <button onClick={() => setShowAnalystReport(true)} className="bg-indigo-600 text-white px-3 py-1.5 rounded-lg text-[11px] font-bold shadow-md">📈 アナリスト分析</button>
                 </div>
               </div>
             </div>
@@ -2548,6 +2886,24 @@
           {/* ============================================================ */}
           {/* ============= MODAL 8: POST GAME ANALYSIS ================== */}
           {/* ============================================================ */}
+          {showAnalystReport && (
+            <div className="fixed inset-0 bg-slate-900/90 z-[200] flex flex-col overflow-hidden">
+              <div className="bg-white border-b border-slate-200 p-4 flex justify-between items-center shrink-0">
+                <h2 className="text-lg font-black text-slate-800 flex items-center gap-2">📈 アナリスト分析</h2>
+                <div className="flex gap-2">
+                  <button onClick={() => { setShowAnalystReport(false); setShowPostGameAnalysis(true); }} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-xs font-bold shadow-sm">🏁 試合レポートへ</button>
+                  <button onClick={() => setShowAnalystReport(false)} className="bg-slate-100 text-slate-600 px-4 py-2 rounded-lg text-xs font-bold border border-slate-300">✕ 閉じる</button>
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 md:p-6 bg-slate-50 modal-scroll">
+                <div className="max-w-4xl mx-auto">
+                  <div className="mb-4 text-sm font-black text-slate-700">{gameInfo.date} — {gameInfo.teamTop} vs {gameInfo.teamBottom}</div>
+                  <AnalystReport insights={analystInsights} />
+                </div>
+              </div>
+            </div>
+          )}
+
           {showPostGameAnalysis && advancedStats && (
             <div className="fixed inset-0 bg-slate-900/90 z-[200] flex flex-col overflow-hidden">
               <div className="bg-white border-b border-slate-200 p-4 flex justify-between items-center shrink-0">
@@ -2582,6 +2938,9 @@
                     </div>
                     <div className="text-[10px] text-slate-500 text-center mt-4">青=安打 / 赤=凡打 / 橙=失策 / 紫=ファウル｜波線=ゴロ / 破線=フライ / 直線=ライナー / 太弧=HR</div>
                   </div>
+
+                  {/* アナリスト指標 */}
+                  <AnalystReport insights={analystInsights} />
 
                   {/* Batting tables + individual spray charts */}
                   {[{data: advancedStats.topBatting, name: gameInfo.teamTop}, {data: advancedStats.bottomBatting, name: gameInfo.teamBottom}].map(({data, name}) => (
