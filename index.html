@@ -1732,9 +1732,9 @@
       const currentAtBatPitches = pitches.filter(p => p.inning === gameState.inning && p.isTop === gameState.isTop && p.batter === currentBatterIndex + 1);
 
       const posOptions = ['未','投','捕','一','二','三','遊','左','中','右','指','打','走','控'];
-      const throwBatOptions = ['右打右投','右打左投','左打右投','左打左投','両打右投','両打左投'];
-      const parseThrowBat = (bats, throws) => `${bats || '右'}打${throws || '右'}投`;
-      const splitThrowBat = (val) => { const m = val.match(/^(右|左|両)打(右|左)投$/); return m ? { bats: m[1], throws: m[2] } : { bats: '右', throws: '右' }; };
+      const throwBatOptions = ['右投右打','右投左打','右投両打','左投右打','左投左打','左投両打'];
+      const parseThrowBat = (bats, throws) => `${throws || '右'}投${bats || '右'}打`;
+      const splitThrowBat = (val) => { const m = val.match(/^(右|左)投(右|左|両)打$/); return m ? { bats: m[2], throws: m[1] } : { bats: '右', throws: '右' }; };
       // 登録チームから選手を検索し、投打情報も自動反映するためのヘルパー
       const getRosterPlayers = (teamName) => {
         const t = findRegisteredTeam(teamName);
