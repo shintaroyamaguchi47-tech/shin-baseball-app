@@ -1135,7 +1135,7 @@
           return newPitches;
         });
         let eventType = 'out';
-        if (typeLabel === '安') eventType = 'single'; else if (typeLabel === '二塁打') eventType = 'double'; else if (typeLabel === '三塁打') eventType = 'triple'; else if (typeLabel === '本塁打') eventType = 'homerun'; else if (['エラー','敵失(エラー)','野手選択'].includes(typeLabel) || typeLabel.includes('エラー')) eventType = 'error'; else if (typeLabel === '犠打') eventType = 'sac_bunt'; else if (typeLabel === '犠飛') eventType = 'sac_fly';
+        if (typeLabel.includes('本塁打')) eventType = 'homerun'; else if (typeLabel.includes('三塁打')) eventType = 'triple'; else if (typeLabel.includes('二塁打')) eventType = 'double'; else if (typeLabel.includes('安')) eventType = 'single'; else if (['エラー','敵失(エラー)','野手選択'].includes(typeLabel) || typeLabel.includes('エラー')) eventType = 'error'; else if (typeLabel === '犠打') eventType = 'sac_bunt'; else if (typeLabel === '犠飛') eventType = 'sac_fly';
         handleAdvanceAndNextBatter(eventType, outCount);
         setSelectedHitCoord(null);
       };
@@ -2120,12 +2120,22 @@
                           <button onClick={() => handleInPlayFinalResult('飛', 1)} className="bg-orange-50 text-orange-700 py-4 rounded-xl font-black text-lg active:scale-95 border border-orange-200">飛/直</button>
                           <button onClick={() => handleInPlayFinalResult('併殺打', 2)} className="bg-rose-600 text-white py-4 rounded-xl font-black text-lg shadow-md active:scale-95">併殺打</button>
                         </div></div>
-                        <div className="bg-white p-4 rounded-2xl border border-blue-100 shadow-sm"><div className="grid grid-cols-4 gap-3">
+                        <div className="bg-white p-4 rounded-2xl border border-blue-100 shadow-sm">
+                          <div className="grid grid-cols-4 gap-3">
                           <button onClick={() => handleInPlayFinalResult('安', 0)} className="bg-blue-50 text-blue-700 py-4 rounded-xl font-black active:scale-95 border border-blue-200">単打</button>
                           <button onClick={() => handleInPlayFinalResult('二塁打', 0)} className="bg-indigo-50 text-indigo-700 py-4 rounded-xl font-black active:scale-95 border border-indigo-200">二塁打</button>
                           <button onClick={() => handleInPlayFinalResult('三塁打', 0)} className="bg-purple-50 text-purple-700 py-4 rounded-xl font-black active:scale-95 border border-purple-200">三塁打</button>
                           <button onClick={() => handleInPlayFinalResult('本塁打', 0)} className="bg-pink-100 text-pink-700 py-4 rounded-xl font-black shadow-sm active:scale-95 border border-pink-200">本塁打</button>
-                        </div></div>
+                          </div>
+                          <div className="mt-3 pt-3 border-t border-blue-100">
+                            <div className="text-[10px] font-black text-blue-600 mb-2">ヒット＋エラー（ワンヒットワンエラー）</div>
+                            <div className="grid grid-cols-3 gap-3">
+                              <button onClick={() => handleInPlayFinalResult('安+エラー', 0)} className="bg-blue-50 text-blue-700 py-3 rounded-xl font-bold text-sm active:scale-95 border border-blue-200">単打+E</button>
+                              <button onClick={() => handleInPlayFinalResult('二塁打+エラー', 0)} className="bg-indigo-50 text-indigo-700 py-3 rounded-xl font-bold text-sm active:scale-95 border border-indigo-200">二塁打+E</button>
+                              <button onClick={() => handleInPlayFinalResult('三塁打+エラー', 0)} className="bg-purple-50 text-purple-700 py-3 rounded-xl font-bold text-sm active:scale-95 border border-purple-200">三塁打+E</button>
+                            </div>
+                          </div>
+                        </div>
                         {!showErrorTypeSelect ? (
                           <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm"><div className="grid grid-cols-4 gap-3">
                             <button onClick={() => setShowErrorTypeSelect(true)} className="bg-slate-100 text-slate-700 py-3 rounded-xl font-bold text-sm border border-slate-200">エラー</button>
