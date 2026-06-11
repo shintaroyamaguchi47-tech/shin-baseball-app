@@ -13,6 +13,16 @@ input:focus, textarea:focus, select:focus { background-color: white !important; 
 .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #64748b; border-radius: 6px; }
 .horizontal-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
 .horizontal-scroll::-webkit-scrollbar { display: none; }
+
+/* iPhoneのセーフエリア対応 (Dynamic Island/ノッチ/ホームインジケータを避ける) */
+@supports (padding: env(safe-area-inset-top)) {
+  /* ヘッダーを白背景のままアイランドの下まで伸ばし、中身だけ下げる */
+  #root > div > header { padding-top: max(0.5rem, env(safe-area-inset-top)); }
+  /* 画面下端の操作ボタンをホームインジケータと重ねない */
+  #root > div { padding-bottom: env(safe-area-inset-bottom); }
+  /* モーダル/全画面パネルの上下もセーフエリア内に収める */
+  .fixed.inset-0 { padding-top: max(0.75rem, env(safe-area-inset-top)); padding-bottom: max(0.75rem, env(safe-area-inset-bottom)); }
+}
 @media print {
   body { background: white !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
   * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
