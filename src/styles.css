@@ -1,0 +1,25 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body { -webkit-touch-callout: none; overscroll-behavior-y: none; user-select: none; }
+::-webkit-scrollbar { display: none; }
+.modal-scroll { overflow-y: auto !important; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; touch-action: pan-y; }
+.modal-scroll::-webkit-scrollbar { display: block; width: 6px; }
+.modal-scroll::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 6px; }
+.grid-bg { background-image: radial-gradient(#cbd5e1 1px, transparent 1px); background-size: 20px 20px; }
+input:focus, textarea:focus, select:focus { background-color: white !important; outline: none; border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59,130,246,0.2); }
+.custom-scrollbar::-webkit-scrollbar { display: block; height: 6px; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background-color: #64748b; border-radius: 6px; }
+.horizontal-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+.horizontal-scroll::-webkit-scrollbar { display: none; }
+@media print {
+  body { background: white !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
+  .no-print { display: none !important; }
+  body.printing > #root > div > header, body.printing > #root > div > main, body.printing > #root > div > .md\:hidden { display: none !important; }
+  body.printing .print-target { position: static !important; overflow: visible !important; height: auto !important; min-height: 0 !important; background: white !important; }
+  body.printing .print-target > * { overflow: visible !important; height: auto !important; }
+  table { font-size: 10px !important; }
+  svg { max-width: 100% !important; }
+}
