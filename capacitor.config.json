@@ -1,0 +1,8 @@
+{
+  "appId": "com.shinbaseball.pitchscore",
+  "appName": "配球スコア",
+  "webDir": "dist",
+  "ios": {
+    "contentInset": "always"
+  }
+}

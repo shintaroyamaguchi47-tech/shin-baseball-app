@@ -2,6 +2,8 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import SprayChart from './components/SprayChart.jsx';
 import AnalystReport from './components/AnalystReport.jsx';
 import { buildAnalystInsights } from './analystInsights.js';
+import * as storage from './storage.js';
+import { asPlayerObj, findDuplicateNameIndices, mergeRosterPlayers, renamePlayersInGame } from './teamUtils.js';
 
     function App() {
       const makeInitialGameState = () => ({ inning: 1, isTop: true, outs: 0, balls: 0, strikes: 0, batterTop: 1, batterBottom: 1, runners: { first: false, second: false, third: false }, runs: { top: [0,0,0,0,0,0,0,0,0], bottom: [0,0,0,0,0,0,0,0,0] } });
@@ -10,7 +12,7 @@ import { buildAnalystInsights } from './analystInsights.js';
         bottom: Array.from({length: 10}, (_,i)=>({ order: i<9 ? i+1 : '投', name: i<9 ? `後攻${i+1}番` : `先発投手`, pos: i===9?'投':'未', throws: '右', bats: '右' }))
       });
       const loadStored = (key, fallback) => {
-        const saved = localStorage.getItem(key);
+        const saved = storage.getItem(key);
         if (!saved) return fallback;
         try { return JSON.parse(saved); } catch(e) { return fallback; }
       };
@@ -124,6 +126,10 @@ import { buildAnalystInsights } from './analystInsights.js';
       const [showArchiveModal, setShowArchiveModal] = useState(false);
       const [showTeamManager, setShowTeamManager] = useState(false);
       const [editingTeamIndex, setEditingTeamIndex] = useState(null);
+      const [playerPicker, setPlayerPicker] = useState(null); // {side, index}: オーダーの選手選択ポップアップ
+      const [mergeMode, setMergeMode] = useState(false); // チーム編集の選手統合モード
+      const [mergeSelection, setMergeSelection] = useState([]); // 統合対象の選手インデックス
+      const [mergeKeepIdx, setMergeKeepIdx] = useState(null); // 統合後に残す選手インデックス
       const [showSettings, setShowSettings] = useState(false);
       const [showExport, setShowExport] = useState(false);
       const [showInPlayResult, setShowInPlayResult] = useState(false);
@@ -170,13 +176,13 @@ import { buildAnalystInsights } from './analystInsights.js';
       const [cumulativeTab, setCumulativeTab] = useState('batter');
       const [expandedCumKey, setExpandedCumKey] = useState(null);
 
-      useEffect(() => { localStorage.setItem('baseball_gameState_v2', JSON.stringify(gameState)); }, [gameState]);
-      useEffect(() => { localStorage.setItem('baseball_gameInfo_v2', JSON.stringify(gameInfo)); }, [gameInfo]);
-      useEffect(() => { localStorage.setItem('baseball_lineups_v2', JSON.stringify(lineups)); }, [lineups]);
-      useEffect(() => { localStorage.setItem('baseball_pitches_v2', JSON.stringify(pitches)); }, [pitches]);
-      useEffect(() => { localStorage.setItem('baseball_pitchView_v2', JSON.stringify(pitchView)); }, [pitchView]);
-      useEffect(() => { localStorage.setItem('baseball_savedGames_v2', JSON.stringify(savedGames)); }, [savedGames]);
-      useEffect(() => { localStorage.setItem('baseball_registeredTeams_v2', JSON.stringify(registeredTeams)); }, [registeredTeams]);
+      useEffect(() => { storage.setItem('baseball_gameState_v2', JSON.stringify(gameState)); }, [gameState]);
+      useEffect(() => { storage.setItem('baseball_gameInfo_v2', JSON.stringify(gameInfo)); }, [gameInfo]);
+      useEffect(() => { storage.setItem('baseball_lineups_v2', JSON.stringify(lineups)); }, [lineups]);
+      useEffect(() => { storage.setItem('baseball_pitches_v2', JSON.stringify(pitches)); }, [pitches]);
+      useEffect(() => { storage.setItem('baseball_pitchView_v2', JSON.stringify(pitchView)); }, [pitchView]);
+      useEffect(() => { storage.setItem('baseball_savedGames_v2', JSON.stringify(savedGames)); }, [savedGames]);
+      useEffect(() => { storage.setItem('baseball_registeredTeams_v2', JSON.stringify(registeredTeams)); }, [registeredTeams]);
 
 
       const showToast = (text, type = 'success') => { setToast({ text, type }); setTimeout(() => setToast(null), 3000); };
@@ -315,6 +321,72 @@ import { buildAnalystInsights } from './analystInsights.js';
       };
 
       const deleteGame = (gameId) => { setConfirmDialog({ title: '🗑️ アーカイブの削除', message: 'この保存データを完全に削除しますか？', isDanger: true, onConfirm: () => { setSavedGames(savedGames.filter(g => g.id !== gameId)); setConfirmDialog(null); } }); };
+
+      // オーダー設定を閉じるとき、入力済み選手を登録チームへ自動反映する
+      const closeOrderSettings = () => {
+        let added = 0;
+        ['top', 'bottom'].forEach(side => {
+          const teamName = side === 'top' ? gameInfo.teamTop : gameInfo.teamBottom;
+          if (isPlaceholderTeam(teamName)) return;
+          const rosterNames = new Set(getRosterPlayers(teamName).map(p => p.name));
+          lineups[side].forEach(p => { if (!isPlaceholderName(p.name) && !rosterNames.has(p.name.trim())) added++; });
+        });
+        autoRegisterFromGame(gameInfo, lineups);
+        setShowSettings(false);
+        if (added > 0) showToast(`チーム管理に選手${added}名を自動登録しました`);
+      };
+
+      // チーム編集画面: 選択した選手を1人に統合し、過去試合の記録も改名する
+      const executeMergePlayers = () => {
+        const team = registeredTeams[editingTeamIndex];
+        if (!team || mergeSelection.length < 2 || mergeKeepIdx === null) return;
+        const players = (team.players || []).map(asPlayerObj);
+        const keep = players[mergeKeepIdx];
+        if (!keep || !keep.name) return;
+        const fromNames = [...new Set(mergeSelection.filter(i => i !== mergeKeepIdx).map(i => players[i]?.name).filter(n => n && n !== keep.name))];
+        if (fromNames.length === 0) { showToast('統合する名前がありません', 'error'); return; }
+        setConfirmDialog({
+          title: '🔀 選手の統合',
+          message: `${fromNames.map(n => `「${n}」`).join('')}を「${keep.name}」に統合しますか？`,
+          subMessage: '※名簿の重複を削除し、現在の試合と保存済みの全試合の記録(打席・投球)も書き換えます。この操作は取り消せません',
+          isDanger: true,
+          onConfirm: () => {
+            // 1) 名簿から統合元を削除
+            setRegisteredTeams(prev => prev.map((t, i) => i === editingTeamIndex ? { ...t, players: mergeRosterPlayers(t.players, mergeSelection, mergeKeepIdx) } : t));
+            // 2) 現在の試合の記録を改名
+            let cur = { lineups, pitches };
+            let curChanged = 0;
+            ['top', 'bottom'].forEach(side => {
+              const curName = side === 'top' ? gameInfo.teamTop : gameInfo.teamBottom;
+              if (curName !== team.name) return;
+              const r = renamePlayersInGame(cur, side, fromNames, keep.name);
+              cur = { lineups: r.lineups, pitches: r.pitches };
+              curChanged += r.changed;
+            });
+            if (curChanged > 0) { setLineups(cur.lineups); setPitches(cur.pitches); }
+            // 3) 保存済み試合の記録を改名
+            let gamesUpdated = 0;
+            const newSavedGames = savedGames.map(g => {
+              if (g.teamTop !== team.name && g.teamBottom !== team.name) return g;
+              let data = g.data || {};
+              let changed = 0;
+              ['top', 'bottom'].forEach(side => {
+                const gName = side === 'top' ? g.teamTop : g.teamBottom;
+                if (gName !== team.name) return;
+                const r = renamePlayersInGame(data, side, fromNames, keep.name);
+                changed += r.changed;
+                data = { ...data, lineups: r.lineups, pitches: r.pitches };
+              });
+              if (changed === 0) return g;
+              gamesUpdated++;
+              return { ...g, data };
+            });
+            setSavedGames(newSavedGames);
+            setMergeMode(false); setMergeSelection([]); setMergeKeepIdx(null); setConfirmDialog(null);
+            showToast(`「${keep.name}」に統合しました${gamesUpdated > 0 ? `(過去${gamesUpdated}試合の記録も更新)` : ''}`);
+          }
+        });
+      };
 
       const applyTeamToLineup = (teamData, side) => {
         if (!teamData?.players || teamData.players.length === 0) return;
@@ -1819,7 +1891,7 @@ import { buildAnalystInsights } from './analystInsights.js';
               <div className="bg-gradient-to-br from-slate-50 to-slate-100 rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col max-h-[92vh] border border-slate-300">
                 <div className="p-4 border-b border-slate-300 bg-gradient-to-r from-slate-700 to-slate-800 flex justify-between items-center shrink-0">
                   <h2 className="text-lg font-black text-white">⚙️ オーダー設定</h2>
-                  <button onClick={() => setShowSettings(false)} className="text-slate-300 hover:text-white font-bold text-xl px-2">✕</button>
+                  <button onClick={closeOrderSettings} className="text-slate-300 hover:text-white font-bold text-xl px-2">✕</button>
                 </div>
                 <div className="flex-1 overflow-y-auto p-4 modal-scroll">
                   <div className="mb-4 flex gap-3 flex-wrap items-end">
@@ -1845,6 +1917,12 @@ import { buildAnalystInsights } from './analystInsights.js';
                           </div>
                           {findRegisteredTeam(gameInfo.teamTop) && <button onClick={() => applyTeamToLineup(findRegisteredTeam(gameInfo.teamTop), 'top')} className="text-[10px] bg-blue-600 text-white px-2 py-1.5 rounded-lg font-bold shadow-sm ml-2 shrink-0">登録反映</button>}
                         </div>
+                        {registeredTeams.length > 0 && (
+                          <select value="" onChange={e => { const t = findRegisteredTeam(e.target.value); if (t) { applyTeamToLineup(t, 'top'); showToast(`${t.name}のオーダーを反映しました`); } }} className="w-full text-[11px] font-bold border border-blue-200 rounded-lg px-2 py-1.5 bg-white text-blue-700 mb-2">
+                            <option value="">📋 登録チームから選択して反映...</option>
+                            {registeredTeams.map(t => <option key={t.name} value={t.name}>{t.name}（{(t.players||[]).length}人）</option>)}
+                          </select>
+                        )}
                         <div className="text-[9px] font-bold text-slate-400 flex items-center gap-1 mb-1 px-1">
                           <span className="w-6 text-center">打順</span><span className="w-9 text-center">守備</span><span className="flex-1">氏名</span><span className="w-[70px] text-center">投打</span>
                         </div>
@@ -1855,6 +1933,9 @@ import { buildAnalystInsights } from './analystInsights.js';
                               <select value={p.pos} onChange={e => { const nl = [...lineups.top]; nl[i] = {...nl[i], pos: e.target.value}; setLineups(prev => ({...prev, top: nl})); }} className="w-9 text-[10px] font-bold border border-slate-200 rounded px-0.5 py-1 bg-slate-50 text-center shrink-0">
                                 {posOptions.map(po => <option key={po} value={po}>{po}</option>)}
                               </select>
+                              {getRosterPlayers(gameInfo.teamTop).length > 0 && (
+                                <button type="button" onClick={() => setPlayerPicker({ side: 'top', index: i })} title="登録選手から選択" className="shrink-0 text-[11px] bg-blue-50 text-blue-600 border border-blue-200 rounded px-1.5 py-1 font-bold">📋</button>
+                              )}
                               <input type="text" list="roster-top-list" autoComplete="off" value={p.name} onChange={e => onLineupNameChange('top', i, e.target.value)} className="flex-1 text-xs font-bold border border-slate-200 rounded px-2 py-1 min-w-0" placeholder="選手名" />
                               {p.name && <button type="button" onClick={() => onLineupNameChange('top', i, '')} className="shrink-0 text-slate-300 hover:text-slate-500 text-[10px] font-bold px-1.5 py-1 bg-white border border-slate-200 rounded">×</button>}
                               {p.name && findRegisteredTeam(gameInfo.teamTop) && !getRosterPlayers(gameInfo.teamTop).some(pl => pl.name === p.name) && (
@@ -1880,6 +1961,12 @@ import { buildAnalystInsights } from './analystInsights.js';
                           </div>
                           {findRegisteredTeam(gameInfo.teamBottom) && <button onClick={() => applyTeamToLineup(findRegisteredTeam(gameInfo.teamBottom), 'bottom')} className="text-[10px] bg-rose-600 text-white px-2 py-1.5 rounded-lg font-bold shadow-sm ml-2 shrink-0">登録反映</button>}
                         </div>
+                        {registeredTeams.length > 0 && (
+                          <select value="" onChange={e => { const t = findRegisteredTeam(e.target.value); if (t) { applyTeamToLineup(t, 'bottom'); showToast(`${t.name}のオーダーを反映しました`); } }} className="w-full text-[11px] font-bold border border-rose-200 rounded-lg px-2 py-1.5 bg-white text-rose-700 mb-2">
+                            <option value="">📋 登録チームから選択して反映...</option>
+                            {registeredTeams.map(t => <option key={t.name} value={t.name}>{t.name}（{(t.players||[]).length}人）</option>)}
+                          </select>
+                        )}
                         <div className="text-[9px] font-bold text-slate-400 flex items-center gap-1 mb-1 px-1">
                           <span className="w-6 text-center">打順</span><span className="w-9 text-center">守備</span><span className="flex-1">氏名</span><span className="w-[70px] text-center">投打</span>
                         </div>
@@ -1890,6 +1977,9 @@ import { buildAnalystInsights } from './analystInsights.js';
                               <select value={p.pos} onChange={e => { const nl = [...lineups.bottom]; nl[i] = {...nl[i], pos: e.target.value}; setLineups(prev => ({...prev, bottom: nl})); }} className="w-9 text-[10px] font-bold border border-slate-200 rounded px-0.5 py-1 bg-slate-50 text-center shrink-0">
                                 {posOptions.map(po => <option key={po} value={po}>{po}</option>)}
                               </select>
+                              {getRosterPlayers(gameInfo.teamBottom).length > 0 && (
+                                <button type="button" onClick={() => setPlayerPicker({ side: 'bottom', index: i })} title="登録選手から選択" className="shrink-0 text-[11px] bg-rose-50 text-rose-600 border border-rose-200 rounded px-1.5 py-1 font-bold">📋</button>
+                              )}
                               <input type="text" list="roster-bottom-list" autoComplete="off" value={p.name} onChange={e => onLineupNameChange('bottom', i, e.target.value)} className="flex-1 text-xs font-bold border border-slate-200 rounded px-2 py-1 min-w-0" placeholder="選手名" />
                               {p.name && <button type="button" onClick={() => onLineupNameChange('bottom', i, '')} className="shrink-0 text-slate-300 hover:text-slate-500 text-[10px] font-bold px-1.5 py-1 bg-white border border-slate-200 rounded">×</button>}
                               {p.name && findRegisteredTeam(gameInfo.teamBottom) && !getRosterPlayers(gameInfo.teamBottom).some(pl => pl.name === p.name) && (
@@ -1914,6 +2004,44 @@ import { buildAnalystInsights } from './analystInsights.js';
           )}
 
           {/* ============================================================ */}
+          {/* 選手選択ポップアップ (オーダー設定から起動) */}
+          {playerPicker && (() => {
+            const side = playerPicker.side;
+            const teamName = side === 'top' ? gameInfo.teamTop : gameInfo.teamBottom;
+            const roster = getRosterPlayers(teamName);
+            const currentName = (lineups[side][playerPicker.index] || {}).name;
+            const usedNames = new Set(lineups[side].map(p => p.name).filter(n => n && n !== currentName));
+            return (
+              <div className="fixed inset-0 bg-slate-900/60 z-[400] flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setPlayerPicker(null)}>
+                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xs max-h-[70vh] flex flex-col overflow-hidden border border-slate-200" onClick={e => e.stopPropagation()}>
+                  <div className="p-3 border-b border-slate-200 bg-slate-50 flex justify-between items-center shrink-0">
+                    <div>
+                      <div className="text-sm font-black text-slate-800">📋 登録選手から選択</div>
+                      <div className="text-[10px] font-bold text-slate-500">{teamName}</div>
+                    </div>
+                    <button onClick={() => setPlayerPicker(null)} className="text-slate-400 hover:text-black font-bold text-xl px-2">✕</button>
+                  </div>
+                  <div className="flex-1 overflow-y-auto modal-scroll p-2 space-y-1">
+                    {roster.length === 0 && <p className="text-center text-slate-400 text-xs py-6">登録選手がいません</p>}
+                    {roster.map((pl, idx) => {
+                      const used = usedNames.has(pl.name);
+                      return (
+                        <button key={idx} disabled={used} onClick={() => { onLineupNameChange(side, playerPicker.index, pl.name); setPlayerPicker(null); }} className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl border text-left ${used ? 'bg-slate-50 border-slate-100 text-slate-300' : pl.name === currentName ? 'bg-blue-50 border-blue-300 text-blue-800' : 'bg-white border-slate-200 text-slate-700 active:bg-blue-50'}`}>
+                          <span className="text-xs font-black truncate">{pl.name}</span>
+                          <span className="text-[9px] font-bold shrink-0 flex items-center gap-1.5">
+                            <span className={used ? '' : 'text-slate-400'}>{pl.throws || '右'}投{pl.bats || '右'}打</span>
+                            {used && <span className="bg-slate-200 text-slate-500 px-1.5 py-0.5 rounded-full">出場中</span>}
+                            {pl.name === currentName && <span className="bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full">選択中</span>}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
           {/* ============= MODAL 3: TEAM MANAGER (チーム管理) =========== */}
           {/* ============================================================ */}
           {showTeamManager && (
@@ -1930,19 +2058,40 @@ import { buildAnalystInsights } from './analystInsights.js';
                         <input type="text" value={(registeredTeams[editingTeamIndex]||{}).name||''} onChange={e => { const t = [...registeredTeams]; t[editingTeamIndex] = {...t[editingTeamIndex], name: e.target.value}; setRegisteredTeams(t); }} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-bold mt-1" />
                       </div>
                       <div className="space-y-1.5">
-                        <label className="text-xs font-bold text-slate-500">選手一覧 (1行1名)</label>
-                        {((registeredTeams[editingTeamIndex]||{}).players||[]).map((p, i) => (
-                          <div key={`player-${i}-${typeof p === 'string' ? p : p.name}`} className="flex items-center gap-1.5">
+                        <div className="flex justify-between items-center">
+                          <label className="text-xs font-bold text-slate-500">選手一覧 (1行1名)</label>
+                          <button onClick={() => { setMergeMode(!mergeMode); setMergeSelection([]); setMergeKeepIdx(null); }} className={`text-[10px] px-2.5 py-1 rounded-lg font-bold border ${mergeMode ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-indigo-50 text-indigo-600 border-indigo-200'}`}>{mergeMode ? '✕ 統合をやめる' : '🔀 選手を統合'}</button>
+                        </div>
+                        {mergeMode && <p className="text-[10px] text-indigo-700 font-bold bg-indigo-50 border border-indigo-100 rounded-lg px-2 py-1.5">統合したい選手にチェックを入れてください（黄色の行は表記ゆれの可能性があります）</p>}
+                        {(() => {
+                          const dupSet = findDuplicateNameIndices((registeredTeams[editingTeamIndex]||{}).players||[]);
+                          return ((registeredTeams[editingTeamIndex]||{}).players||[]).map((p, i) => (
+                          <div key={`player-${i}-${typeof p === 'string' ? p : p.name}`} className={`flex items-center gap-1.5 ${dupSet.has(i) ? 'bg-amber-50 border border-amber-200 rounded-lg px-1 py-0.5' : ''}`}>
+                            {mergeMode && <input type="checkbox" checked={mergeSelection.includes(i)} onChange={() => { setMergeSelection(prev => prev.includes(i) ? prev.filter(x => x !== i) : [...prev, i]); setMergeKeepIdx(null); }} className="w-4 h-4 accent-indigo-600 shrink-0" />}
                             <span className="text-[10px] font-bold text-slate-400 w-5 text-right">{i+1}</span>
                             <input type="text" autoComplete="off" value={typeof p === 'string' ? p : p.name} onChange={e => { const t = [...registeredTeams]; const pl = [...(t[editingTeamIndex].players||[])]; pl[i] = typeof p === 'string' ? e.target.value : {...p, name: e.target.value}; t[editingTeamIndex] = {...t[editingTeamIndex], players: pl}; setRegisteredTeams(t); }} className="flex-1 border border-slate-200 rounded px-2 py-1.5 text-xs font-bold min-w-0" />
                             <select value={typeof p === 'string' ? '右' : (p.throws||'右')} onChange={e => { const t = [...registeredTeams]; const pl = [...(t[editingTeamIndex].players||[])]; pl[i] = typeof pl[i] === 'string' ? {name: pl[i], throws: e.target.value, bats: '右'} : {...pl[i], throws: e.target.value}; t[editingTeamIndex] = {...t[editingTeamIndex], players: pl}; setRegisteredTeams(t); }} className="text-[10px] border border-slate-200 rounded px-1 py-1.5 w-10"><option value="右">右投</option><option value="左">左投</option></select>
                             <select value={typeof p === 'string' ? '右' : (p.bats||'右')} onChange={e => { const t = [...registeredTeams]; const pl = [...(t[editingTeamIndex].players||[])]; pl[i] = typeof pl[i] === 'string' ? {name: pl[i], throws: '右', bats: e.target.value} : {...pl[i], bats: e.target.value}; t[editingTeamIndex] = {...t[editingTeamIndex], players: pl}; setRegisteredTeams(t); }} className="text-[10px] border border-slate-200 rounded px-1 py-1.5 w-10"><option value="右">右打</option><option value="左">左打</option><option value="両">両打</option></select>
-                            <button onClick={() => { const t = [...registeredTeams]; const pl = [...(t[editingTeamIndex].players||[])]; pl.splice(i, 1); t[editingTeamIndex] = {...t[editingTeamIndex], players: pl}; setRegisteredTeams(t); }} className="text-rose-400 hover:text-rose-600 text-xs font-bold px-1">✕</button>
+                            <button onClick={() => { const t = [...registeredTeams]; const pl = [...(t[editingTeamIndex].players||[])]; pl.splice(i, 1); t[editingTeamIndex] = {...t[editingTeamIndex], players: pl}; setRegisteredTeams(t); setMergeSelection([]); setMergeKeepIdx(null); }} className="text-rose-400 hover:text-rose-600 text-xs font-bold px-1">✕</button>
                           </div>
-                        ))}
+                          ));
+                        })()}
                         <button onClick={() => { const t = [...registeredTeams]; const pl = [...(t[editingTeamIndex].players||[]), {name: '', throws: '右', bats: '右'}]; t[editingTeamIndex] = {...t[editingTeamIndex], players: pl}; setRegisteredTeams(t); }} className="text-[10px] bg-slate-100 text-slate-600 px-3 py-1.5 rounded-lg font-bold border border-slate-200 w-full mt-2">＋ 選手を追加</button>
                       </div>
-                      <button onClick={() => setEditingTeamIndex(null)} className="w-full bg-blue-600 text-white py-3 rounded-xl font-black mt-4 shadow-md active:scale-95">保存して戻る</button>
+                      {mergeMode && mergeSelection.length >= 2 && (
+                        <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-3 space-y-2">
+                          <div className="text-xs font-black text-indigo-800">どの名前に統合しますか？</div>
+                          {mergeSelection.map(i => { const pl = asPlayerObj((((registeredTeams[editingTeamIndex]||{}).players)||[])[i] || { name: '' }); return (
+                            <label key={i} className="flex items-center gap-2 text-xs font-bold text-slate-700 bg-white rounded-lg px-2 py-1.5 border border-slate-200">
+                              <input type="radio" name="merge-keep" checked={mergeKeepIdx === i} onChange={() => setMergeKeepIdx(i)} className="accent-indigo-600" />
+                              {pl.name || '(名前なし)'}
+                            </label>
+                          ); })}
+                          <button onClick={executeMergePlayers} disabled={mergeKeepIdx === null} className={`w-full py-2.5 rounded-xl font-black text-xs ${mergeKeepIdx === null ? 'bg-slate-200 text-slate-400' : 'bg-indigo-600 text-white shadow-md active:scale-95'}`}>🔀 選択した{mergeSelection.length}名をこの名前に統合する</button>
+                          <p className="text-[9px] text-slate-500 leading-snug">過去の試合記録(打席・投球)もまとめて新しい名前に書き換わるため、累計成績が1人分に合算されます。</p>
+                        </div>
+                      )}
+                      <button onClick={() => { setEditingTeamIndex(null); setMergeMode(false); setMergeSelection([]); setMergeKeepIdx(null); }} className="w-full bg-blue-600 text-white py-3 rounded-xl font-black mt-4 shadow-md active:scale-95">保存して戻る</button>
                     </div>
                   ) : (
                     <div className="space-y-3">
@@ -1957,7 +2106,7 @@ import { buildAnalystInsights } from './analystInsights.js';
                             <button onClick={() => { setCumulativeTeam(team.name); setCumulativeDateFrom(''); setCumulativeDateTo(''); setCumulativeTab('batter'); setExpandedCumKey(null); setShowCumulativeStats(true); setShowTeamManager(false); }} className="text-[10px] bg-amber-50 text-amber-700 px-2.5 py-1.5 rounded-lg font-bold border border-amber-200">📊累計</button>
                             <button onClick={() => { applyTeamToLineup(team, 'top'); showToast(`${team.name}を先攻に反映`); }} className="text-[10px] bg-blue-50 text-blue-700 px-2.5 py-1.5 rounded-lg font-bold border border-blue-200">先攻に</button>
                             <button onClick={() => { applyTeamToLineup(team, 'bottom'); showToast(`${team.name}を後攻に反映`); }} className="text-[10px] bg-blue-50 text-blue-700 px-2.5 py-1.5 rounded-lg font-bold border border-blue-200">後攻に</button>
-                            <button onClick={() => setEditingTeamIndex(i)} className="text-[10px] bg-white text-slate-600 px-2.5 py-1.5 rounded-lg font-bold border border-slate-300">編集</button>
+                            <button onClick={() => { setEditingTeamIndex(i); setMergeMode(false); setMergeSelection([]); setMergeKeepIdx(null); }} className="text-[10px] bg-white text-slate-600 px-2.5 py-1.5 rounded-lg font-bold border border-slate-300">編集</button>
                             <button onClick={() => { setConfirmDialog({ title: '🗑️ チーム削除', message: `${team.name}を削除しますか？`, isDanger: true, onConfirm: () => { setRegisteredTeams(prev => prev.filter((_, idx) => idx !== i)); setConfirmDialog(null); } }); }} className="text-[10px] bg-rose-50 text-rose-600 px-2.5 py-1.5 rounded-lg font-bold border border-rose-200">削除</button>
                           </div>
                         </div>
