@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import SprayChart from './components/SprayChart.jsx';
 import AnalystReport from './components/AnalystReport.jsx';
 import { buildAnalystInsights } from './analystInsights.js';
+import * as storage from './storage.js';
 
     function App() {
       const makeInitialGameState = () => ({ inning: 1, isTop: true, outs: 0, balls: 0, strikes: 0, batterTop: 1, batterBottom: 1, runners: { first: false, second: false, third: false }, runs: { top: [0,0,0,0,0,0,0,0,0], bottom: [0,0,0,0,0,0,0,0,0] } });
@@ -10,7 +11,7 @@ import { buildAnalystInsights } from './analystInsights.js';
         bottom: Array.from({length: 10}, (_,i)=>({ order: i<9 ? i+1 : '投', name: i<9 ? `後攻${i+1}番` : `先発投手`, pos: i===9?'投':'未', throws: '右', bats: '右' }))
       });
       const loadStored = (key, fallback) => {
-        const saved = localStorage.getItem(key);
+        const saved = storage.getItem(key);
         if (!saved) return fallback;
         try { return JSON.parse(saved); } catch(e) { return fallback; }
       };
@@ -170,13 +171,13 @@ import { buildAnalystInsights } from './analystInsights.js';
       const [cumulativeTab, setCumulativeTab] = useState('batter');
       const [expandedCumKey, setExpandedCumKey] = useState(null);
 
-      useEffect(() => { localStorage.setItem('baseball_gameState_v2', JSON.stringify(gameState)); }, [gameState]);
-      useEffect(() => { localStorage.setItem('baseball_gameInfo_v2', JSON.stringify(gameInfo)); }, [gameInfo]);
-      useEffect(() => { localStorage.setItem('baseball_lineups_v2', JSON.stringify(lineups)); }, [lineups]);
-      useEffect(() => { localStorage.setItem('baseball_pitches_v2', JSON.stringify(pitches)); }, [pitches]);
-      useEffect(() => { localStorage.setItem('baseball_pitchView_v2', JSON.stringify(pitchView)); }, [pitchView]);
-      useEffect(() => { localStorage.setItem('baseball_savedGames_v2', JSON.stringify(savedGames)); }, [savedGames]);
-      useEffect(() => { localStorage.setItem('baseball_registeredTeams_v2', JSON.stringify(registeredTeams)); }, [registeredTeams]);
+      useEffect(() => { storage.setItem('baseball_gameState_v2', JSON.stringify(gameState)); }, [gameState]);
+      useEffect(() => { storage.setItem('baseball_gameInfo_v2', JSON.stringify(gameInfo)); }, [gameInfo]);
+      useEffect(() => { storage.setItem('baseball_lineups_v2', JSON.stringify(lineups)); }, [lineups]);
+      useEffect(() => { storage.setItem('baseball_pitches_v2', JSON.stringify(pitches)); }, [pitches]);
+      useEffect(() => { storage.setItem('baseball_pitchView_v2', JSON.stringify(pitchView)); }, [pitchView]);
+      useEffect(() => { storage.setItem('baseball_savedGames_v2', JSON.stringify(savedGames)); }, [savedGames]);
+      useEffect(() => { storage.setItem('baseball_registeredTeams_v2', JSON.stringify(registeredTeams)); }, [registeredTeams]);
 
 
       const showToast = (text, type = 'success') => { setToast({ text, type }); setTimeout(() => setToast(null), 3000); };
