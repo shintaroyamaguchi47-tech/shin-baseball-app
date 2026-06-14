@@ -455,7 +455,7 @@ import { asPlayerObj, findDuplicateNameIndices, mergeRosterPlayers, renamePlayer
         const isThreeBunt = result === 'バントファウル' && gameState.strikes === 2;
         const actualResult = isThreeBunt ? 'スリーバント失敗' : detailedResult || result;
         setPitches([...pitches, {
-          ...currentPitch, course: result?.startsWith('牽制') || ['その他出塁','ウエスト'].includes(result) ? null : currentPitch.course, type: result?.startsWith('牽制') || result === 'その他出塁' ? '-' : currentPitch.type, result: actualResult, inning: gameState.inning, isTop: gameState.isTop, batter: currentBatterIndex + 1, pitchNumber: currentBatterPitches.length + 1, pitcherName: currentPitcherObj.name, pitcherThrows: currentPitcherObj.throws, batterName: currentBatterObj.name, batterBats: currentBatterObj.bats, isEvent: false, runners: { ...gameState.runners }, outs: gameState.outs
+          ...currentPitch, course: result?.startsWith('牽制') || ['その他出塁','ウエスト'].includes(result) ? null : currentPitch.course, type: result?.startsWith('牽制') || result === 'その他出塁' ? '-' : currentPitch.type, result: actualResult, inning: gameState.inning, isTop: gameState.isTop, batter: currentBatterIndex + 1, pitchNumber: currentBatterPitches.length + 1, pitcherName: currentPitcherObj.name, pitcherThrows: currentPitcherObj.throws, batterName: currentBatterObj.name, batterBats: currentBatterObj.bats, batterThrows: currentBatterObj.throws, batterPos: currentBatterObj.pos, isEvent: false, runners: { ...gameState.runners }, outs: gameState.outs
         }]);
         if (result?.startsWith('牽制')) { setCurrentPitch(p => ({ ...p, course: null })); return; }
         if (isThreeBunt) { handleAdvanceAndNextBatter('out', 1); }
@@ -807,12 +807,13 @@ import { asPlayerObj, findDuplicateNameIndices, mergeRosterPlayers, renamePlayer
           if (currentAb.length > 0) abs.push(currentAb);
           const teamStats = { PA:0, AB:0, H:0, TB:0, BB_HBP:0, K:0, sprayHits: [] };
           const playerStats = {};
-          (isTopQuery?lineups.top:lineups.bottom).forEach((p,i) => playerStats[`${i+1}-${p.name}`] = { order: i+1, name: p.name, pos: p.pos, throws: p.throws, bats: p.bats, PA:0, AB:0, H:0, TB:0, BB_HBP:0, K:0, results: [], sprayHits: [], atBats: [] });
+          (isTopQuery?lineups.top:lineups.bottom).forEach((p,i) => playerStats[`${i+1}-${p.name}`] = { order: i+1, name: p.name, pos: p.pos, throws: p.throws, bats: p.bats, posSeq: [], PA:0, AB:0, H:0, TB:0, BB_HBP:0, K:0, results: [], sprayHits: [], atBats: [] });
           abs.forEach(ab => {
             const lastPitch = ab[ab.length - 1]; if (!lastPitch) return;
             const bKey = `${lastPitch.batter}-${lastPitch.batterName}`;
-            if (!playerStats[bKey]) playerStats[bKey] = { order: lastPitch.batter, name: lastPitch.batterName, pos: '途中', throws: lastPitch.batterThrows, bats: lastPitch.batterBats, PA:0, AB:0, H:0, TB:0, BB_HBP:0, K:0, results: [], sprayHits: [], atBats: [] };
+            if (!playerStats[bKey]) playerStats[bKey] = { order: lastPitch.batter, name: lastPitch.batterName, pos: '途中', throws: lastPitch.batterThrows, bats: lastPitch.batterBats, posSeq: [], PA:0, AB:0, H:0, TB:0, BB_HBP:0, K:0, results: [], sprayHits: [], atBats: [] };
             const pStat = playerStats[bKey], res = lastPitch.result;
+            if (lastPitch.batterPos) pStat.posSeq.push(lastPitch.batterPos);
             teamStats.PA++; pStat.PA++;
             let s=0, b=0; ab.forEach(p => { if(['ボール','ウエスト'].includes(p.result)) b++; else if(['ストライク','空振り','バント空振り'].includes(p.result)) s++; else if(['ファウル','バントファウル'].includes(p.result)&&s<2) s++; });
             const isHitPlay = ['安','塁打','本塁打'].some(w=>res.includes(w));
@@ -834,7 +835,12 @@ import { asPlayerObj, findDuplicateNameIndices, mergeRosterPlayers, renamePlayer
           });
           const calcRates = (st) => ({ AVG: st.AB>0?(st.H/st.AB).toFixed(3).replace(/^0/, ''):'.000', OPS: ((st.AB>0?st.TB/st.AB:0) + (st.PA>0?(st.H+st.BB_HBP)/st.PA:0)).toFixed(3).replace(/^0/, ''), KPct: st.PA>0?Math.round((st.K/st.PA)*100):0, BBPct: st.PA>0?Math.round((st.BB_HBP/st.PA)*100):0 });
           Object.assign(teamStats, calcRates(teamStats));
-          const playersArray = Object.values(playerStats).map(p => ({...p, ...calcRates(p)})).sort((a,b) => a.order - b.order);
+          const playersArray = Object.values(playerStats).map(p => {
+            // 守備位置: 各打席時点の位置から、連続重複を除いて「投→捕」のように変遷表示。記録が無い場合は現ラインナップの位置にフォールバック。
+            const seq = (p.posSeq || []).filter(Boolean).filter((v, i, a) => i === 0 || a[i - 1] !== v);
+            const pos = seq.length ? seq.join('→') : p.pos;
+            return {...p, ...calcRates(p), pos};
+          }).sort((a,b) => a.order - b.order);
           return { team: teamStats, players: playersArray };
         };
         const calcTeamPitching = (isTopQuery) => {
