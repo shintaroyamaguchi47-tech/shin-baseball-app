@@ -807,11 +807,11 @@ import { asPlayerObj, findDuplicateNameIndices, mergeRosterPlayers, renamePlayer
           if (currentAb.length > 0) abs.push(currentAb);
           const teamStats = { PA:0, AB:0, H:0, TB:0, BB_HBP:0, K:0, sprayHits: [] };
           const playerStats = {};
-          (isTopQuery?lineups.top:lineups.bottom).forEach((p,i) => playerStats[`${i+1}-${p.name}`] = { order: i+1, name: p.name, pos: p.pos, PA:0, AB:0, H:0, TB:0, BB_HBP:0, K:0, results: [], sprayHits: [], atBats: [] });
+          (isTopQuery?lineups.top:lineups.bottom).forEach((p,i) => playerStats[`${i+1}-${p.name}`] = { order: i+1, name: p.name, pos: p.pos, throws: p.throws, bats: p.bats, PA:0, AB:0, H:0, TB:0, BB_HBP:0, K:0, results: [], sprayHits: [], atBats: [] });
           abs.forEach(ab => {
             const lastPitch = ab[ab.length - 1]; if (!lastPitch) return;
             const bKey = `${lastPitch.batter}-${lastPitch.batterName}`;
-            if (!playerStats[bKey]) playerStats[bKey] = { order: lastPitch.batter, name: lastPitch.batterName, pos: '途中', PA:0, AB:0, H:0, TB:0, BB_HBP:0, K:0, results: [], sprayHits: [], atBats: [] };
+            if (!playerStats[bKey]) playerStats[bKey] = { order: lastPitch.batter, name: lastPitch.batterName, pos: '途中', throws: lastPitch.batterThrows, bats: lastPitch.batterBats, PA:0, AB:0, H:0, TB:0, BB_HBP:0, K:0, results: [], sprayHits: [], atBats: [] };
             const pStat = playerStats[bKey], res = lastPitch.result;
             teamStats.PA++; pStat.PA++;
             let s=0, b=0; ab.forEach(p => { if(['ボール','ウエスト'].includes(p.result)) b++; else if(['ストライク','空振り','バント空振り'].includes(p.result)) s++; else if(['ファウル','バントファウル'].includes(p.result)&&s<2) s++; });
