@@ -2402,12 +2402,13 @@ import { asPlayerObj, findDuplicateNameIndices, mergeRosterPlayers, renamePlayer
                       <div className="overflow-x-auto">
                         <table className="w-full text-xs border-collapse">
                           <thead><tr className="bg-slate-100 border-b-2 border-slate-300">
-                            <th className="py-2 px-2 text-left">順</th><th className="py-2 px-2 text-left">選手名</th><th className="py-2 px-2 text-right">打数</th><th className="py-2 px-2 text-right">安打</th><th className="py-2 px-2 text-right">四死</th><th className="py-2 px-2 text-right text-blue-600">打率</th><th className="py-2 px-2 text-right text-amber-600">OPS</th><th className="py-2 px-2 text-right text-rose-600">K%</th><th className="py-2 px-2 text-left">結果</th>
+                            <th className="py-2 px-2 text-left">順</th><th className="py-2 px-2 text-left">選手名</th><th className="py-2 px-2 text-center">守備</th><th className="py-2 px-2 text-center">投打</th><th className="py-2 px-2 text-right">打数</th><th className="py-2 px-2 text-right">安打</th><th className="py-2 px-2 text-right">四死</th><th className="py-2 px-2 text-right text-blue-600">打率</th><th className="py-2 px-2 text-right text-amber-600">OPS</th><th className="py-2 px-2 text-right text-rose-600">K%</th><th className="py-2 px-2 text-left">結果</th>
                           </tr></thead>
                           <tbody>
                             {data.players.filter(p => p.PA > 0).map((p, i) => (
                               <tr key={i} className={`border-b border-slate-100 ${i % 2 === 0 ? '' : 'bg-slate-50'}`}>
                                 <td className="py-2 px-2 font-bold text-slate-400">{p.order}</td><td className="py-2 px-2 font-black text-slate-800">{p.name}</td>
+                                <td className="py-2 px-2 text-center text-slate-500">{p.pos || '-'}</td><td className="py-2 px-2 text-center text-slate-500 text-[10px] whitespace-nowrap">{(p.throws || '?') + '投/' + (p.bats || '?') + '打'}</td>
                                 <td className="py-2 px-2 text-right">{p.AB}</td><td className="py-2 px-2 text-right">{p.H}</td><td className="py-2 px-2 text-right">{p.BB_HBP}</td>
                                 <td className="py-2 px-2 text-right text-blue-600 font-bold">{p.AVG}</td><td className="py-2 px-2 text-right text-amber-600 font-bold">{p.OPS}</td><td className="py-2 px-2 text-right text-rose-600">{p.KPct}%</td>
                                 <td className="py-2 px-2 text-[10px] text-slate-500 max-w-[260px] align-top">
