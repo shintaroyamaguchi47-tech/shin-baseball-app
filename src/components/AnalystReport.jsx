@@ -45,11 +45,87 @@ import React from 'react';
         );
       };
 
+      // 球種別有効性テーブル（A1）
+      const PerTypeTable = ({ perType }) => {
+        if (!perType || !perType.items.length) return <div className="text-[11px] text-slate-400">データなし</div>;
+        return (
+          <div className="overflow-x-auto">
+            <table className="w-full text-[11px] border-collapse">
+              <thead><tr className="bg-slate-100 border-b-2 border-slate-300 text-slate-600">
+                <th className="py-1.5 px-2 text-left">球種</th><th className="py-1.5 px-2 text-right">球数</th><th className="py-1.5 px-2 text-right">割合</th><th className="py-1.5 px-2 text-right">CSW%</th><th className="py-1.5 px-2 text-right">空振り率</th><th className="py-1.5 px-2 text-right">Zone%</th>
+              </tr></thead>
+              <tbody>
+                {perType.items.map((it, i) => (
+                  <tr key={i} className={`border-b border-slate-100 ${i % 2 ? 'bg-slate-50' : ''} ${it.count < 8 ? 'text-slate-400' : ''}`}>
+                    <td className="py-1.5 px-2 font-black flex items-center gap-1"><span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ background: PT_COLORS[it.type] || '#94a3b8' }}></span>{it.type}</td>
+                    <td className="py-1.5 px-2 text-right">{it.count}</td>
+                    <td className="py-1.5 px-2 text-right">{pf(it.usagePct)}</td>
+                    <td className="py-1.5 px-2 text-right font-bold text-rose-600">{pf(it.cswPct)}</td>
+                    <td className="py-1.5 px-2 text-right font-bold text-red-500">{pf(it.whiffPct)}</td>
+                    <td className="py-1.5 px-2 text-right">{pf(it.zonePct)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div className="text-[9px] text-slate-400 mt-1">空振り率＝スイングに対する空振り。灰色は8球未満（参考値）。</div>
+          </div>
+        );
+      };
+
+      // 走者なし vs 得点圏 の比較（A2）
+      const SituationalRow = ({ label, none, risp, fmt }) => (
+        <tr className="border-b border-slate-100">
+          <td className="py-1 px-2 font-bold text-slate-600 bg-slate-50">{label}</td>
+          <td className="py-1 px-2 text-right">{fmt(none)}</td>
+          <td className="py-1 px-2 text-right font-bold text-slate-800">{fmt(risp)}</td>
+        </tr>
+      );
+      const Situational = ({ team }) => {
+        const bN = team.batting.situational.none.pd, bR = team.batting.situational.risp.pd;
+        const pN = team.pitching.situational.none.pd, pR = team.pitching.situational.risp.pd;
+        return (
+          <div className="grid md:grid-cols-2 gap-4">
+            <div>
+              <div className="text-[11px] font-black text-blue-700 mb-2">打撃：走者なし vs 得点圏</div>
+              <table className="w-full text-[11px] border-collapse">
+                <thead><tr className="bg-slate-100 text-slate-500"><th className="py-1 px-2 text-left"></th><th className="py-1 px-2 text-right">走者なし({bN.pitches})</th><th className="py-1 px-2 text-right">得点圏({bR.pitches})</th></tr></thead>
+                <tbody>
+                  <SituationalRow label="Chase%" none={bN.chasePct} risp={bR.chasePct} fmt={pf} />
+                  <SituationalRow label="Contact%" none={bN.contactPct} risp={bR.contactPct} fmt={pf} />
+                  <SituationalRow label="空振り率" none={bN.swStrPct} risp={bR.swStrPct} fmt={pf} />
+                </tbody>
+              </table>
+            </div>
+            <div>
+              <div className="text-[11px] font-black text-rose-700 mb-2">投手：走者なし vs 得点圏</div>
+              <table className="w-full text-[11px] border-collapse">
+                <thead><tr className="bg-slate-100 text-slate-500"><th className="py-1 px-2 text-left"></th><th className="py-1 px-2 text-right">走者なし({pN.pitches})</th><th className="py-1 px-2 text-right">得点圏({pR.pitches})</th></tr></thead>
+                <tbody>
+                  <SituationalRow label="Zone%" none={pN.zonePct} risp={pR.zonePct} fmt={pf} />
+                  <SituationalRow label="CSW%" none={pN.cswPct} risp={pR.cswPct} fmt={pf} />
+                  <SituationalRow label="誘い率" none={pN.chasePct} risp={pR.chasePct} fmt={pf} />
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      };
+
       const TeamBlock = ({ team }) => {
         const bb = team.batting.battedBall;
         return (
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 md:p-6 space-y-6 report-section">
             <h3 className="text-lg font-black text-slate-800 border-b-2 border-slate-200 pb-2 report-heading">{team.name}</h3>
+
+            {/* 講評サマリー（B1） */}
+            {team.summary && team.summary.length > 0 && (
+              <div className="bg-amber-50 rounded-xl p-3 border border-amber-200">
+                <div className="text-[11px] font-black text-amber-700 mb-1.5">📝 講評サマリー</div>
+                <ul className="text-[11px] text-slate-700 space-y-0.5 leading-snug list-disc pl-4">
+                  {team.summary.map((s, i) => <li key={i}>{s}</li>)}
+                </ul>
+              </div>
+            )}
 
             {/* 打撃：選球眼 */}
             <div>
@@ -98,6 +174,18 @@ import React from 'react';
                 <div className="text-[11px] font-black text-slate-600 mb-2">2ストライク時の球種（決め球）</div>
                 <MixBar mix={team.pitching.twoStrike} />
               </div>
+            </div>
+
+            {/* 投手：球種別の有効性（A1） */}
+            <div>
+              <div className="text-[11px] font-black text-slate-600 mb-2">球種別の有効性</div>
+              <PerTypeTable perType={team.pitching.perType} />
+            </div>
+
+            {/* 状況別（A2）：走者なし vs 得点圏 */}
+            <div>
+              <div className="text-sm font-black text-slate-700 mb-2">🔥 状況別（走者なし vs 得点圏）</div>
+              <Situational team={team} />
             </div>
 
             {/* 投手別 */}

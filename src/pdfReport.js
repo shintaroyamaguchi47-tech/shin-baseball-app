@@ -40,9 +40,12 @@
       h+='<line x1="120" y1="185" x2="8" y2="70" stroke="#fbbf24" stroke-width="1.5"/>';
       h+='<line x1="120" y1="185" x2="232" y2="70" stroke="#fbbf24" stroke-width="1.5"/>';
       h+='<polygon points="120,185 80,145 120,110 160,145" fill="none" stroke="#cbd5e1" stroke-width="1" stroke-dasharray="4,2"/>';
-      (hits||[]).forEach(function(pt){
-        var tx=pt.x+(pt.isManual?0:(Math.random()-0.5)*4);
-        var ty=pt.y+(pt.isManual?0:(Math.random()-0.5)*4);
+      (hits||[]).forEach(function(pt, idx){
+        // 重なり回避のオフセットは投球indexから決定論的に算出（再印刷で位置が動かないように）
+        var jx=pt.isManual?0:((idx*53)%9-4)*0.5;
+        var jy=pt.isManual?0:((idx*29)%9-4)*0.5;
+        var tx=pt.x+jx;
+        var ty=pt.y+jy;
         var c=pt.type==='hit'?'#2563eb':pt.type==='error'?'#d97706':pt.type==='foul'?'#9333ea':'#dc2626';
         var fl=pt.flight||'fly';
         if(fl==='grounder'){var dx=tx-HX,dy=ty-HY,dist=Math.sqrt(dx*dx+dy*dy),nx=-dy/dist,ny=dx/dist,dd='M '+HX+' '+HY,steps=Math.max(4,Math.round(dist/12));for(var i=1;i<=steps;i++){var t=i/steps,amp=(i%2===0?2:-2)*(1-t*0.5);dd+=' L '+(HX+dx*t+nx*amp)+' '+(HY+dy*t+ny*amp);}h+='<path d="'+dd+'" fill="none" stroke="'+c+'" stroke-width="1.5" opacity="0.8"/>';}
@@ -260,6 +263,37 @@
         var parts=segs.map(function(s){var p=total>0?Math.round(s.v/total*1000)/10:0;return '<span style="color:'+s.c+';font-weight:bold;">'+s.label+' '+p+'%</span>';}).join(' / ');
         return '<div style="font-size:10px;margin:2px 0;"><span style="color:#475569;font-weight:bold;">'+label+':</span> '+parts+' <span style="color:#94a3b8;">(n='+total+')</span></div>';
       }
+      function perTypeTable(perType){
+        if(!perType||!perType.items.length) return '<span style="color:#94a3b8;font-size:10px;">データなし</span>';
+        var h='<table style="width:100%;border-collapse:collapse;font-size:10px;"><thead><tr style="background:#f1f5f9;color:#475569;border-bottom:1px solid #cbd5e1;">'
+          +'<th style="padding:3px 6px;text-align:left;">球種</th><th style="padding:3px 6px;text-align:right;">球数</th><th style="padding:3px 6px;text-align:right;">割合</th><th style="padding:3px 6px;text-align:right;">CSW%</th><th style="padding:3px 6px;text-align:right;">空振り率</th><th style="padding:3px 6px;text-align:right;">Zone%</th></tr></thead><tbody>';
+        perType.items.forEach(function(it,i){
+          var faint=it.count<8?'color:#94a3b8;':'';
+          h+='<tr style="border-bottom:1px solid #eef2f7;background:'+(i%2?'#f8fafc':'#fff')+';'+faint+'">'
+            +'<td style="padding:3px 6px;font-weight:bold;"><span style="display:inline-block;width:7px;height:7px;border-radius:2px;background:'+(PTC[it.type]||'#94a3b8')+';margin-right:3px;"></span>'+esc(it.type)+'</td>'
+            +'<td style="padding:3px 6px;text-align:right;">'+it.count+'</td>'
+            +'<td style="padding:3px 6px;text-align:right;">'+pf(it.usagePct)+'</td>'
+            +'<td style="padding:3px 6px;text-align:right;font-weight:bold;color:#d97706;">'+pf(it.cswPct)+'</td>'
+            +'<td style="padding:3px 6px;text-align:right;font-weight:bold;color:#ef4444;">'+pf(it.whiffPct)+'</td>'
+            +'<td style="padding:3px 6px;text-align:right;">'+pf(it.zonePct)+'</td></tr>';
+        });
+        h+='</tbody></table><div style="font-size:8px;color:#94a3b8;margin-top:2px;">空振り率＝スイングに対する空振り。灰色は8球未満(参考値)。</div>';
+        return h;
+      }
+      function situTable(tm){
+        var bN=tm.batting.situational.none.pd, bR=tm.batting.situational.risp.pd;
+        var pN=tm.pitching.situational.none.pd, pR=tm.pitching.situational.risp.pd;
+        function tbl(title,color,n,r,rows){
+          var h='<div style="flex:1;min-width:220px;"><div style="font-size:10px;font-weight:bold;color:'+color+';margin-bottom:3px;">'+title+'</div>';
+          h+='<table style="width:100%;border-collapse:collapse;font-size:10px;"><thead><tr style="background:#f1f5f9;color:#94a3b8;"><th style="padding:2px 6px;text-align:left;"></th><th style="padding:2px 6px;text-align:right;">走者なし('+n.pitches+')</th><th style="padding:2px 6px;text-align:right;">得点圏('+r.pitches+')</th></tr></thead><tbody>';
+          rows.forEach(function(rw){h+='<tr style="border-bottom:1px solid #eef2f7;"><td style="padding:2px 6px;font-weight:bold;color:#475569;background:#f8fafc;">'+rw[0]+'</td><td style="padding:2px 6px;text-align:right;">'+pf(rw[1])+'</td><td style="padding:2px 6px;text-align:right;font-weight:bold;color:#1e293b;">'+pf(rw[2])+'</td></tr>';});
+          h+='</tbody></table></div>';return h;
+        }
+        var h='<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:6px;">';
+        h+=tbl('打撃：走者なし vs 得点圏','#2563eb',bN,bR,[['Chase%',bN.chasePct,bR.chasePct],['Contact%',bN.contactPct,bR.contactPct],['空振り率',bN.swStrPct,bR.swStrPct]]);
+        h+=tbl('投手：走者なし vs 得点圏','#e11d48',pN,pR,[['Zone%',pN.zonePct,pR.zonePct],['CSW%',pN.cswPct,pR.cswPct],['誘い率',pN.chasePct,pR.chasePct]]);
+        h+='</div>';return h;
+      }
       function teamBlock(tm){
         var bp=tm.batting.pd, pp=tm.pitching.pd, bb=tm.batting.battedBall;
         var h='<section class="report-section"><div class="report-heading" style="font-size:15px;font-weight:bold;color:#1e293b;border-bottom:2px solid #e2e8f0;padding-bottom:3px;margin-bottom:8px;">アナリスト指標: '+esc(tm.name)+'</div>';
@@ -273,7 +307,10 @@
         h+=statTable([['Zone%',pp.zonePct,'ゾーン投球率'],['初球S%',pp.fpStrikePct,'初球ストライク率'],['CSW%',pp.cswPct,'見逃し+空振り'],['奪空振り率',pp.swStrPct,'空振り奪取率'],['誘い率',pp.chasePct,'ボール球誘発'],['被Contact%',pp.contactPct,'被コンタクト率']]);
         h+='<div style="font-size:10px;margin:3px 0;"><span style="color:#475569;font-weight:bold;">球種構成:</span><br>'+mixTxt(tm.pitching.mix)+'</div>';
         h+='<div style="font-size:10px;margin:3px 0;"><span style="color:#475569;font-weight:bold;">決め球(2S):</span><br>'+mixTxt(tm.pitching.twoStrike)+'</div>';
-        h+='</div></div></section>';
+        h+='</div></div>';
+        h+='<div style="margin-top:8px;"><div style="font-size:11px;font-weight:bold;color:#475569;margin-bottom:3px;">球種別の有効性</div>'+perTypeTable(tm.pitching.perType)+'</div>';
+        h+='<div style="margin-top:8px;"><div style="font-size:11px;font-weight:bold;color:#475569;margin-bottom:3px;">状況別（走者なし vs 得点圏）</div>'+situTable(tm)+'</div>';
+        h+='</section>';
         return h;
       }
       var h='<section class="report-section"><div class="report-heading" style="font-size:16px;font-weight:bold;color:#1e293b;border-bottom:2px solid #e2e8f0;padding-bottom:4px;margin-bottom:6px;">アナリスト指標ガイド</div>';
@@ -304,9 +341,23 @@
     sprayH+=sprayChartSvg(t.topBatting.team.sprayHits,gi.teamTop,185);
     sprayH+=sprayChartSvg(t.bottomBatting.team.sprayHits,gi.teamBottom,185);
     sprayH+='</div>';
+    function narrativeHtml(a){
+      if(!a || !a.hasData) return '';
+      function teamCard(tm,accent){
+        var items=tm.summary||[];
+        var h='<div style="flex:1;min-width:260px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;">';
+        h+='<div style="font-size:12px;font-weight:bold;color:'+accent+';margin-bottom:4px;">'+esc(tm.name)+'</div>';
+        if(items.length===0){h+='<div style="font-size:10px;color:#94a3b8;">データが少なく要点を抽出できません</div>';}
+        else{h+='<ul style="margin:0;padding-left:16px;font-size:10px;color:#334155;line-height:1.6;">';items.forEach(function(s){h+='<li>'+esc(s)+'</li>';});h+='</ul>';}
+        h+='</div>';return h;
+      }
+      var h='<div style="margin:0 0 14px;break-inside:avoid;page-break-inside:avoid;"><div style="font-size:16px;font-weight:bold;color:#1e293b;border-bottom:2px solid #e2e8f0;padding-bottom:4px;margin-bottom:8px;">📝 講評サマリー</div>';
+      h+='<div style="display:flex;gap:12px;flex-wrap:wrap;">'+teamCard(a.top,'#2563eb')+teamCard(a.bottom,'#e11d48')+'</div></div>';
+      return h;
+    }
     var body='<div style="max-width:900px;margin:0 auto;padding:16px 24px;font-family:sans-serif;">';
     body+='<h1 style="font-size:22px;font-weight:bold;margin:0 0 3px;">試合分析レポート</h1><div style="color:#64748b;margin-bottom:10px;font-size:12px;">'+esc(gi.date)+' / 総投球数: '+ps.filter(function(p){return !p.isEvent||p.countAsPitch;}).length+'球</div>';
-    body+=scoreBoardH+summaryH+sprayH;
+    body+=narrativeHtml(analyst)+scoreBoardH+summaryH+sprayH;
     body+=batterTable(t.topBatting,gi.teamTop);
     body+=batterDetails(t.topBatting,gi.teamTop);
     body+=batterAtBatDetails(t.topBatting,gi.teamTop);
