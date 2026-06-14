@@ -319,44 +319,44 @@
       return h;
     }
     var t=stats;
-    var scoreBoardH='<table style="width:100%;border-collapse:collapse;text-align:center;font-size:13px;margin-bottom:12px;border:1px solid #cbd5e1;"><thead><tr style="background:#1e293b;color:#fff;"><th style="padding:7px 8px;text-align:left;">TEAM</th>';
-    for(var i=1;i<=9;i++) scoreBoardH+='<th style="padding:10px;width:30px;">'+i+'</th>';
-    scoreBoardH+='<th style="padding:7px 8px;width:40px;">R</th><th style="padding:7px 8px;width:40px;">H</th><th style="padding:7px 8px;width:40px;">E</th></tr></thead>';
-    scoreBoardH+='<tbody><tr style="border-bottom:1px solid #e2e8f0;"><td style="padding:8px;text-align:left;font-weight:bold;">'+esc(gi.teamTop)+'</td>';
-    for(var i=0;i<9;i++) scoreBoardH+='<td style="padding:8px;">'+(gs.runs.top[i]>0?gs.runs.top[i]:(gs.inning>i+1||(gs.inning===i+1&&!gs.isTop)?'0':''))+'</td>';
-    scoreBoardH+='<td style="padding:8px;font-weight:bold;background:#f0f9ff;color:#0369a1;">'+topTotal+'</td><td style="padding:8px;">'+hAndE.top.hits+'</td><td style="padding:8px;">'+hAndE.top.errors+'</td></tr>';
-    scoreBoardH+='<tr><td style="padding:8px;text-align:left;font-weight:bold;">'+esc(gi.teamBottom)+'</td>';
-    for(var i=0;i<9;i++) scoreBoardH+='<td style="padding:8px;">'+(gs.runs.bottom[i]>0?gs.runs.bottom[i]:(gs.inning>i+1?'0':''))+'</td>';
-    scoreBoardH+='<td style="padding:8px;font-weight:bold;background:#f0f9ff;color:#0369a1;">'+bottomTotal+'</td><td style="padding:8px;">'+hAndE.bottom.hits+'</td><td style="padding:8px;">'+hAndE.bottom.errors+'</td></tr>';
+    var scoreBoardH='<table style="width:100%;border-collapse:collapse;text-align:center;font-size:12px;margin-bottom:6px;border:1px solid #cbd5e1;"><thead><tr style="background:#1e293b;color:#fff;"><th style="padding:4px 8px;text-align:left;">TEAM</th>';
+    for(var i=1;i<=9;i++) scoreBoardH+='<th style="padding:3px;width:24px;">'+i+'</th>';
+    scoreBoardH+='<th style="padding:4px 8px;width:36px;">R</th><th style="padding:4px 8px;width:36px;">H</th><th style="padding:4px 8px;width:36px;">E</th></tr></thead>';
+    scoreBoardH+='<tbody><tr style="border-bottom:1px solid #e2e8f0;"><td style="padding:3px 8px;text-align:left;font-weight:bold;">'+esc(gi.teamTop)+'</td>';
+    for(var i=0;i<9;i++) scoreBoardH+='<td style="padding:3px 8px;">'+(gs.runs.top[i]>0?gs.runs.top[i]:(gs.inning>i+1||(gs.inning===i+1&&!gs.isTop)?'0':''))+'</td>';
+    scoreBoardH+='<td style="padding:3px 8px;font-weight:bold;background:#f0f9ff;color:#0369a1;">'+topTotal+'</td><td style="padding:3px 8px;">'+hAndE.top.hits+'</td><td style="padding:3px 8px;">'+hAndE.top.errors+'</td></tr>';
+    scoreBoardH+='<tr><td style="padding:3px 8px;text-align:left;font-weight:bold;">'+esc(gi.teamBottom)+'</td>';
+    for(var i=0;i<9;i++) scoreBoardH+='<td style="padding:3px 8px;">'+(gs.runs.bottom[i]>0?gs.runs.bottom[i]:(gs.inning>i+1?'0':''))+'</td>';
+    scoreBoardH+='<td style="padding:3px 8px;font-weight:bold;background:#f0f9ff;color:#0369a1;">'+bottomTotal+'</td><td style="padding:3px 8px;">'+hAndE.bottom.hits+'</td><td style="padding:3px 8px;">'+hAndE.bottom.errors+'</td></tr>';
     scoreBoardH+='</tbody></table>';
-    var summaryH='<h3 style="margin:12px 0 6px;font-size:15px;font-weight:bold;">チーム比較</h3><table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:10px;"><tbody>';
-    summaryH+='<tr style="background:#f1f5f9;"><td></td><td style="padding:6px 8px;text-align:center;font-weight:bold;">'+esc(gi.teamTop)+'</td><td style="padding:6px 8px;text-align:center;font-weight:bold;">'+esc(gi.teamBottom)+'</td></tr>';
-    function sRow(l,a,b){return '<tr style="border-bottom:1px solid #e2e8f0;"><td style="padding:6px 8px;font-weight:bold;background:#f8fafc;">'+l+'</td><td style="padding:6px 8px;text-align:center;">'+a+'</td><td style="padding:6px 8px;text-align:center;">'+b+'</td></tr>';}
+    var summaryH='<h3 style="margin:6px 0 3px;font-size:14px;font-weight:bold;">チーム比較</h3><table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:6px;"><tbody>';
+    summaryH+='<tr style="background:#f1f5f9;"><td></td><td style="padding:3px 8px;text-align:center;font-weight:bold;">'+esc(gi.teamTop)+'</td><td style="padding:3px 8px;text-align:center;font-weight:bold;">'+esc(gi.teamBottom)+'</td></tr>';
+    function sRow(l,a,b){return '<tr style="border-bottom:1px solid #e2e8f0;"><td style="padding:3px 8px;font-weight:bold;background:#f8fafc;">'+l+'</td><td style="padding:3px 8px;text-align:center;">'+a+'</td><td style="padding:3px 8px;text-align:center;">'+b+'</td></tr>';}
     summaryH+=sRow('打率',t.topBatting.team.AVG,t.bottomBatting.team.AVG);
     summaryH+=sRow('OPS',t.topBatting.team.OPS,t.bottomBatting.team.OPS);
     summaryH+=sRow('K%',t.topBatting.team.KPct+'%',t.bottomBatting.team.KPct+'%');
     summaryH+=sRow('BB%',t.topBatting.team.BBPct+'%',t.bottomBatting.team.BBPct+'%');
     summaryH+='</tbody></table>';
-    var sprayH='<h3 style="margin:12px 0 6px;font-size:15px;font-weight:bold;">チーム打球方向</h3><div class="bif" style="display:flex;gap:14px;flex-wrap:nowrap;justify-content:center;margin-bottom:8px;">';
-    sprayH+=sprayChartSvg(t.topBatting.team.sprayHits,gi.teamTop,185);
-    sprayH+=sprayChartSvg(t.bottomBatting.team.sprayHits,gi.teamBottom,185);
+    var sprayH='<h3 style="margin:6px 0 3px;font-size:14px;font-weight:bold;">チーム打球方向</h3><div class="bif" style="display:flex;gap:14px;flex-wrap:nowrap;justify-content:center;margin-bottom:4px;">';
+    sprayH+=sprayChartSvg(t.topBatting.team.sprayHits,gi.teamTop,150);
+    sprayH+=sprayChartSvg(t.bottomBatting.team.sprayHits,gi.teamBottom,150);
     sprayH+='</div>';
     function narrativeHtml(a){
       if(!a || !a.hasData) return '';
       function teamCard(tm,accent){
         var items=tm.summary||[];
-        var h='<div style="flex:1;min-width:260px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;">';
-        h+='<div style="font-size:12px;font-weight:bold;color:'+accent+';margin-bottom:4px;">'+esc(tm.name)+'</div>';
-        if(items.length===0){h+='<div style="font-size:10px;color:#94a3b8;">データが少なく要点を抽出できません</div>';}
-        else{h+='<ul style="margin:0;padding-left:16px;font-size:10px;color:#334155;line-height:1.6;">';items.forEach(function(s){h+='<li>'+esc(s)+'</li>';});h+='</ul>';}
+        var h='<div style="flex:1;min-width:230px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:5px 8px;">';
+        h+='<div style="font-size:11px;font-weight:bold;color:'+accent+';margin-bottom:2px;">'+esc(tm.name)+'</div>';
+        if(items.length===0){h+='<div style="font-size:9px;color:#94a3b8;">データが少なく要点を抽出できません</div>';}
+        else{h+='<ul style="margin:0;padding-left:15px;font-size:9px;color:#334155;line-height:1.4;">';items.slice(0,4).forEach(function(s){h+='<li>'+esc(s)+'</li>';});h+='</ul>';}
         h+='</div>';return h;
       }
-      var h='<div style="margin:0 0 14px;break-inside:avoid;page-break-inside:avoid;"><div style="font-size:16px;font-weight:bold;color:#1e293b;border-bottom:2px solid #e2e8f0;padding-bottom:4px;margin-bottom:8px;">📝 講評サマリー</div>';
-      h+='<div style="display:flex;gap:12px;flex-wrap:wrap;">'+teamCard(a.top,'#2563eb')+teamCard(a.bottom,'#e11d48')+'</div></div>';
+      var h='<div style="margin:0 0 8px;break-inside:avoid;page-break-inside:avoid;"><div style="font-size:13px;font-weight:bold;color:#1e293b;border-bottom:2px solid #e2e8f0;padding-bottom:3px;margin-bottom:5px;">📝 講評サマリー</div>';
+      h+='<div style="display:flex;gap:8px;flex-wrap:wrap;">'+teamCard(a.top,'#2563eb')+teamCard(a.bottom,'#e11d48')+'</div></div>';
       return h;
     }
-    var body='<div style="max-width:900px;margin:0 auto;padding:16px 24px;font-family:sans-serif;">';
-    body+='<h1 style="font-size:22px;font-weight:bold;margin:0 0 3px;">試合分析レポート</h1><div style="color:#64748b;margin-bottom:10px;font-size:12px;">'+esc(gi.date)+' / 総投球数: '+ps.filter(function(p){return !p.isEvent||p.countAsPitch;}).length+'球</div>';
+    var body='<div style="max-width:900px;margin:0 auto;padding:12px 24px;font-family:sans-serif;">';
+    body+='<h1 style="font-size:18px;font-weight:bold;margin:0 0 2px;">試合分析レポート</h1><div style="color:#64748b;margin-bottom:5px;font-size:11px;">'+esc(gi.date)+' / 総投球数: '+ps.filter(function(p){return !p.isEvent||p.countAsPitch;}).length+'球</div>';
     body+=narrativeHtml(analyst)+scoreBoardH+summaryH+sprayH;
     body+=batterTable(t.topBatting,gi.teamTop);
     body+=batterDetails(t.topBatting,gi.teamTop);
