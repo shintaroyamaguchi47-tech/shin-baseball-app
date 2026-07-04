@@ -34,6 +34,32 @@ describe('アプリ全体のスモークテスト', () => {
   it('PDFレポート生成関数がグローバルに定義される', () => {
     expect(typeof window.generatePdfReport).toBe('function');
   });
+
+  it('PDFレポートにテキスト速報が含まれる', () => {
+    let html = '';
+    const fakeWin = { document: { write: (s) => { html += s; }, close: () => {} }, print: () => {} };
+    const origOpen = window.open;
+    window.open = () => fakeWin;
+    try {
+      const emptyBatting = { team: { AVG: '.000', OPS: '.000', KPct: 0, BBPct: 0, sprayHits: [] }, players: [] };
+      const ok = window.generatePdfReport({
+        gameInfo: { date: '2026-06-11', teamTop: 'A', teamBottom: 'B' },
+        gameState: { inning: 1, isTop: true, runs: { top: Array(9).fill(0), bottom: Array(9).fill(0) } },
+        advancedStats: { topBatting: emptyBatting, bottomBatting: emptyBatting, pitchingTop: { pitchers: [] }, pitchingBottom: { pitchers: [] } },
+        analystInsights: { hasData: false },
+        pitches: [],
+        hitsAndErrors: { top: { hits: 0, errors: 0 }, bottom: { hits: 0, errors: 0 } },
+        playByPlay: [{ inning: 1, isTop: true, atBats: [{ batter: 1, batterName: 'テスト太郎', pitcherName: '投手A', pitchCount: 4, result: '四球', events: ['盗塁成功'], pitches: [] }] }],
+      });
+      expect(ok).toBe(true);
+      expect(html).toContain('テキスト速報');
+      expect(html).toContain('テスト太郎');
+      expect(html).toContain('四球');
+      expect(html).toContain('盗塁成功');
+    } finally {
+      window.open = origOpen;
+    }
+  });
 });
 
 describe('buildAnalystInsights', () => {
