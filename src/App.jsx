@@ -4,6 +4,7 @@ import AnalystReport from './components/AnalystReport.jsx';
 import { buildAnalystInsights } from './analystInsights.js';
 import * as storage from './storage.js';
 import { asPlayerObj, findDuplicateNameIndices, mergeRosterPlayers, renamePlayersInGame, detectLineupRenames } from './teamUtils.js';
+import { renumberPitchNumbers, reassignPitchBatter } from './gameUtils.js';
 
     function App() {
       const makeInitialGameState = () => ({ inning: 1, isTop: true, outs: 0, balls: 0, strikes: 0, batterTop: 1, batterBottom: 1, runners: { first: false, second: false, third: false }, runs: { top: [0,0,0,0,0,0,0,0,0], bottom: [0,0,0,0,0,0,0,0,0] } });
@@ -76,8 +77,15 @@ import { asPlayerObj, findDuplicateNameIndices, mergeRosterPlayers, renamePlayer
       };
       const rebuildGameStateFromPitches = (records) => {
         let state = makeInitialGameState();
+        let lastAtBatKey = null;
         records.forEach(p => {
           state = normalizeGameState({ ...state, inning: p.inning || state.inning, isTop: p.isTop, ...(p.isTop ? { batterTop: p.batter || state.batterTop } : { batterBottom: p.batter || state.batterBottom }) });
+          if (!p.isEvent) {
+            // 打順修正などで途中から打者が変わった場合は新しい打席としてカウントをリセットする
+            const atBatKey = `${p.inning}-${p.isTop}-${p.batter}`;
+            if (lastAtBatKey !== null && atBatKey !== lastAtBatKey) state = { ...state, balls: 0, strikes: 0 };
+            lastAtBatKey = atBatKey;
+          }
           if (p.isEvent) {
             const runnerKey = p.result?.startsWith('1塁走者') ? 'first' : p.result?.startsWith('2塁走者') ? 'second' : p.result?.startsWith('3塁走者') ? 'third' : null;
             if (runnerKey && p.result.includes('が')) {
@@ -677,8 +685,16 @@ import { asPlayerObj, findDuplicateNameIndices, mergeRosterPlayers, renamePlayer
       const handleEditPitchClick = (pitch) => { const globalIndex = pitches.indexOf(pitch); if (globalIndex !== -1) { setEditingPitchIndex(globalIndex); setEditPitchData({ ...pitch, runners: pitch.runners || { first: false, second: false, third: false } }); } };
       const savePitchEdit = () => {
         recordAction();
-        const newPitches = [...pitches];
-        newPitches[editingPitchIndex] = editPitchData;
+        const orig = pitches[editingPitchIndex];
+        const { applyBatterToAtBat, ...edited } = editPitchData;
+        let newPitches = [...pitches];
+        // 打者以外の修正を先に反映し、打順の変更は付け替え処理(球数の振り直し込み)で行う
+        newPitches[editingPitchIndex] = { ...edited, batter: orig.batter, batterName: orig.batterName, batterBats: orig.batterBats, batterThrows: orig.batterThrows, batterPos: orig.batterPos };
+        if (!orig.isEvent && edited.batter !== orig.batter) {
+          newPitches = reassignPitchBatter(newPitches, editingPitchIndex, edited.batter, { name: edited.batterName, bats: edited.batterBats, throws: edited.batterThrows, pos: edited.batterPos }, applyBatterToAtBat !== false);
+        } else {
+          newPitches = renumberPitchNumbers(newPitches);
+        }
         setPitches(newPitches);
         setGameState(rebuildGameStateFromPitches(newPitches));
         setEditingPitchIndex(null);
@@ -692,9 +708,9 @@ import { asPlayerObj, findDuplicateNameIndices, mergeRosterPlayers, renamePlayer
           title: '🗑️ 記録の削除', message: 'この記録を削除しますか？', subMessage: '※ランナーやアウト数を履歴から再計算します。', isDanger: true,
           onConfirm: () => {
             recordAction();
-            const newPitches = [...pitches]; const deletedPitch = newPitches.splice(editingPitchIndex, 1)[0];
-            if (!deletedPitch.isEvent || deletedPitch.countAsPitch) { let currentNum = 1; newPitches.forEach(p => { if (p.inning === deletedPitch.inning && p.isTop === deletedPitch.isTop && p.batter === deletedPitch.batter && (!p.isEvent || p.countAsPitch)) p.pitchNumber = currentNum++; }); }
-            setPitches(newPitches); setGameState(rebuildGameStateFromPitches(newPitches)); setEditingPitchIndex(null); setEditPitchData(null); setConfirmDialog(null); showToast("記録を削除しました");
+            const newPitches = [...pitches]; newPitches.splice(editingPitchIndex, 1);
+            const renumbered = renumberPitchNumbers(newPitches);
+            setPitches(renumbered); setGameState(rebuildGameStateFromPitches(renumbered)); setEditingPitchIndex(null); setEditPitchData(null); setConfirmDialog(null); showToast("記録を削除しました");
           }
         });
       };
@@ -1786,6 +1802,26 @@ import { asPlayerObj, findDuplicateNameIndices, mergeRosterPlayers, renamePlayer
                   <>
                     <div className="p-4 border-b border-blue-200 bg-blue-50 flex justify-between items-center"><h2 className="font-black text-base"><span className="bg-white px-2 py-0.5 rounded shadow-sm text-blue-600 text-sm">第{editPitchData.pitchNumber}球</span> を修正</h2><button onClick={cancelPitchEdit} className="text-blue-400 hover:text-blue-800 font-bold text-xl px-2">✕</button></div>
                     <div className="p-5 flex flex-col gap-6 bg-slate-50/50 overflow-y-auto max-h-[70vh]">
+                      {/* 打順違いの修正 */}
+                      <div className="bg-white p-4 rounded-2xl border border-slate-200 flex flex-col gap-2">
+                        <span className="text-xs font-bold text-slate-500 uppercase">打者（打順違いの修正）</span>
+                        <select value={editPitchData.batter} onChange={e => {
+                          const n = Number(e.target.value);
+                          const lu = (editPitchData.isTop ? lineups.top : lineups.bottom)[n - 1] || {};
+                          setEditPitchData({ ...editPitchData, batter: n, batterName: lu.name || '', batterBats: lu.bats || '右', batterThrows: lu.throws || '右', batterPos: lu.pos || editPitchData.batterPos, applyBatterToAtBat: editPitchData.applyBatterToAtBat ?? true });
+                        }} className="w-full border border-slate-300 rounded-lg px-2 py-2.5 text-sm font-bold bg-white outline-none">
+                          {[1,2,3,4,5,6,7,8,9].map(n => { const lu = (editPitchData.isTop ? lineups.top : lineups.bottom)[n - 1]; return <option key={n} value={n}>{n}番 {lu?.name || ''}</option>; })}
+                        </select>
+                        {pitches[editingPitchIndex] && editPitchData.batter !== pitches[editingPitchIndex].batter && (
+                          <>
+                            <label className="flex items-center gap-2 text-[11px] font-bold text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 cursor-pointer">
+                              <input type="checkbox" checked={editPitchData.applyBatterToAtBat !== false} onChange={e => setEditPitchData({ ...editPitchData, applyBatterToAtBat: e.target.checked })} className="w-4 h-4 accent-amber-600 shrink-0" />
+                              この打席（{pitches[editingPitchIndex].batter}番 {pitches[editingPitchIndex].batterName}）の記録をまとめて{editPitchData.batter}番に付け替える
+                            </label>
+                            <p className="text-[10px] text-slate-400 font-bold leading-relaxed">※打者名は現在のオーダーから自動設定され、球数は打席ごとに振り直されます。保存後はアウト数・走者・得点も再計算されます</p>
+                          </>
+                        )}
+                      </div>
                       <div className="flex flex-col items-center bg-white p-4 rounded-2xl border border-slate-200">
                         <span className="text-xs font-bold text-slate-500 mb-3 uppercase">ランナー</span>
                         <div className="flex gap-4 relative w-20 h-20">
