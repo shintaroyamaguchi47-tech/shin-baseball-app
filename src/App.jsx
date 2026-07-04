@@ -133,6 +133,7 @@ import { asPlayerObj, findDuplicateNameIndices, mergeRosterPlayers, renamePlayer
       const [showSettings, setShowSettings] = useState(false);
       const [orderSnapshot, setOrderSnapshot] = useState(null); // オーダー設定を開いた時点の選手名(試合途中の登録し直し検出用)
       const [scoreEdit, setScoreEdit] = useState(null); // スコア修正モーダル: {source:'current'|'saved', gameId, top:[], bottom:[]}
+      const [showRecordEditor, setShowRecordEditor] = useState(false); // 全記録修正モーダル: 一球ごとの記録を一覧して修正
       const [showExport, setShowExport] = useState(false);
       const [showInPlayResult, setShowInPlayResult] = useState(false);
       const [showErrorTypeSelect, setShowErrorTypeSelect] = useState(false);
@@ -300,14 +301,34 @@ import { asPlayerObj, findDuplicateNameIndices, mergeRosterPlayers, renamePlayer
         });
       };
 
+      // アーカイブ保存用の共通スナップショット(埋め込むgameInfoからは読込元IDを除く)
+      const buildGameSnapshot = () => {
+        const { sourceGameId, ...giClean } = gameInfo;
+        return { date: gameInfo.date, teamTop: gameInfo.teamTop, teamBottom: gameInfo.teamBottom, scoreTop: gameState.runs.top.reduce((a,b)=>a+b,0), scoreBottom: gameState.runs.bottom.reduce((a,b)=>a+b,0), pitchesCount: pitches.filter(p=>!p.isEvent||p.countAsPitch).length, data: { gameState, gameInfo: giClean, lineups, pitches } };
+      };
+
       const saveCurrentGame = () => {
         setConfirmDialog({
-          title: '💾 アーカイブに保存', message: '現在の試合状態をアーカイブに保存しますか？', isDanger: false,
+          title: '💾 アーカイブに保存', message: '現在の試合状態を新しい試合としてアーカイブに保存しますか？', isDanger: false,
           onConfirm: () => {
-            const newGame = { id: Date.now().toString(), date: gameInfo.date, teamTop: gameInfo.teamTop, teamBottom: gameInfo.teamBottom, scoreTop: gameState.runs.top.reduce((a,b)=>a+b,0), scoreBottom: gameState.runs.bottom.reduce((a,b)=>a+b,0), pitchesCount: pitches.filter(p=>!p.isEvent||p.countAsPitch).length, data: { gameState, gameInfo, lineups, pitches } };
+            const newGame = { id: Date.now().toString(), ...buildGameSnapshot() };
             setSavedGames([newGame, ...savedGames]);
             autoRegisterFromGame(gameInfo, lineups);
             setConfirmDialog(null); showToast('試合を保存しました！チーム/選手を自動登録しました');
+          }
+        });
+      };
+
+      // 読み込み元の保存済み試合を、修正後の現在の内容で上書きする(試合後の記録修正用)
+      const overwriteSourceGame = () => {
+        const target = savedGames.find(g => g.id === gameInfo.sourceGameId);
+        if (!target) return;
+        setConfirmDialog({
+          title: '💾 読み込み元へ上書き保存', message: `保存済みの試合「${target.date} ${target.teamTop} vs ${target.teamBottom}」を、現在の内容(修正後)で上書きしますか？`, subMessage: '※元の保存データは置き換えられます', isDanger: false,
+          onConfirm: () => {
+            setSavedGames(prev => prev.map(g => g.id === gameInfo.sourceGameId ? { ...g, ...buildGameSnapshot() } : g));
+            autoRegisterFromGame(gameInfo, lineups);
+            setConfirmDialog(null); showToast('保存済みの試合を上書きしました');
           }
         });
       };
@@ -317,7 +338,7 @@ import { asPlayerObj, findDuplicateNameIndices, mergeRosterPlayers, renamePlayer
           title: '📂 データの読み込み', message: '現在の作業中データは上書きされます。本当に読み込みますか？', isDanger: true,
           onConfirm: () => {
             const target = savedGames.find(g => g.id === gameId);
-            if (target) { setGameState(normalizeGameState(target.data.gameState)); setGameInfo(target.data.gameInfo); setLineups(target.data.lineups || makeInitialLineups()); setPitches(target.data.pitches || []); setUndoStack([]); setRedoStack([]); setShowArchiveModal(false); setConfirmDialog(null); showToast('試合データを読み込みました'); }
+            if (target) { setGameState(normalizeGameState(target.data.gameState)); setGameInfo({ ...target.data.gameInfo, sourceGameId: target.id }); setLineups(target.data.lineups || makeInitialLineups()); setPitches(target.data.pitches || []); setUndoStack([]); setRedoStack([]); setShowArchiveModal(false); setConfirmDialog(null); showToast('試合データを読み込みました。修正後は「読み込み元へ上書き保存」で反映できます'); }
           }
         });
       };
@@ -1225,6 +1246,7 @@ import { asPlayerObj, findDuplicateNameIndices, mergeRosterPlayers, renamePlayer
                   setSubData({ team: gameState.isTop ? 'top' : 'bottom', type: '代打', order: gameState.isTop ? gameState.batterTop : gameState.batterBottom, newName: '', newPos: '打', newThrows: '右', newBats: '右' });
                   setShowSubstitutionModal(true);
                 }} className="whitespace-nowrap shrink-0 bg-blue-50 text-blue-700 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-blue-200 shadow-sm">🔄 交代</button>
+                <button onClick={()=>setShowRecordEditor(true)} className="whitespace-nowrap shrink-0 bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-indigo-200 shadow-sm">📝 記録修正</button>
                 <button onClick={()=>openScoreEdit('current')} className="whitespace-nowrap shrink-0 bg-white text-slate-700 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-slate-300 shadow-sm">✏️ スコア修正</button>
                 <button onClick={()=>{ setEditingTeamIndex(null); setShowTeamManager(true); }} className="whitespace-nowrap shrink-0 bg-white text-slate-700 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-slate-300 shadow-sm">👥 チーム</button>
                 <button onClick={()=>setShowArchiveModal(true)} className="whitespace-nowrap shrink-0 bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-[11px] font-bold shadow-sm">📂 保存/読込</button>
@@ -1286,6 +1308,7 @@ import { asPlayerObj, findDuplicateNameIndices, mergeRosterPlayers, renamePlayer
                     setSubData({ team: gameState.isTop ? 'top' : 'bottom', type: '代打', order: gameState.isTop ? gameState.batterTop : gameState.batterBottom, newName: '', newPos: '打', newThrows: '右', newBats: '右' });
                     setShowSubstitutionModal(true);
                   }} className="bg-blue-50 hover:bg-blue-100 text-blue-700 px-2 py-1.5 rounded-lg text-[11px] font-bold border border-blue-200 shadow-sm">🔄 交代</button>
+                  <button onClick={()=>setShowRecordEditor(true)} className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-2 py-1.5 rounded-lg text-[11px] font-bold border border-indigo-200 shadow-sm">📝 記録修正</button>
                   <button onClick={()=>{ setEditingTeamIndex(null); setShowTeamManager(true); }} className="bg-white hover:bg-slate-50 text-slate-700 px-2 py-1.5 rounded-lg text-[11px] font-bold border border-slate-300 shadow-sm">👥 チーム</button>
                   <button onClick={()=>setShowArchiveModal(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-1.5 rounded-lg text-[11px] font-bold shadow-sm">📂 保存/読込</button>
                   <button onClick={()=>setShowExport(true)} className="bg-slate-800 hover:bg-black text-white px-2 py-1.5 rounded-lg text-[11px] font-bold shadow-sm">📤 出力</button>
@@ -1747,11 +1770,16 @@ import { asPlayerObj, findDuplicateNameIndices, mergeRosterPlayers, renamePlayer
               <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col border border-slate-200">
                 {editPitchData.isEvent ? (
                   <>
-                    <div className="p-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center"><h2 className="font-black text-lg">🏃 イベント記録</h2><button onClick={cancelPitchEdit} className="text-slate-400 hover:text-black font-bold text-xl px-2">✕</button></div>
-                    <div className="p-8 flex flex-col gap-6 items-center"><div className="text-xl font-black text-blue-700 text-center bg-blue-50 px-6 py-4 rounded-2xl border border-blue-100 w-full">{editPitchData.result}</div><p className="text-xs text-slate-500 text-center">※イベント記録は修正できません。削除して再入力してください。</p></div>
+                    <div className="p-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center"><h2 className="font-black text-lg">🏃 イベント記録を修正</h2><button onClick={cancelPitchEdit} className="text-slate-400 hover:text-black font-bold text-xl px-2">✕</button></div>
+                    <div className="p-5 flex flex-col gap-3">
+                      <label className="text-[10px] font-bold text-slate-500 uppercase">記録内容（進塁・走者アウト・選手交代など）</label>
+                      <textarea value={editPitchData.result} onChange={e => setEditPitchData({...editPitchData, result: e.target.value})} rows={3} className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 font-bold text-sm outline-none resize-none focus:ring-2 focus:ring-blue-400" />
+                      <p className="text-[10px] text-slate-400 font-bold leading-relaxed">※「1塁走者 盗塁で2塁へ」「2塁走者が盗塁死」のような走者イベントの文言は、アウト数・得点の自動再計算に使われます。走者イベントは書式を保ったまま修正してください。保存するとスコアは記録全体から再計算されます。</p>
+                    </div>
                     <div className="p-4 border-t border-slate-200 flex gap-3 bg-slate-50">
-                      <button onClick={cancelPitchEdit} className="flex-1 bg-white border border-slate-300 text-slate-700 py-3.5 rounded-xl font-bold">閉じる</button>
-                      <button onClick={deletePitchRecord} className="flex-1 bg-rose-600 text-white py-3.5 rounded-xl font-black shadow-md active:scale-95">削除</button>
+                      <button onClick={deletePitchRecord} className="bg-rose-50 text-rose-600 border border-rose-200 px-4 py-3 rounded-xl font-bold">削除</button>
+                      <button onClick={cancelPitchEdit} className="flex-1 bg-white border border-slate-300 text-slate-700 py-3 rounded-xl font-bold">ｷｬﾝｾﾙ</button>
+                      <button onClick={savePitchEdit} className="flex-[1.5] bg-blue-600 text-white py-3 rounded-xl font-black shadow-md active:scale-95">上書き保存</button>
                     </div>
                   </>
                 ) : (
@@ -2209,7 +2237,10 @@ import { asPlayerObj, findDuplicateNameIndices, mergeRosterPlayers, renamePlayer
                   <button onClick={() => setShowArchiveModal(false)} className="text-emerald-400 hover:text-emerald-800 font-bold text-xl px-2">✕</button>
                 </div>
                 <div className="flex-1 overflow-y-auto p-4 modal-scroll">
-                  <button onClick={saveCurrentGame} className="w-full bg-emerald-600 text-white py-3.5 rounded-xl font-black shadow-md active:scale-95 mb-4 text-base">💾 現在の試合を保存する</button>
+                  <button onClick={saveCurrentGame} className={`w-full bg-emerald-600 text-white py-3.5 rounded-xl font-black shadow-md active:scale-95 text-base ${savedGames.some(g => g.id === gameInfo.sourceGameId) ? 'mb-2' : 'mb-4'}`}>💾 現在の試合を新規保存する</button>
+                  {savedGames.some(g => g.id === gameInfo.sourceGameId) && (
+                    <button onClick={overwriteSourceGame} className="w-full bg-amber-500 text-white py-3.5 rounded-xl font-black shadow-md active:scale-95 mb-4 text-sm">💾 読み込み元の試合へ上書き保存（修正を反映）</button>
+                  )}
                   <h3 className="text-sm font-black text-slate-700 mb-3">保存済み試合</h3>
                   {savedGames.length === 0 ? <p className="text-center text-slate-400 text-sm py-8">保存されている試合はありません</p> : (
                     <div className="space-y-2">
@@ -2238,6 +2269,66 @@ import { asPlayerObj, findDuplicateNameIndices, mergeRosterPlayers, renamePlayer
               </div>
             </div>
           )}
+
+          {/* ============================================================ */}
+          {/* ============= MODAL: RECORD EDITOR (全記録の修正) ========== */}
+          {/* ============================================================ */}
+          {showRecordEditor && (() => {
+            const groups = [];
+            pitches.forEach((p, idx) => {
+              const last = groups[groups.length - 1];
+              if (!last || last.inning !== p.inning || last.isTop !== p.isTop) groups.push({ inning: p.inning, isTop: p.isTop, items: [{ p, idx }] });
+              else last.items.push({ p, idx });
+            });
+            return (
+              <div className="fixed inset-0 bg-slate-900/70 z-[350] flex items-center justify-center p-3 backdrop-blur-sm">
+                <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[92vh] border border-slate-200">
+                  <div className="p-4 border-b border-slate-200 bg-indigo-50 flex justify-between items-center shrink-0">
+                    <div>
+                      <h2 className="text-lg font-black text-indigo-800">📝 記録の修正（一球ごと）</h2>
+                      <div className="text-[10px] font-bold text-slate-500">全イニングの投球・イベント記録をタップして修正・削除できます</div>
+                    </div>
+                    <button onClick={() => setShowRecordEditor(false)} className="text-indigo-400 hover:text-indigo-800 font-bold text-xl px-2">✕</button>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-3 modal-scroll bg-slate-100/50">
+                    {groups.length === 0 ? (
+                      <p className="text-center text-slate-400 text-sm py-10 font-bold">まだ記録がありません</p>
+                    ) : (
+                      groups.map((g, gi) => (
+                        <div key={gi} className="mb-3 last:mb-0">
+                          <div className={`text-xs font-black px-3 py-2 rounded-t-xl ${g.isTop ? 'bg-blue-100 text-blue-800' : 'bg-rose-100 text-rose-800'}`}>{g.inning}回{g.isTop ? '表' : '裏'}　{g.isTop ? gameInfo.teamTop : gameInfo.teamBottom}の攻撃</div>
+                          <div className="bg-white rounded-b-xl border border-slate-200 border-t-0 divide-y divide-slate-100 overflow-hidden">
+                            {g.items.map(({ p, idx }) => (
+                              <button key={idx} onClick={() => handleEditPitchClick(p)} className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-blue-50 active:bg-blue-100">
+                                {p.isEvent ? (
+                                  <>
+                                    <span className="w-8 shrink-0 text-center text-[10px] font-black text-indigo-400">🏃</span>
+                                    <span className="flex-1 text-[11px] font-bold text-indigo-700 truncate">{p.result}</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <span className="w-8 shrink-0 text-center font-black text-sm text-slate-300 font-mono">{p.pitchNumber}</span>
+                                    <span className="w-24 shrink-0 text-[11px] font-bold text-slate-600 truncate">{p.batter}番 {p.batterName}</span>
+                                    <span className="w-16 shrink-0 text-[10px] font-bold text-slate-400 truncate hidden sm:inline">{p.type && p.type !== '-' ? p.type : ''}</span>
+                                    <span className={`flex-1 text-[11px] font-black truncate ${['安','塁打','本塁打'].some(w=>p.result.includes(w)) ? 'text-blue-600' : ['三振','アウト','失敗','ゴロ','飛','直','邪飛'].some(w=>p.result.includes(w)) ? 'text-rose-600' : 'text-slate-700'}`}>{p.result}</span>
+                                  </>
+                                )}
+                                <span className="shrink-0 text-[10px] text-slate-300 font-bold">✏️</span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                  <div className="p-3 border-t border-slate-200 bg-slate-50 shrink-0">
+                    <p className="text-[10px] text-slate-400 font-bold mb-2 text-center">※記録を修正・削除すると、アウト数・走者・得点は記録全体から自動で再計算されます</p>
+                    <button onClick={() => setShowRecordEditor(false)} className="w-full bg-slate-200 text-slate-700 py-2.5 rounded-xl font-bold text-sm">閉じる</button>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* ============================================================ */}
           {/* ============= MODAL: SCORE EDIT (スコア修正) =============== */}
