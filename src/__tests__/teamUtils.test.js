@@ -4,6 +4,7 @@ import {
   findDuplicateNameIndices,
   mergeRosterPlayers,
   renamePlayersInGame,
+  detectLineupRenames,
 } from '../teamUtils.js';
 
 describe('normalizeName', () => {
@@ -88,5 +89,52 @@ describe('renamePlayersInGame', () => {
     renamePlayersInGame(game, 'top', ['山田 太郎'], 'X');
     expect(game.lineups.top[0].name).toBe('山田 太郎');
     expect(game.pitches[0].batterName).toBe('山田 太郎');
+  });
+});
+
+describe('detectLineupRenames', () => {
+  const pitches = [
+    { isTop: true, batterName: '先攻1番', pitcherName: '田中', result: 'ストライク' },
+    { isTop: true, batterName: '先攻1番', pitcherName: '田中', result: '中安打' },
+    { isTop: false, batterName: '田中', pitcherName: '鈴木', result: 'ボール' },
+  ];
+
+  it('試合途中に登録し直した選手名を、記録件数付きで検出する', () => {
+    const snapshot = { top: ['先攻1番', '鈴木'], bottom: ['田中'] };
+    const lineups = {
+      top: [{ name: '山田' }, { name: '鈴木' }],
+      bottom: [{ name: '田中' }],
+    };
+    const renames = detectLineupRenames(snapshot, lineups, pitches);
+    expect(renames).toEqual([{ side: 'top', from: '先攻1番', to: '山田', count: 2 }]);
+  });
+
+  it('投手として記録に現れる選手の改名も検出する(裏打席のpitcherName)', () => {
+    const snapshot = { top: ['先攻1番', '鈴木'], bottom: ['田中'] };
+    const lineups = {
+      top: [{ name: '先攻1番' }, { name: '鈴木改' }],
+      bottom: [{ name: '田中' }],
+    };
+    const renames = detectLineupRenames(snapshot, lineups, pitches);
+    expect(renames).toEqual([{ side: 'top', from: '鈴木', to: '鈴木改', count: 1 }]);
+  });
+
+  it('記録が無い選手の変更は検出しない', () => {
+    const snapshot = { top: ['先攻2番'], bottom: [] };
+    const lineups = { top: [{ name: '新井' }], bottom: [] };
+    expect(detectLineupRenames(snapshot, lineups, pitches)).toEqual([]);
+  });
+
+  it('打順の並び替え(同名が別の枠に残る)は改名扱いしない', () => {
+    const snapshot = { top: ['先攻1番', '鈴木'], bottom: [] };
+    const lineups = {
+      top: [{ name: '鈴木' }, { name: '先攻1番' }],
+      bottom: [],
+    };
+    expect(detectLineupRenames(snapshot, lineups, pitches)).toEqual([]);
+  });
+
+  it('スナップショットが無ければ空配列を返す', () => {
+    expect(detectLineupRenames(null, { top: [], bottom: [] }, pitches)).toEqual([]);
   });
 });

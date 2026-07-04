@@ -36,6 +36,33 @@ export function mergeRosterPlayers(players, selectedIndices, keepIndex) {
     .filter((_, i) => !sel.has(i) || i === keepIndex);
 }
 
+// オーダー設定を開いた時点の選手名スナップショット({top:[名前], bottom:[名前]})と
+// 現在のオーダーを比較し、既存の記録(pitches)に反映すべき改名候補を返す。
+// 同じ名前が別の打順枠に残っている場合は「並び替え」とみなし改名扱いしない。
+export function detectLineupRenames(snapshot, lineups, pitches) {
+  if (!snapshot) return [];
+  const renames = [];
+  ['top', 'bottom'].forEach((side) => {
+    const before = snapshot[side] || [];
+    const after = lineups?.[side] || [];
+    const batterIsTop = side === 'top';
+    after.forEach((p, i) => {
+      const oldName = (before[i] || '').trim();
+      const newName = (p?.name || '').trim();
+      if (!oldName || !newName || oldName === newName) return;
+      if (after.some((q, j) => j !== i && (q?.name || '').trim() === oldName)) return;
+      if (renames.some((r) => r.side === side && r.from === oldName)) return;
+      const count = (pitches || []).filter(
+        (x) =>
+          (x.isTop === batterIsTop && x.batterName === oldName) ||
+          (x.isTop !== batterIsTop && x.pitcherName === oldName)
+      ).length;
+      if (count > 0) renames.push({ side, from: oldName, to: newName, count });
+    });
+  });
+  return renames;
+}
+
 // 1試合分のデータ({lineups, pitches})内で、side('top'|'bottom')側チームに
 // 所属する選手 fromNames を toName に改名する。
 // 打者は p.isTop === (side === 'top') の投球、投手はその逆側の投球に現れる。

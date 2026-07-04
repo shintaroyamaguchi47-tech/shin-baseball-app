@@ -3,7 +3,7 @@ import SprayChart from './components/SprayChart.jsx';
 import AnalystReport from './components/AnalystReport.jsx';
 import { buildAnalystInsights } from './analystInsights.js';
 import * as storage from './storage.js';
-import { asPlayerObj, findDuplicateNameIndices, mergeRosterPlayers, renamePlayersInGame } from './teamUtils.js';
+import { asPlayerObj, findDuplicateNameIndices, mergeRosterPlayers, renamePlayersInGame, detectLineupRenames } from './teamUtils.js';
 
     function App() {
       const makeInitialGameState = () => ({ inning: 1, isTop: true, outs: 0, balls: 0, strikes: 0, batterTop: 1, batterBottom: 1, runners: { first: false, second: false, third: false }, runs: { top: [0,0,0,0,0,0,0,0,0], bottom: [0,0,0,0,0,0,0,0,0] } });
@@ -131,6 +131,8 @@ import { asPlayerObj, findDuplicateNameIndices, mergeRosterPlayers, renamePlayer
       const [mergeSelection, setMergeSelection] = useState([]); // 統合対象の選手インデックス
       const [mergeKeepIdx, setMergeKeepIdx] = useState(null); // 統合後に残す選手インデックス
       const [showSettings, setShowSettings] = useState(false);
+      const [orderSnapshot, setOrderSnapshot] = useState(null); // オーダー設定を開いた時点の選手名(試合途中の登録し直し検出用)
+      const [scoreEdit, setScoreEdit] = useState(null); // スコア修正モーダル: {source:'current'|'saved', gameId, top:[], bottom:[]}
       const [showExport, setShowExport] = useState(false);
       const [showInPlayResult, setShowInPlayResult] = useState(false);
       const [showErrorTypeSelect, setShowErrorTypeSelect] = useState(false);
@@ -322,6 +324,12 @@ import { asPlayerObj, findDuplicateNameIndices, mergeRosterPlayers, renamePlayer
 
       const deleteGame = (gameId) => { setConfirmDialog({ title: '🗑️ アーカイブの削除', message: 'この保存データを完全に削除しますか？', isDanger: true, onConfirm: () => { setSavedGames(savedGames.filter(g => g.id !== gameId)); setConfirmDialog(null); } }); };
 
+      // オーダー設定を開くとき、選手名のスナップショットを取り、試合途中の登録し直し(改名)を検出できるようにする
+      const openOrderSettings = () => {
+        setOrderSnapshot({ top: lineups.top.map(p => p.name), bottom: lineups.bottom.map(p => p.name) });
+        setShowSettings(true);
+      };
+
       // オーダー設定を閉じるとき、入力済み選手を登録チームへ自動反映する
       const closeOrderSettings = () => {
         let added = 0;
@@ -331,9 +339,30 @@ import { asPlayerObj, findDuplicateNameIndices, mergeRosterPlayers, renamePlayer
           const rosterNames = new Set(getRosterPlayers(teamName).map(p => p.name));
           lineups[side].forEach(p => { if (!isPlaceholderName(p.name) && !rosterNames.has(p.name.trim())) added++; });
         });
+        const renames = detectLineupRenames(orderSnapshot, lineups, pitches);
         autoRegisterFromGame(gameInfo, lineups);
         setShowSettings(false);
+        setOrderSnapshot(null);
         if (added > 0) showToast(`チーム管理に選手${added}名を自動登録しました`);
+        // 試合途中に選手名を登録し直した場合、入力済みの記録(打席・投球)にも新しい名前を反映できるようにする
+        if (renames.length > 0) {
+          const total = renames.reduce((a, r) => a + r.count, 0);
+          setConfirmDialog({
+            title: '📝 選手名の変更を記録に反映',
+            message: `選手名を変更しました:\n${renames.map(r => `「${r.from}」→「${r.to}」(記録${r.count}件)`).join('\n')}\n\n入力済みの打席・投球記録も新しい名前に書き換えますか？`,
+            subMessage: '※別の選手に交代した場合は「キャンセル」してください(過去の記録は元の選手のまま残ります)',
+            isDanger: false,
+            onConfirm: () => {
+              recordAction();
+              let cur = { lineups, pitches };
+              renames.forEach(r => { const res = renamePlayersInGame(cur, r.side, [r.from], r.to); cur = { lineups: res.lineups, pitches: res.pitches }; });
+              setLineups(cur.lineups);
+              setPitches(cur.pitches);
+              setConfirmDialog(null);
+              showToast(`過去の記録${total}件の選手名を更新しました`);
+            }
+          });
+        }
       };
 
       // チーム編集画面: 選択した選手を1人に統合し、過去試合の記録も改名する
@@ -400,7 +429,7 @@ import { asPlayerObj, findDuplicateNameIndices, mergeRosterPlayers, renamePlayer
       const swapTopAndBottom = () => {
         setConfirmDialog({
           title: '⇅ 先攻/後攻の入替', message: '先攻と後攻のチーム名・オーダーを入れ替えますか？', isDanger: false,
-          onConfirm: () => { recordAction(); setGameInfo(prev => ({...prev, teamTop: prev.teamBottom, teamBottom: prev.teamTop})); setLineups(prev => ({...prev, top: prev.bottom, bottom: prev.top})); setConfirmDialog(null); showToast("先攻と後攻を入れ替えました！"); }
+          onConfirm: () => { recordAction(); setGameInfo(prev => ({...prev, teamTop: prev.teamBottom, teamBottom: prev.teamTop})); setLineups(prev => ({...prev, top: prev.bottom, bottom: prev.top})); setOrderSnapshot(prev => prev ? { top: prev.bottom, bottom: prev.top } : prev); setConfirmDialog(null); showToast("先攻と後攻を入れ替えました！"); }
         });
       };
 
@@ -438,6 +467,40 @@ import { asPlayerObj, findDuplicateNameIndices, mergeRosterPlayers, renamePlayer
       const changeScore = (team, delta) => {
         recordAction();
         setGameState(prev => { const newRuns = ensureRunArray(prev.runs[team], prev.inning); newRuns[prev.inning - 1] = Math.max(0, (newRuns[prev.inning - 1] || 0) + delta); return { ...prev, runs: { ...prev.runs, [team]: newRuns } }; });
+      };
+
+      // スコア修正モーダル: 試合中(現在の試合)・試合後(保存済み試合)どちらでも回別スコアを直接修正できる
+      const openScoreEdit = (source, gameId = null) => {
+        let runs = gameState.runs;
+        if (source === 'saved') {
+          const g = savedGames.find(x => x.id === gameId);
+          if (!g) return;
+          runs = g.data?.gameState?.runs || { top: [], bottom: [] };
+        }
+        const len = Math.max(9, runs.top?.length || 0, runs.bottom?.length || 0);
+        const toArr = (a) => Array.from({ length: len }, (_, i) => Math.max(0, Number(a?.[i]) || 0));
+        setScoreEdit({ source, gameId, top: toArr(runs.top), bottom: toArr(runs.bottom) });
+      };
+      const setScoreEditCell = (team, idx, val) => {
+        const n = Math.max(0, Math.min(99, Math.floor(Number(val) || 0)));
+        setScoreEdit(prev => ({ ...prev, [team]: prev[team].map((v, i) => i === idx ? n : v) }));
+      };
+      const addScoreEditInning = () => setScoreEdit(prev => ({ ...prev, top: [...prev.top, 0], bottom: [...prev.bottom, 0] }));
+      const saveScoreEdit = () => {
+        const { source, gameId, top, bottom } = scoreEdit;
+        if (source === 'saved') {
+          setSavedGames(prev => prev.map(g => {
+            if (g.id !== gameId) return g;
+            const gs = { ...(g.data?.gameState || {}), runs: { top: [...top], bottom: [...bottom] } };
+            return { ...g, scoreTop: top.reduce((a, b) => a + b, 0), scoreBottom: bottom.reduce((a, b) => a + b, 0), data: { ...g.data, gameState: gs } };
+          }));
+          showToast('保存済み試合のスコアを修正しました');
+        } else {
+          recordAction();
+          setGameState(prev => ({ ...prev, runs: { top: ensureRunArray(top, prev.inning), bottom: ensureRunArray(bottom, prev.inning) } }));
+          showToast('スコアを修正しました');
+        }
+        setScoreEdit(null);
       };
 
       const handleAdvanceAndNextBatter = (eventType, addedOuts = 0) => {
@@ -1150,17 +1213,19 @@ import { asPlayerObj, findDuplicateNameIndices, mergeRosterPlayers, renamePlayer
             <div className="flex flex-col gap-2 md:w-auto w-full">
               <div className="flex items-center justify-between md:justify-start gap-4">
                 <div className="flex items-center gap-2 text-xl md:text-2xl font-black text-blue-700 tracking-tighter whitespace-nowrap"><span className="text-2xl">⚾</span>配球スコア <span className="text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full uppercase tracking-widest ml-1 font-bold border border-blue-200">Pro</span></div>
-                <div className="flex md:hidden items-center gap-2 text-xs font-bold bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200">
+                <button onClick={()=>openScoreEdit('current')} className="flex md:hidden items-center gap-2 text-xs font-bold bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200 active:bg-slate-200">
                   <span className="text-slate-600">{gameState.inning}回{gameState.isTop?'表':'裏'}</span>
                   <span className="text-slate-800 ml-1">{gameInfo.teamTop} <span className="text-blue-700 font-black text-sm">{gameState.runs.top.reduce((a,b)=>a+b,0)}</span> - <span className="text-blue-700 font-black text-sm">{gameState.runs.bottom.reduce((a,b)=>a+b,0)}</span> {gameInfo.teamBottom}</span>
-                </div>
+                  <span className="text-[10px] text-slate-400">✏️</span>
+                </button>
               </div>
               <div className="md:hidden horizontal-scroll custom-scrollbar flex gap-2 w-full pt-1 pb-1">
-                <button onClick={()=>setShowSettings(true)} className="whitespace-nowrap shrink-0 bg-white text-slate-700 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-slate-300 shadow-sm">⚙️ オーダー</button>
+                <button onClick={openOrderSettings} className="whitespace-nowrap shrink-0 bg-white text-slate-700 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-slate-300 shadow-sm">⚙️ オーダー</button>
                 <button onClick={()=>{
                   setSubData({ team: gameState.isTop ? 'top' : 'bottom', type: '代打', order: gameState.isTop ? gameState.batterTop : gameState.batterBottom, newName: '', newPos: '打', newThrows: '右', newBats: '右' });
                   setShowSubstitutionModal(true);
                 }} className="whitespace-nowrap shrink-0 bg-blue-50 text-blue-700 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-blue-200 shadow-sm">🔄 交代</button>
+                <button onClick={()=>openScoreEdit('current')} className="whitespace-nowrap shrink-0 bg-white text-slate-700 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-slate-300 shadow-sm">✏️ スコア修正</button>
                 <button onClick={()=>{ setEditingTeamIndex(null); setShowTeamManager(true); }} className="whitespace-nowrap shrink-0 bg-white text-slate-700 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-slate-300 shadow-sm">👥 チーム</button>
                 <button onClick={()=>setShowArchiveModal(true)} className="whitespace-nowrap shrink-0 bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-[11px] font-bold shadow-sm">📂 保存/読込</button>
                 <button onClick={()=>setShowExport(true)} className="whitespace-nowrap shrink-0 bg-slate-800 text-white px-3 py-1.5 rounded-lg text-[11px] font-bold shadow-sm">📤 出力</button>
@@ -1174,7 +1239,7 @@ import { asPlayerObj, findDuplicateNameIndices, mergeRosterPlayers, renamePlayer
             {/* Desktop scoreboard */}
             <div className="hidden md:flex flex-col bg-white border border-slate-300 rounded-xl overflow-hidden text-sm shadow-sm">
               <div className="flex bg-slate-100 border-b border-slate-300 font-bold text-[10px] text-slate-500">
-                <div className="w-28 shrink-0 border-r border-slate-300 flex items-center justify-center py-1">TEAM</div>
+                <div className="w-28 shrink-0 border-r border-slate-300 flex items-center justify-between py-1 px-1.5"><span>TEAM</span><button onClick={()=>openScoreEdit('current')} title="回別スコアを修正" className="text-[9px] text-blue-500 hover:text-blue-700 font-bold bg-blue-50 border border-blue-200 rounded px-1 py-0.5">✏️ 修正</button></div>
                 {[1,2,3,4,5,6,7,8,9].map(i => <div key={i} className={`w-8 shrink-0 border-r border-slate-300 flex items-center justify-center py-1 ${gameState.inning === i ? 'bg-blue-200 text-blue-800' : ''}`}>{i}</div>)}
                 <div className="w-10 shrink-0 flex items-center justify-center py-1 bg-slate-200 border-r border-slate-300">R</div>
                 <div className="w-8 shrink-0 flex items-center justify-center py-1 bg-slate-200 border-r border-slate-300">H</div>
@@ -1216,7 +1281,7 @@ import { asPlayerObj, findDuplicateNameIndices, mergeRosterPlayers, renamePlayer
               </div>
               <div className="flex flex-col gap-2 font-sans shrink-0">
                 <div className="flex gap-1.5">
-                  <button onClick={()=>setShowSettings(true)} className="bg-white hover:bg-slate-50 text-slate-700 px-2 py-1.5 rounded-lg text-[11px] font-bold border border-slate-300 shadow-sm">⚙️ オーダー</button>
+                  <button onClick={openOrderSettings} className="bg-white hover:bg-slate-50 text-slate-700 px-2 py-1.5 rounded-lg text-[11px] font-bold border border-slate-300 shadow-sm">⚙️ オーダー</button>
                   <button onClick={()=>{
                     setSubData({ team: gameState.isTop ? 'top' : 'bottom', type: '代打', order: gameState.isTop ? gameState.batterTop : gameState.batterBottom, newName: '', newPos: '打', newThrows: '右', newBats: '右' });
                     setShowSubstitutionModal(true);
@@ -2004,7 +2069,7 @@ import { asPlayerObj, findDuplicateNameIndices, mergeRosterPlayers, renamePlayer
                   </div>
                 </div>
                 <div className="p-4 border-t border-slate-300 bg-gradient-to-r from-slate-100 to-slate-200 shrink-0">
-                  <button onClick={() => setShowSettings(false)} className="w-full bg-blue-600 text-white py-3 rounded-xl font-black shadow-md active:scale-95">閉じる</button>
+                  <button onClick={closeOrderSettings} className="w-full bg-blue-600 text-white py-3 rounded-xl font-black shadow-md active:scale-95">閉じる</button>
                 </div>
               </div>
             </div>
@@ -2156,6 +2221,7 @@ import { asPlayerObj, findDuplicateNameIndices, mergeRosterPlayers, renamePlayer
                           </div>
                           <div className="flex gap-1.5">
                             <button onClick={() => loadGame(g.id)} className="text-[10px] bg-blue-600 text-white px-3 py-1.5 rounded-lg font-bold shadow-sm active:scale-95">読込</button>
+                            <button onClick={() => openScoreEdit('saved', g.id)} className="text-[10px] bg-amber-50 text-amber-700 px-2.5 py-1.5 rounded-lg font-bold border border-amber-200">✏️ スコア</button>
                             <button onClick={() => handleShareData(`game:${g.id}`)} className="text-[10px] bg-blue-50 text-blue-700 px-2.5 py-1.5 rounded-lg font-bold border border-blue-200">共有</button>
                             <button onClick={() => deleteGame(g.id)} className="text-[10px] bg-rose-50 text-rose-600 px-2.5 py-1.5 rounded-lg font-bold border border-rose-200">削除</button>
                           </div>
@@ -2172,6 +2238,55 @@ import { asPlayerObj, findDuplicateNameIndices, mergeRosterPlayers, renamePlayer
               </div>
             </div>
           )}
+
+          {/* ============================================================ */}
+          {/* ============= MODAL: SCORE EDIT (スコア修正) =============== */}
+          {/* ============================================================ */}
+          {scoreEdit && (() => {
+            const g = scoreEdit.source === 'saved' ? savedGames.find(x => x.id === scoreEdit.gameId) : null;
+            const nameTop = g ? g.teamTop : gameInfo.teamTop;
+            const nameBottom = g ? g.teamBottom : gameInfo.teamBottom;
+            const totals = { top: scoreEdit.top.reduce((a, b) => a + b, 0), bottom: scoreEdit.bottom.reduce((a, b) => a + b, 0) };
+            return (
+              <div className="fixed inset-0 bg-slate-900/70 z-[450] flex items-center justify-center p-4 backdrop-blur-sm">
+                <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh] border border-slate-200">
+                  <div className="p-4 border-b border-slate-200 bg-blue-50 flex justify-between items-center shrink-0">
+                    <div>
+                      <h2 className="text-lg font-black text-blue-800">✏️ スコア修正</h2>
+                      <div className="text-[10px] font-bold text-slate-500">{scoreEdit.source === 'saved' ? `保存済み試合 (${g?.date || ''}) の回別スコアを修正します` : '現在の試合の回別スコアを直接修正できます'}</div>
+                    </div>
+                    <button onClick={() => setScoreEdit(null)} className="text-blue-400 hover:text-blue-800 font-bold text-xl px-2">✕</button>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-4 modal-scroll">
+                    <div className="overflow-x-auto pb-2">
+                      <div className="inline-flex flex-col gap-1.5 min-w-full">
+                        <div className="flex gap-1 items-center">
+                          <div className="w-24 shrink-0"></div>
+                          {scoreEdit.top.map((_, i) => <div key={i} className="w-11 shrink-0 text-center text-[10px] font-bold text-slate-400">{i + 1}</div>)}
+                          <div className="w-11 shrink-0 text-center text-[10px] font-black text-slate-500">R</div>
+                        </div>
+                        {['top', 'bottom'].map(team => (
+                          <div key={team} className="flex gap-1 items-center">
+                            <div className={`w-24 shrink-0 text-xs font-black truncate ${team === 'top' ? 'text-blue-800' : 'text-rose-800'}`}>{team === 'top' ? nameTop : nameBottom}</div>
+                            {scoreEdit[team].map((v, i) => (
+                              <input key={i} type="number" min="0" max="99" inputMode="numeric" value={v} onFocus={e => e.target.select()} onChange={e => setScoreEditCell(team, i, e.target.value)} className="w-11 shrink-0 border border-slate-300 rounded-lg py-2 text-center text-sm font-bold bg-white outline-none focus:ring-2 focus:ring-blue-400" />
+                            ))}
+                            <div className="w-11 shrink-0 text-center font-black text-blue-700 text-lg">{totals[team]}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <button onClick={addScoreEditInning} className="mt-2 text-[11px] bg-slate-50 text-slate-600 px-3 py-2 rounded-lg font-bold border border-slate-200 hover:bg-slate-100">＋ 延長回を追加</button>
+                    <p className="text-[10px] text-slate-400 font-bold mt-3">※各回のマスをタップして得点を入力してください。合計(R)は自動計算されます。{scoreEdit.source !== 'saved' && '打席記録を修正・削除した場合はスコアが記録から再計算されるため、必要ならその後に再度修正してください。'}</p>
+                  </div>
+                  <div className="p-4 border-t border-slate-200 flex gap-3 bg-slate-50 shrink-0">
+                    <button onClick={() => setScoreEdit(null)} className="flex-1 bg-white border border-slate-300 text-slate-700 py-3 rounded-xl font-bold">キャンセル</button>
+                    <button onClick={saveScoreEdit} className="flex-[1.5] bg-blue-600 text-white py-3 rounded-xl font-black shadow-md active:scale-95">保存する</button>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* ============================================================ */}
           {/* ============= MODAL 5: EXPORT (出力) ======================= */}
