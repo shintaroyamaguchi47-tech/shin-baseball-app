@@ -703,6 +703,7 @@ import { asPlayerObj, findDuplicateNameIndices, mergeRosterPlayers, renamePlayer
           analystInsights,
           pitches,
           hitsAndErrors,
+          playByPlay: playByPlayData,
         });
         if (!ok) showToast('ポップアップをブロックしていると印刷できません', 'error');
       };
@@ -2387,6 +2388,37 @@ import { asPlayerObj, findDuplicateNameIndices, mergeRosterPlayers, renamePlayer
                       <div className="bg-slate-50 p-3 rounded-xl"><div className="text-[10px] font-bold text-slate-500 uppercase">H / E</div><div className="text-lg font-black text-slate-800">{hitsAndErrors.top.hits}H-{hitsAndErrors.top.errors}E / {hitsAndErrors.bottom.hits}H-{hitsAndErrors.bottom.errors}E</div></div>
                     </div>
                   </div>
+
+                  {/* Play-by-play text log */}
+                  {playByPlayData.length > 0 && (
+                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+                      <h3 className="text-base font-black text-slate-800 mb-4">📰 テキスト速報</h3>
+                      <div className="space-y-4">
+                        {playByPlayData.map((inningData, iIdx) => (
+                          <div key={iIdx}>
+                            <div className={`text-xs font-black px-3 py-1.5 rounded-t-xl ${inningData.isTop ? 'bg-blue-50 text-blue-700 border border-blue-100' : 'bg-rose-50 text-rose-700 border border-rose-100'}`}>{inningData.inning}回{inningData.isTop ? '表' : '裏'} {inningData.isTop ? gameInfo.teamTop : gameInfo.teamBottom}の攻撃</div>
+                            <div className="border border-slate-200 border-t-0 rounded-b-xl overflow-hidden divide-y divide-slate-100">
+                              {inningData.atBats.map((ab, abIdx) => {
+                                const isHit = ['安', '塁打', '本塁打'].some(w => ab.result.includes(w));
+                                const isBB = ['四球', '死球'].some(w => ab.result.includes(w));
+                                return (
+                                  <div key={abIdx} className={`px-3 py-2 flex items-center gap-3 text-[11px] ${abIdx % 2 === 0 ? '' : 'bg-slate-50'}`}>
+                                    <span className="text-slate-400 font-mono w-4 text-right shrink-0">{ab.batter}</span>
+                                    <span className="text-slate-800 font-bold w-20 truncate shrink-0">{ab.batterName}</span>
+                                    <span className="text-slate-400 font-mono text-[10px] shrink-0">{ab.pitchCount}球</span>
+                                    <span className={`font-black flex-1 ${isHit ? 'text-blue-600' : isBB ? 'text-emerald-600' : 'text-slate-600'}`}>
+                                      {ab.result || '-'}
+                                      {ab.events.length > 0 && <span className="ml-2 font-bold text-[10px] text-amber-600">{ab.events.join(' / ')}</span>}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Spray charts */}
                   <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">

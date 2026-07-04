@@ -341,6 +341,32 @@
     sprayH+=sprayChartSvg(t.topBatting.team.sprayHits,gi.teamTop,150);
     sprayH+=sprayChartSvg(t.bottomBatting.team.sprayHits,gi.teamBottom,150);
     sprayH+='</div>';
+    function playByPlayHtml(pbp){
+      if(!pbp || !pbp.length) return '';
+      var h='<section class="report-section"><h3 class="report-heading" style="margin:0 0 10px;font-size:16px;font-weight:bold;color:#1e293b;border-bottom:2px solid #e2e8f0;padding-bottom:4px;">テキスト速報</h3>';
+      h+='<div style="display:flex;flex-wrap:wrap;gap:8px;">';
+      pbp.forEach(function(inn){
+        h+='<div style="width:calc(50% - 4px);min-width:240px;box-sizing:border-box;break-inside:avoid;page-break-inside:avoid;align-self:flex-start;">';
+        h+='<div style="font-size:11px;font-weight:bold;color:#fff;background:'+(inn.isTop?'#1d4ed8':'#e11d48')+';padding:3px 8px;border-radius:6px 6px 0 0;">'+inn.inning+'回'+(inn.isTop?'表':'裏')+' '+esc(inn.isTop?gi.teamTop:gi.teamBottom)+'の攻撃</div>';
+        h+='<table style="width:100%;border-collapse:collapse;font-size:10px;border:1px solid #e2e8f0;border-top:none;">';
+        inn.atBats.forEach(function(ab,i){
+          var res=String(ab.result||'');
+          var isHit=['安','塁打','本塁打'].some(function(w){return res.indexOf(w)>=0;});
+          var isBB=['四球','死球'].some(function(w){return res.indexOf(w)>=0;});
+          var color=isHit?'#1d4ed8':isBB?'#059669':'#334155';
+          var ev=(ab.events&&ab.events.length)?' <span style="color:#d97706;font-size:9px;font-weight:normal;">'+esc(ab.events.join(' / '))+'</span>':'';
+          h+='<tr style="background:'+(i%2?'#f8fafc':'#fff')+';border-bottom:1px solid #f1f5f9;">'
+            +'<td style="padding:3px 5px;color:#94a3b8;text-align:right;width:16px;">'+ab.batter+'</td>'
+            +'<td style="padding:3px 5px;font-weight:bold;white-space:nowrap;">'+esc(ab.batterName||'')+'</td>'
+            +'<td style="padding:3px 5px;color:#64748b;text-align:right;width:30px;white-space:nowrap;">'+ab.pitchCount+'球</td>'
+            +'<td style="padding:3px 5px;font-weight:bold;color:'+color+';">'+esc(res||'-')+ev+'</td>'
+            +'</tr>';
+        });
+        h+='</table></div>';
+      });
+      h+='</div></section>';
+      return h;
+    }
     function narrativeHtml(a){
       if(!a || !a.hasData) return '';
       function teamCard(tm,accent){
@@ -358,6 +384,7 @@
     var body='<div style="max-width:900px;margin:0 auto;padding:12px 24px;font-family:sans-serif;">';
     body+='<h1 style="font-size:18px;font-weight:bold;margin:0 0 2px;">試合分析レポート</h1><div style="color:#64748b;margin-bottom:5px;font-size:11px;">'+esc(gi.date)+' / 総投球数: '+ps.filter(function(p){return !p.isEvent||p.countAsPitch;}).length+'球</div>';
     body+=narrativeHtml(analyst)+scoreBoardH+summaryH+sprayH;
+    body+=playByPlayHtml(data.playByPlay);
     body+=batterTable(t.topBatting,gi.teamTop);
     body+=batterDetails(t.topBatting,gi.teamTop);
     body+=batterAtBatDetails(t.topBatting,gi.teamTop);
