@@ -1,7 +1,9 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import SprayChart from './components/SprayChart.jsx';
 import AnalystReport from './components/AnalystReport.jsx';
+import PlayByPlayReport from './components/PlayByPlayReport.jsx';
 import { buildAnalystInsights } from './analystInsights.js';
+import { buildPlayByPlayReport } from './playByPlay.js';
 import * as storage from './storage.js';
 import { asPlayerObj, findDuplicateNameIndices, mergeRosterPlayers, renamePlayersInGame, detectLineupRenames } from './teamUtils.js';
 import { renumberPitchNumbers, reassignPitchBatter } from './gameUtils.js';
@@ -1182,6 +1184,13 @@ import { renumberPitchNumbers, reassignPitchBatter } from './gameUtils.js';
         return Object.values(innings).sort((a, b) => a.inning !== b.inning ? a.inning - b.inning : a.isTop ? -1 : 1);
       }, [pitches]);
 
+      const playByPlayReport = useMemo(() => buildPlayByPlayReport(pitches), [pitches]);
+      const [pbpScrollTarget, setPbpScrollTarget] = useState(null);
+      const scrollToPlay = (inning, isTop, batter) => {
+        setPbpScrollTarget(`${inning}-${isTop}-${batter}-`);
+        setShowPostGameAnalysis(true);
+      };
+
       const courses = Array.from({ length: 49 }, (_, i) => i);
       const isStrikeZone = (i) => { const row = Math.floor(i / 7); const col = i % 7; return row >= 2 && row <= 4 && col >= 2 && col <= 4; };
       // 視点切り替え用ヘルパー。バックスクリーン側表示では左右を反転する（データは捕手目線で保持）
@@ -1765,6 +1774,7 @@ import { renumberPitchNumbers, reassignPitchBatter } from './gameUtils.js';
                                 <span className="text-slate-100 font-bold w-16 truncate shrink-0">{ab.batterName}</span>
                                 <span className="text-slate-400 font-mono text-[10px] shrink-0">{ab.pitchCount}球</span>
                                 <span className="font-black px-2 py-0.5 rounded flex-1 truncate">{ab.result || '打席中'}</span>
+                                <button onClick={(e) => { e.stopPropagation(); scrollToPlay(inningData.inning, inningData.isTop, ab.batter); }} className="shrink-0 text-[9px] bg-slate-700 hover:bg-slate-600 text-slate-200 px-2 py-1 rounded-lg font-bold">🔎詳細</button>
                               </div>
                             );
                           })}
@@ -2631,36 +2641,11 @@ import { renumberPitchNumbers, reassignPitchBatter } from './gameUtils.js';
                     </div>
                   </div>
 
-                  {/* Play-by-play text log */}
-                  {playByPlayData.length > 0 && (
-                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-                      <h3 className="text-base font-black text-slate-800 mb-4">📰 テキスト速報</h3>
-                      <div className="space-y-4">
-                        {playByPlayData.map((inningData, iIdx) => (
-                          <div key={iIdx}>
-                            <div className={`text-xs font-black px-3 py-1.5 rounded-t-xl ${inningData.isTop ? 'bg-blue-50 text-blue-700 border border-blue-100' : 'bg-rose-50 text-rose-700 border border-rose-100'}`}>{inningData.inning}回{inningData.isTop ? '表' : '裏'} {inningData.isTop ? gameInfo.teamTop : gameInfo.teamBottom}の攻撃</div>
-                            <div className="border border-slate-200 border-t-0 rounded-b-xl overflow-hidden divide-y divide-slate-100">
-                              {inningData.atBats.map((ab, abIdx) => {
-                                const isHit = ['安', '塁打', '本塁打'].some(w => ab.result.includes(w));
-                                const isBB = ['四球', '死球'].some(w => ab.result.includes(w));
-                                return (
-                                  <div key={abIdx} className={`px-3 py-2 flex items-center gap-3 text-[11px] ${abIdx % 2 === 0 ? '' : 'bg-slate-50'}`}>
-                                    <span className="text-slate-400 font-mono w-4 text-right shrink-0">{ab.batter}</span>
-                                    <span className="text-slate-800 font-bold w-20 truncate shrink-0">{ab.batterName}</span>
-                                    <span className="text-slate-400 font-mono text-[10px] shrink-0">{ab.pitchCount}球</span>
-                                    <span className={`font-black flex-1 ${isHit ? 'text-blue-600' : isBB ? 'text-emerald-600' : 'text-slate-600'}`}>
-                                      {ab.result || '-'}
-                                      {ab.events.length > 0 && <span className="ml-2 font-bold text-[10px] text-amber-600">{ab.events.join(' / ')}</span>}
-                                    </span>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                  {/* 打席速報(実況文+カウント推移+打球図)。簡易版テキスト速報を置き換え */}
+                  <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+                    <h3 className="text-base font-black text-slate-800 mb-4">📰 打席速報</h3>
+                    <PlayByPlayReport report={playByPlayReport} gameInfo={gameInfo} defaultOpenLast scrollTarget={pbpScrollTarget} onScrolled={() => setPbpScrollTarget(null)} />
+                  </div>
 
                   {/* Spray charts */}
                   <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
