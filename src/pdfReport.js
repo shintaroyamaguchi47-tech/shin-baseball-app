@@ -364,14 +364,21 @@
         b+='</table>';
         return b;
       }
+      // イニング毎に1行: 左=表、右=裏。片方しかない場合は空欄。
+      var byInning = {};
+      pbp.forEach(function(inn){
+        if (!byInning[inn.inning]) byInning[inn.inning] = {};
+        byInning[inn.inning][inn.isTop ? 'top' : 'bottom'] = inn;
+      });
+      var innNums = Object.keys(byInning).map(Number).sort(function(a,b){return a-b;});
       var h='<section class="report-section"><h3 class="report-heading" style="margin:0 0 8px;font-size:15px;font-weight:bold;color:#1e293b;border-bottom:2px solid #e2e8f0;padding-bottom:3px;">テキスト速報</h3>';
-      for (var ri=0; ri<pbp.length; ri+=3) {
-        var row = pbp.slice(ri, ri+3);
-        h+='<div style="display:flex;gap:6px;margin-bottom:6px;break-inside:avoid;page-break-inside:avoid;align-items:flex-start;">';
-        row.forEach(function(inn){ h+='<div style="flex:1;min-width:0;">'+innBlock(inn)+'</div>'; });
-        for (var pad=row.length; pad<3; pad++) h+='<div style="flex:1;min-width:0;"></div>';
+      innNums.forEach(function(n){
+        var pair = byInning[n];
+        h+='<div style="display:flex;gap:8px;margin-bottom:6px;break-inside:avoid;page-break-inside:avoid;align-items:flex-start;">';
+        h+='<div style="flex:1;min-width:0;">'+(pair.top ? innBlock(pair.top) : '')+'</div>';
+        h+='<div style="flex:1;min-width:0;">'+(pair.bottom ? innBlock(pair.bottom) : '')+'</div>';
         h+='</div>';
-      }
+      });
       h+='</section>';
       return h;
     }
