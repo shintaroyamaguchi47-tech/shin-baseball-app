@@ -7,6 +7,7 @@ import { buildPlayByPlayReport } from './playByPlay.js';
 import * as storage from './storage.js';
 import { asPlayerObj, findDuplicateNameIndices, mergeRosterPlayers, renamePlayersInGame, detectLineupRenames } from './teamUtils.js';
 import { renumberPitchNumbers, reassignPitchBatter } from './gameUtils.js';
+import { isScorerGdf, convertScorerGame } from './scorerImport.js';
 
     function App() {
       const makeInitialGameState = () => ({ inning: 1, isTop: true, outs: 0, balls: 0, strikes: 0, batterTop: 1, batterBottom: 1, runners: { first: false, second: false, third: false }, runs: { top: [0,0,0,0,0,0,0,0,0], bottom: [0,0,0,0,0,0,0,0,0] } });
@@ -749,6 +750,7 @@ import { renumberPitchNumbers, reassignPitchBatter } from './gameUtils.js';
       };
 
       const handleImportText = () => {
+        if (isScorerGdf(importText)) { importScorerGdf(importText); return; }
         if (!importText || !importText.startsWith('BASEBALL_SHARE:')) { showToast('無効なテキストです。', 'error'); return; }
         const parts = importText.split(':');
         if (parts.length < 3) { showToast('データ形式が不正です', 'error'); return; }
@@ -782,10 +784,29 @@ import { renumberPitchNumbers, reassignPitchBatter } from './gameUtils.js';
         const link = document.createElement('a'); link.href = url; link.download = `配球データ_${gameInfo.date}.json`; document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(url); showToast('ファイルを保存しました！');
       };
 
+      // スコアラーアプリ(GDF形式)の試合データをアーカイブへ取り込む
+      const importScorerGdf = (text) => {
+        try {
+          const { savedGame, warnings } = convertScorerGame(text);
+          if (warnings.length > 0) console.warn('スコアラー取込の注意点:\n' + warnings.join('\n'));
+          const exists = savedGames.some(g => g.id === savedGame.id);
+          setSavedGames(prev => exists ? prev.map(g => g.id === savedGame.id ? savedGame : g) : [savedGame, ...prev]);
+          showToast(`スコアラーの試合を${exists ? '更新' : '取り込み'}ました: ${savedGame.teamTop} ${savedGame.scoreTop}-${savedGame.scoreBottom} ${savedGame.teamBottom}${warnings.length > 0 ? ` (注意${warnings.length}件はコンソール参照)` : ''}`);
+          setShowExport(false); setShowImportTextModal(false); setImportText('');
+          setShowArchiveModal(true);
+          return true;
+        } catch (err) {
+          console.error('スコアラー取込に失敗:', err);
+          showToast('スコアラーデータの解析に失敗しました', 'error');
+          return false;
+        }
+      };
+
       const importData = (event) => {
         const file = event.target.files[0]; if (!file) return; const reader = new FileReader();
         reader.onload = (e) => {
           try {
+            if (isScorerGdf(e.target.result)) { importScorerGdf(e.target.result); return; }
             const data = JSON.parse(e.target.result);
             if (data.gameState && data.lineups && data.pitches) {
               setGameState(normalizeGameState(data.gameState)); setGameInfo(data.gameInfo || { date: new Date().toLocaleDateString('ja-JP').replace(/\//g, '-'), teamTop: '先攻チーム', teamBottom: '後攻チーム' }); setLineups(data.lineups); setPitches(data.pitches);
@@ -2442,8 +2463,8 @@ import { renumberPitchNumbers, reassignPitchBatter } from './gameUtils.js';
                   <button onClick={() => { exportData(); setShowExport(false); }} className="w-full bg-slate-700 text-white py-3 rounded-xl font-bold shadow-md active:scale-95 flex items-center justify-center gap-2">💾 JSON バックアップ</button>
                   <div className="pt-3 border-t border-slate-200">
                     <label className="w-full bg-slate-100 text-slate-700 py-3 rounded-xl font-bold flex items-center justify-center gap-2 cursor-pointer border border-slate-300 hover:bg-slate-200">
-                      📂 JSON ファイルから復元
-                      <input type="file" accept=".json" onChange={importData} className="hidden" />
+                      📂 ファイルから復元 (JSON / スコアラー)
+                      <input type="file" accept=".json,.txt" onChange={importData} className="hidden" />
                     </label>
                   </div>
                 </div>
@@ -3263,8 +3284,8 @@ import { renumberPitchNumbers, reassignPitchBatter } from './gameUtils.js';
                   <button onClick={() => setShowImportTextModal(false)} className="text-emerald-400 hover:text-emerald-800 font-bold text-xl px-2">✕</button>
                 </div>
                 <div className="p-6 flex flex-col gap-4 bg-white">
-                  <p className="text-sm font-bold text-slate-600 text-center">共有テキストを貼り付けてください。</p>
-                  <textarea value={importText} onChange={(e) => setImportText(e.target.value)} placeholder="BASEBALL_SHARE:..." className="w-full h-32 p-4 border-2 border-slate-200 rounded-xl text-xs font-mono bg-slate-50 outline-none resize-none" />
+                  <p className="text-sm font-bold text-slate-600 text-center">共有テキスト、またはスコアラーアプリの書き出しデータ(GDF)を貼り付けてください。</p>
+                  <textarea value={importText} onChange={(e) => setImportText(e.target.value)} placeholder={'BASEBALL_SHARE:... もしくは {"kind":"GDF",...}'} className="w-full h-32 p-4 border-2 border-slate-200 rounded-xl text-xs font-mono bg-slate-50 outline-none resize-none" />
                   <div className="flex gap-3 mt-2">
                     <button onClick={() => setShowImportTextModal(false)} className="flex-1 bg-slate-100 border border-slate-300 text-slate-700 font-bold py-3.5 rounded-xl">キャンセル</button>
                     <button onClick={handleImportText} className="flex-1 bg-emerald-600 text-white font-black py-3.5 rounded-xl shadow-md active:scale-95">データを復元する</button>
