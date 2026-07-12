@@ -62,25 +62,40 @@
       batting.players.forEach(function(p, i){var bg=i%2===0?'#ffffff':'#f8fafc'; h+='<tr style="background:'+bg+';border-bottom:1px solid #e2e8f0;"><td style="padding:6px;">'+p.order+'</td><td style="padding:6px;font-weight:bold;">'+esc(p.name)+'</td><td style="padding:6px;text-align:center;color:#475569;">'+esc(p.pos||'-')+'</td><td style="padding:6px;text-align:center;color:#475569;font-size:10px;white-space:nowrap;">'+esc((p.throws||'?')+'投/'+(p.bats||'?')+'打')+'</td><td style="padding:6px;text-align:right;">'+p.AB+'</td><td style="padding:6px;text-align:right;">'+p.H+'</td><td style="padding:6px;text-align:right;">'+p.BB_HBP+'</td><td style="padding:6px;text-align:right;color:#0ea5e9;font-weight:bold;">'+p.AVG+'</td><td style="padding:6px;text-align:right;color:#d97706;font-weight:bold;">'+p.OPS+'</td><td style="padding:6px;text-align:right;">'+p.KPct+'%</td><td style="padding:6px;font-size:10px;line-height:1.6;word-break:keep-all;overflow-wrap:anywhere;">'+formatResultTagsHtml(p.results)+'</td></tr>';});
       h+='</tbody></table></section>';return h;
     }
+    // 打者詳細: 旧「打者詳細」+「打席内容」を1枚のカードに統合。
+    // スプレー図と打席ごとのコース図を同じカードに収め、重複していた結果タグ一覧は省く。
     function batterDetails(batting, teamName) {
-      var h='<section class="report-section"><div class="report-heading" style="margin:0 0 6px;font-size:15px;font-weight:bold;color:#1e293b;border-bottom:2px solid #e2e8f0;padding-bottom:3px;break-after:avoid;page-break-after:avoid;">打者詳細: '+esc(teamName)+'</div>';
-      h+='<div style="display:flex;flex-wrap:wrap;gap:6px;">';
-      batting.players.forEach(function(p){
-        if(p.PA<=0) return;
-        h+='<div class="bdc" style="width:calc(50% - 4px);min-width:240px;background:#ffffff;border:1px solid #cbd5e1;border-radius:7px;padding:7px;box-sizing:border-box;">';
-        h+='<div style="font-size:12px;font-weight:bold;margin-bottom:4px;border-bottom:1px solid #e2e8f0;padding-bottom:3px;">'+p.order+'番 '+esc(p.name)+'</div>';
-        h+='<div style="font-size:10px;color:#0ea5e9;font-weight:bold;margin-bottom:4px;">AVG:'+p.AVG+' OPS:'+p.OPS+' K:'+p.KPct+'%</div>';
-        h+='<div style="display:flex;gap:6px;align-items:flex-start;">';
-        h+=sprayChartSvg(p.sprayHits,'',130);
-        h+='<div style="flex:1;font-size:10px;line-height:1.5;"><div>AB:'+p.AB+' H:'+p.H+'</div><div>四死:'+p.BB_HBP+' K:'+p.K+'</div><div style="font-size:9px;margin-top:3px;color:#64748b;line-height:1.6;word-break:keep-all;overflow-wrap:anywhere;">'+formatResultTagsHtml(p.results)+'</div></div>';
+      var players = (batting.players || []).filter(function(p){ return p.PA > 0; });
+      if (players.length === 0) return '';
+      var colors = { 'ストレート':'#ef4444', 'スライダー':'#3b82f6', 'シュート':'#10b981', 'カーブ':'#f59e0b', '落ちる球':'#6366f1', 'シンカー':'#06b6d4' };
+      var h='<section class="report-section"><div class="report-heading" style="margin:0 0 4px;font-size:14px;font-weight:bold;color:#1e293b;border-bottom:2px solid #e2e8f0;padding-bottom:3px;break-after:avoid;page-break-after:avoid;">打者詳細: '+esc(teamName)+' <span style="font-size:9px;font-weight:normal;color:#64748b;">(打球方向・打席内容)</span></div>';
+      h+='<div style="display:flex;flex-wrap:wrap;gap:6px 12px;margin-bottom:5px;font-size:8px;color:#64748b;align-items:center;">';
+      Object.entries(colors).forEach(function(e){ h+='<span style="white-space:nowrap;"><span style="display:inline-block;width:7px;height:7px;background:'+e[1]+';border-radius:50%;margin-right:2px;"></span>'+esc(e[0])+'</span>'; });
+      h+='<span>○=ボール ●=ストライク系 数字=投球順 点線=最終球</span></div>';
+      h+='<div style="display:flex;flex-wrap:wrap;gap:5px;">';
+      players.forEach(function(p){
+        h+='<div class="bdc" style="width:calc(50% - 3px);min-width:230px;background:#ffffff;border:1px solid #cbd5e1;border-radius:6px;padding:5px 6px;box-sizing:border-box;">';
+        h+='<div style="font-size:10px;font-weight:bold;border-bottom:1px solid #e2e8f0;padding-bottom:2px;margin-bottom:4px;">'+p.order+'番 '+esc(p.name)
+          +' <span style="font-size:9px;color:#0ea5e9;">AVG:'+p.AVG+' OPS:'+p.OPS+'</span>'
+          +' <span style="font-size:8px;color:#64748b;font-weight:normal;">'+p.AB+'打数'+p.H+'安打 四死'+p.BB_HBP+' K'+p.K+'</span></div>';
+        h+='<div style="display:flex;flex-wrap:wrap;gap:3px;align-items:flex-start;">';
+        h+=sprayChartSvg(p.sprayHits,'',92);
+        (p.atBats || []).forEach(function(ab){
+          var rl=atBatResultLabel(ab.result);
+          h+='<div style="width:58px;text-align:center;">';
+          h+='<div style="font-size:7px;color:#64748b;font-weight:bold;">'+ab.inning+'回'+(ab.isTop?'表':'裏')+'</div>';
+          h+='<div style="border:1px solid #e2e8f0;border-radius:4px;overflow:hidden;background:#fff;display:inline-block;">'+atBatZoneSvg(ab.pitches, 8)+'</div>';
+          h+='<div style="font-size:7px;font-weight:bold;line-height:1.2;color:'+rl.color+';word-break:break-all;">'+esc(rl.text)+'</div>';
+          h+='</div>';
+        });
         h+='</div></div>';
       });
       h+='</div></section>';
       return h;
     }
-    function atBatZoneSvg(abPitches) {
+    function atBatZoneSvg(abPitches, cellSize) {
       var ptColors = { 'ストレート':'#ef4444', 'スライダー':'#3b82f6', 'シュート':'#10b981', 'カーブ':'#f59e0b', '落ちる球':'#6366f1', 'シンカー':'#06b6d4' };
-      var cs = 10, svgSz = cs * 7, byPos = {};
+      var cs = cellSize || 10, svgSz = cs * 7, byPos = {};
       (abPitches || []).forEach(function(p, i) {
         if (p.course !== null && p.course !== undefined && p.course !== '') {
           if (!byPos[p.course]) byPos[p.course] = [];
@@ -114,32 +129,6 @@
       if (result === '三振' || result === '振り逃げ') return { text:'三振', color:'#ef4444' };
       if (['安打','二塁打','三塁打','本塁打'].some(function(w){return String(result).indexOf(w)>=0;})) return { text:result, color:'#1d4ed8' };
       return { text:result || '-', color:'#475569' };
-    }
-    function batterAtBatDetails(batting, teamName) {
-      var players = (batting.players || []).filter(function(p){ return p.PA > 0 && p.atBats && p.atBats.length > 0; });
-      if (players.length === 0) return '';
-      var colors = { 'ストレート':'#ef4444', 'スライダー':'#3b82f6', 'シュート':'#10b981', 'カーブ':'#f59e0b', '落ちる球':'#6366f1', 'シンカー':'#06b6d4' };
-      var h='<section class="report-section"><div class="report-heading" style="margin:0 0 6px;font-size:14px;font-weight:bold;color:#334155;border-bottom:1px solid #cbd5e1;padding-bottom:3px;break-after:avoid;page-break-after:avoid;">打席内容: '+esc(teamName)+' <span style="font-size:10px;font-weight:normal;color:#64748b;">(コース・球種)</span></div>';
-      h+='<div style="display:flex;flex-wrap:wrap;gap:8px 12px;margin-bottom:8px;font-size:9px;color:#64748b;align-items:center;">';
-      Object.entries(colors).forEach(function(e){ h+='<span style="white-space:nowrap;"><span style="display:inline-block;width:8px;height:8px;background:'+e[1]+';border-radius:50%;margin-right:3px;"></span>'+esc(e[0])+'</span>'; });
-      h+='<span>○=ボール ●=ストライク系 数字=投球順 点線=最終球</span></div>';
-      h+='<div style="display:block;">';
-      players.forEach(function(batter) {
-        h+='<div class="abc" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:7px;padding:7px;margin-bottom:8px;break-inside:avoid;page-break-inside:avoid;">';
-        h+='<div style="font-size:11px;font-weight:bold;color:#334155;margin-bottom:6px;">'+batter.order+'番 '+esc(batter.name)+' <span style="font-size:9px;font-weight:normal;color:#64748b;">'+batter.AB+'打数 '+batter.H+'安打 打率'+batter.AVG+'</span></div>';
-        h+='<div style="display:flex;flex-wrap:wrap;gap:8px;">';
-        batter.atBats.forEach(function(ab) {
-          var rl=atBatResultLabel(ab.result);
-          h+='<div style="width:74px;text-align:center;break-inside:avoid;page-break-inside:avoid;">';
-          h+='<div style="font-size:9px;color:#64748b;font-weight:bold;margin-bottom:2px;">'+ab.inning+'回'+(ab.isTop?'表':'裏')+'</div>';
-          h+='<div style="border:1px solid #e2e8f0;border-radius:5px;overflow:hidden;background:#fff;display:inline-block;">'+atBatZoneSvg(ab.pitches)+'</div>';
-          h+='<div style="font-size:8px;font-weight:bold;line-height:1.25;color:'+rl.color+';word-break:break-all;">'+esc(rl.text)+'</div>';
-          h+='</div>';
-        });
-        h+='</div></div>';
-      });
-      h+='</div></section>';
-      return h;
     }
     function countDistHtml(counts, title) {
       var h='<div style="background:#f8fafc;border:1px solid #cbd5e1;border-radius:7px;padding:7px;flex:1;min-width:0;"><div style="font-size:10px;font-weight:bold;text-align:center;margin-bottom:5px;border-bottom:1px solid #cbd5e1;padding-bottom:4px;">'+esc(title)+'</div>';
@@ -213,7 +202,7 @@
         h+='<div style="font-size:11px;font-weight:bold;margin-bottom:6px;color:#475569;">球種別ヒートマップ</div>';
         var sortedTypedHm = Object.entries(p.pitchTypeHeatmaps||{}).sort(function(a,b){var ta=0,tb=0;Object.values(a[1].all||{}).forEach(function(v){ta+=v;});Object.values(b[1].all||{}).forEach(function(v){tb+=v;});return tb-ta;}).filter(function(e){var cnt=0;Object.values(e[1].all||{}).forEach(function(v){cnt+=v;});return cnt>0;});
         if(sortedTypedHm.length > 0) {
-          var hmSz=80;
+          var hmSz=62;
           var hmCols=['all','ahead','even','behind'];
           var hmColLabels=['全体','有利','平行','不利'];
           h+='<table style="border-collapse:collapse;width:100%;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;">';
@@ -337,16 +326,19 @@
     summaryH+=sRow('K%',t.topBatting.team.KPct+'%',t.bottomBatting.team.KPct+'%');
     summaryH+=sRow('BB%',t.topBatting.team.BBPct+'%',t.bottomBatting.team.BBPct+'%');
     summaryH+='</tbody></table>';
-    var sprayH='<h3 style="margin:6px 0 3px;font-size:14px;font-weight:bold;">チーム打球方向</h3><div class="bif" style="display:flex;gap:14px;flex-wrap:nowrap;justify-content:center;margin-bottom:4px;">';
-    sprayH+=sprayChartSvg(t.topBatting.team.sprayHits,gi.teamTop,150);
-    sprayH+=sprayChartSvg(t.bottomBatting.team.sprayHits,gi.teamBottom,150);
-    sprayH+='</div>';
+    // チーム比較とチーム打球方向を横並びにして1ページ目を圧縮
+    var summarySprayH='<div class="bif" style="display:flex;gap:14px;align-items:flex-start;margin-bottom:6px;flex-wrap:wrap;">'
+      +'<div style="flex:1;min-width:220px;">'+summaryH+'</div>'
+      +'<div style="flex:1;min-width:280px;"><h3 style="margin:6px 0 3px;font-size:14px;font-weight:bold;">チーム打球方向</h3><div style="display:flex;gap:8px;flex-wrap:nowrap;justify-content:center;">'
+      +sprayChartSvg(t.topBatting.team.sprayHits,gi.teamTop,135)
+      +sprayChartSvg(t.bottomBatting.team.sprayHits,gi.teamBottom,135)
+      +'</div></div></div>';
     function playByPlayHtml(pbp){
       if(!pbp || !pbp.length) return '';
-      var h='<section class="report-section"><h3 class="report-heading" style="margin:0 0 10px;font-size:16px;font-weight:bold;color:#1e293b;border-bottom:2px solid #e2e8f0;padding-bottom:4px;">テキスト速報</h3>';
-      h+='<div style="display:flex;flex-wrap:wrap;gap:8px;">';
+      var h='<section class="report-section"><h3 class="report-heading" style="margin:0 0 8px;font-size:15px;font-weight:bold;color:#1e293b;border-bottom:2px solid #e2e8f0;padding-bottom:3px;">テキスト速報</h3>';
+      h+='<div style="display:flex;flex-wrap:wrap;gap:6px;">';
       pbp.forEach(function(inn){
-        h+='<div style="width:calc(50% - 4px);min-width:240px;box-sizing:border-box;break-inside:avoid;page-break-inside:avoid;align-self:flex-start;">';
+        h+='<div style="width:calc(33.3% - 6px);min-width:190px;box-sizing:border-box;break-inside:avoid;page-break-inside:avoid;align-self:flex-start;">';
         h+='<div style="font-size:11px;font-weight:bold;color:#fff;background:'+(inn.isTop?'#1d4ed8':'#e11d48')+';padding:3px 8px;border-radius:6px 6px 0 0;">'+inn.inning+'回'+(inn.isTop?'表':'裏')+' '+esc(inn.isTop?gi.teamTop:gi.teamBottom)+'の攻撃</div>';
         h+='<table style="width:100%;border-collapse:collapse;font-size:10px;border:1px solid #e2e8f0;border-top:none;">';
         inn.atBats.forEach(function(ab,i){
@@ -383,14 +375,12 @@
     }
     var body='<div style="max-width:900px;margin:0 auto;padding:12px 24px;font-family:sans-serif;">';
     body+='<h1 style="font-size:18px;font-weight:bold;margin:0 0 2px;">試合分析レポート</h1><div style="color:#64748b;margin-bottom:5px;font-size:11px;">'+esc(gi.date)+' / 総投球数: '+ps.filter(function(p){return !p.isEvent||p.countAsPitch;}).length+'球</div>';
-    body+=narrativeHtml(analyst)+scoreBoardH+summaryH+sprayH;
+    body+=narrativeHtml(analyst)+scoreBoardH+summarySprayH;
     body+=playByPlayHtml(data.playByPlay);
     body+=batterTable(t.topBatting,gi.teamTop);
     body+=batterDetails(t.topBatting,gi.teamTop);
-    body+=batterAtBatDetails(t.topBatting,gi.teamTop);
     body+=batterTable(t.bottomBatting,gi.teamBottom);
     body+=batterDetails(t.bottomBatting,gi.teamBottom);
-    body+=batterAtBatDetails(t.bottomBatting,gi.teamBottom);
     body+=pitcherDetails(t.pitchingTop,gi.teamTop);
     if(t.pitchingBottom.pitchers.length>0){
       body+=pitcherDetails(t.pitchingBottom,gi.teamBottom);
@@ -402,7 +392,9 @@
       +'<button onclick="window.print()" style="background:#1e293b;color:#fff;border:none;padding:8px 18px;border-radius:8px;font-size:13px;font-weight:bold;cursor:pointer;">🖨️ 印刷 / PDF</button>'
       +'<button onclick="window.close()" style="background:#e2e8f0;color:#334155;border:none;padding:8px 18px;border-radius:8px;font-size:13px;font-weight:bold;cursor:pointer;">✕ 閉じる</button>'
       +'</div>';
-    w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>'+esc(reportFileName)+'<\/title><style>@page{margin:12mm 10mm;}body{margin:0;background:#f1f5f9;}.report-section{margin:0 0 18px;}.report-heading{break-after:avoid;page-break-after:avoid;}@media print{body{background:#fff !important;}*{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;}.report-section{page-break-before:always;break-before:page;break-inside:auto;page-break-inside:auto;padding-top:0;}.report-heading{break-after:avoid;page-break-after:avoid;orphans:3;widows:3;}.bdc,.abc,.bif,.pitcher-section table,.pitcher-section [style*="display:flex"]{break-inside:avoid;page-break-inside:avoid;}.no-print{display:none !important;}}table{page-break-inside:auto;}tr{page-break-inside:avoid;}h1,h3{break-after:avoid;page-break-after:avoid;}<\/style><\/head><body>'+closeBtn+body+'<\/body><\/html>');
+    // セクション毎の強制改ページはページ数が膨らむため廃止し、
+    // カード単位の break-inside:avoid で自然に流し込む。
+    w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>'+esc(reportFileName)+'<\/title><style>@page{margin:10mm 10mm;}body{margin:0;background:#f1f5f9;}.report-section{margin:0 0 12px;}.report-heading{break-after:avoid;page-break-after:avoid;}@media print{body{background:#fff !important;}*{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;}.report-section{break-inside:auto;page-break-inside:auto;padding-top:0;}.report-heading{break-after:avoid;page-break-after:avoid;orphans:3;widows:3;}.bdc,.abc,.bif,.pitcher-section table,.pitcher-section [style*="display:flex"]{break-inside:avoid;page-break-inside:avoid;}.no-print{display:none !important;}}table{page-break-inside:auto;}tr{page-break-inside:avoid;}h1,h3{break-after:avoid;page-break-after:avoid;}<\/style><\/head><body>'+closeBtn+body+'<\/body><\/html>');
     w.document.close();
     setTimeout(function(){w.print();},800);
     return true;
