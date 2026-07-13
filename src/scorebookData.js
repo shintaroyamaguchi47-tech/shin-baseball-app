@@ -118,8 +118,11 @@ function newCell(play) {
     // 各塁(2/3/home=4)へ「何番打者の打席で」進んだか。スコアラー様式の隅数字用。
     // 打者自身の到達(初期塁)は記録しない(結果記号で示すため)。
     reachedBy: {},
-    // 盗塁(S)/暴投(WP)/捕逸(PB)/ボーク(BK)で進んだ塁→コード。隅に数字の代わりに表示。
+    // 盗塁(S)/暴投(WP)/捕逸(PB)/ボーク(BK)で進んだ塁→{code, link}。隅に数字の代わりに表示。
+    // link は投球列との対応を示す a,b,c...。同じ文字がこの打者の投球列にも付く。
     advanceMarks: {},
+    // この打者の打席中に起きた走者イベントのリンク文字。{投球index: 'a'} で投球列に重ねる。
+    pitchLinks: {},
     rbi: 0,
     scored: false,
     scoredUnearned: false, // 非自責の生還(エラー絡み)。得点の中央マークを ●自責 / ○非自責 で分ける
@@ -178,9 +181,9 @@ function applyAutoMovement(bases, eventType, batterCell, order) {
 // イベント行(盗塁/暴投/捕逸/ボーク/牽制死/代走など)を処理し、
 // その走者の「元の打席セル」を更新する。App.jsxのrebuildGameStateFromPitches /
 // playByPlay.jsのapplyRunnerEventNarrativeと同じ文字列パターンで判定する。
-function handleRunnerEvent(bases, text, outCounter, order) {
+function handleRunnerEvent(bases, text, outCounter, order, link) {
   const runnerKey = text.startsWith('1塁走者') ? 1 : text.startsWith('2塁走者') ? 2 : text.startsWith('3塁走者') ? 3 : null;
-  if (!runnerKey) return;
+  if (!runnerKey) return false; // 進塁リンク文字を消費したか(盗塁/暴投/捕逸/ボークならtrue)
   const origin = bases[runnerKey];
   if (text.includes('が')) {
     const reason = (text.split('が')[1] || '').replace(/。$/, '');
@@ -191,11 +194,11 @@ function handleRunnerEvent(bases, text, outCounter, order) {
       origin.advancementNotes.push({ text: reason, isOut: true });
     }
     bases[runnerKey] = null;
-    return;
+    return false;
   }
   if (text.includes('に代走')) {
     if (origin) origin.advancementNotes.push({ text: '代走', isOut: false });
-    return;
+    return false;
   }
   const dest = text.match(/で(2塁|3塁|本塁)へ/);
   if (dest) {
@@ -207,14 +210,15 @@ function handleRunnerEvent(bases, text, outCounter, order) {
     // 盗塁/暴投/捕逸/ボークは公式コード(S/WP/PB/BK)を隅に表示する。
     // それ以外(打球絡みの進塁)は「何番打者で」の数字を表示する。
     const code = reason.includes('盗塁') ? 'S' : reason.includes('暴投') ? 'WP' : reason.includes('捕逸') ? 'PB' : reason.includes('ボーク') ? 'BK' : null;
-    const markBase = (base) => { if (!origin) return; if (code) origin.advanceMarks[base] = code; else if (order) origin.reachedBy[base] = order; };
+    const markBase = (base) => { if (!origin) return; if (code) origin.advanceMarks[base] = { code, link: link || null }; else if (order) origin.reachedBy[base] = order; };
     if (dest[1] === '2塁') { if (origin) { origin.basesReachedFinal = 2; markBase(2); origin.advancementNotes.push({ text: `${reason}→2塁`, isOut: false }); } bases[2] = origin; bases[runnerKey] = null; }
     else if (dest[1] === '3塁') { if (origin) { origin.basesReachedFinal = 3; markBase(3); origin.advancementNotes.push({ text: `${reason}→3塁`, isOut: false }); } bases[3] = origin; bases[runnerKey] = null; }
     else { if (origin) { origin.basesReachedFinal = 4; origin.scored = true; if (reason === '進塁') origin.scoredUnearned = true; markBase(4); origin.advancementNotes.push({ text: `${reason}→生還`, isOut: false }); } bases[runnerKey] = null; }
-    return;
+    return !!code; // 盗塁/暴投/捕逸/ボークならリンク文字を消費
   }
   const reason = text.split(' ')[1] || '';
   if (origin && reason) origin.advancementNotes.push({ text: reason, isOut: false });
+  return false;
 }
 
 function emptyPlayerTotal(name, pos, bats) {
@@ -259,6 +263,7 @@ export function buildScorebookData(pitches, lineups, gameInfo, gameState) {
     const team = isTop ? 'top' : 'bottom';
     let bases = { 1: null, 2: null, 3: null };
     const outCounter = { n: 0 };
+    const linkCounter = { n: 0 }; // 半イニングごとに a,b,c... と振る走者イベントのリンク文字
     plays.forEach((play) => {
       const cell = newCell(play);
       allCells.push(cell);
@@ -272,8 +277,17 @@ export function buildScorebookData(pitches, lineups, gameInfo, gameState) {
       // 更新後のbasesを参照して正しく処理できるようにする。
       const order = play.batter; // この打席の打順(1-9)。走者の進塁を「何番で」と記録するのに使う
       let scoredCells = [];
+      let pitchIdx = 0; // この打席で消化した投球数(リンク文字を投球列のどこに付けるか)
       play.pitchRows.forEach((row) => {
-        if (row.isEvent) { handleRunnerEvent(bases, row.label || '', outCounter, order); return; }
+        if (row.isEvent) {
+          // 盗塁/暴投/捕逸/ボークにはリンク文字(a,b,c...)を割り当て、
+          // この打者の投球列(直近の球)と走者の進塁コードの両方に付けて連動させる。
+          const link = String.fromCharCode(97 + linkCounter.n);
+          const consumed = handleRunnerEvent(bases, row.label || '', outCounter, order, link);
+          if (consumed) { cell.pitchLinks[Math.max(0, pitchIdx - 1)] = link; linkCounter.n++; }
+          return;
+        }
+        pitchIdx++;
         if (row.count === null) {
           const moved = applyAutoMovement(bases, play.eventType, cell, order);
           bases = moved.bases;

@@ -23,10 +23,21 @@
       else body = '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="#1e293b" stroke-width="1"/>'; // swing/other = 白丸(空振り)
       return '<svg width="' + sz + '" height="' + sz + '" viewBox="0 0 ' + sz + ' ' + sz + '" style="display:block;">' + body + '</svg>';
     }
-    function pitchColumnHtml(marks) {
-      var list = (marks || []).filter(function (m) { return m.type !== 'pickoff'; });
-      if (!list.length) return '<div class="sb-pit"></div>';
-      return '<div class="sb-pit">' + list.map(function (m) { return pitchMarkSvg(m.type); }).join('') + '</div>';
+    function pitchColumnHtml(cell) {
+      var marks = cell.pitchMarks || [], links = cell.pitchLinks || {};
+      // pickoff(牽制)は投球列に出さないが、リンク文字は元のindexに対応させたいので
+      // フィルタ前のindexで対応付ける。
+      var out = [];
+      marks.forEach(function (m, i) {
+        if (m.type === 'pickoff') return;
+        var lk = links[i] ? '<span class="sb-pl">' + esc(links[i]) + '</span>' : '';
+        out.push('<div class="sb-pm">' + pitchMarkSvg(m.type) + lk + '</div>');
+      });
+      // 投球indexに対応しないリンク(最終球以降)も末尾に出す
+      Object.keys(links).forEach(function (k) {
+        if (Number(k) >= marks.length) out.push('<div class="sb-pm"><span class="sb-pl">' + esc(links[k]) + '</span></div>');
+      });
+      return '<div class="sb-pit">' + out.join('') + '</div>';
     }
 
     // ダイヤモンド。四隅=塁(下:本, 右:一, 上:二, 左:三)。
@@ -87,20 +98,20 @@
     // 一塁隅には打者自身の到達理由(B=四球, 死=死球)を置く。
     function cornerLabelsHtml(cell) {
       var rb = cell.reachedBy || {}, am = cell.advanceMarks || {};
-      // 各塁: 盗塁等のコード(S/WP/PB)があればそれを、無ければ「何番打者で進塁」の数字を表示
-      var at = function (base, wrap) { return am[base] ? am[base] : (rb[base] ? wrap.charAt(0) + rb[base] + wrap.charAt(1) : ''); };
-      var corner = { tl: '', tr: '', bl: '', br: '' };
-      corner.tl = at(3, '()');   // 三塁=左上
-      corner.tr = at(2, '()');   // 二塁=右上
-      corner.bl = at(4, '[]');   // 本塁(生還)=左下
+      // 各塁: 盗塁等のコード(S/WP/PB)+リンク文字があればそれを、無ければ「何番打者で進塁」の数字を表示
+      var at = function (base, wrap) {
+        if (am[base]) return esc(am[base].code) + (am[base].link ? '<span class="sb-lk">' + esc(am[base].link) + '</span>' : '');
+        return rb[base] ? esc(wrap.charAt(0) + rb[base] + wrap.charAt(1)) : '';
+      };
+      var corner = { tl: at(3, '()'), tr: at(2, '()'), bl: at(4, '[]'), br: '' };
       // 一塁=右下: 打者自身の到達理由
       if (cell.finalLabel === '四球') corner.br = 'B';
       else if (cell.finalLabel === '死球') corner.br = '死';
       else if (cell.finalLabel === 'その他出塁') corner.br = 'DIB';
       var h = '';
-      if (corner.tl) h += '<span class="sb-c sb-c-tl">' + esc(corner.tl) + '</span>';
-      if (corner.tr) h += '<span class="sb-c sb-c-tr">' + esc(corner.tr) + '</span>';
-      if (corner.bl) h += '<span class="sb-c sb-c-bl">' + esc(corner.bl) + '</span>';
+      if (corner.tl) h += '<span class="sb-c sb-c-tl">' + corner.tl + '</span>';
+      if (corner.tr) h += '<span class="sb-c sb-c-tr">' + corner.tr + '</span>';
+      if (corner.bl) h += '<span class="sb-c sb-c-bl">' + corner.bl + '</span>';
       if (corner.br) h += '<span class="sb-c sb-c-br">' + esc(corner.br) + '</span>';
       return h;
     }
@@ -119,7 +130,7 @@
 
     function cellBoxHtml(cell) {
       return '<div class="sb-box">'
-        + pitchColumnHtml(cell.pitchMarks)
+        + pitchColumnHtml(cell)
         + '<div class="sb-play">'
         + cornerLabelsHtml(cell)
         + '<div class="sb-dia">' + diamondSvg(cell) + '</div>'
@@ -239,7 +250,10 @@
       + '.sb-td{width:66px;padding:0;background:#fff;}'
       + '.sb-box{position:relative;display:flex;align-items:stretch;border-bottom:1px dotted #e2e8f0;min-height:52px;}'
       + '.sb-box:last-child{border-bottom:none;}'
-      + '.sb-pit{width:11px;display:flex;flex-direction:column;align-items:center;padding-top:1px;gap:0px;flex-shrink:0;}'
+      + '.sb-pit{width:14px;display:flex;flex-direction:column;align-items:center;padding-top:1px;gap:0px;flex-shrink:0;}'
+      + '.sb-pm{position:relative;display:flex;align-items:center;}'
+      + '.sb-pl{position:absolute;left:10px;top:0;font-size:6px;font-weight:bold;color:#c026d3;}'
+      + '.sb-lk{font-size:5.5px;font-weight:bold;color:#c026d3;vertical-align:super;}'
       + '.sb-play{position:relative;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:1px 0;}'
       + '.sb-dia{position:relative;}'
       + '.sb-c{position:absolute;font-size:7px;font-weight:bold;color:#334155;line-height:1;z-index:2;}'
