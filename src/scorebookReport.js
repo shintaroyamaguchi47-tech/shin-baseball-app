@@ -40,53 +40,48 @@
       return '<div class="sb-pit">' + out.join('') + '</div>';
     }
 
-    // ダイヤモンド。四隅=塁(下:本, 右:一, 上:二, 左:三)。
-    // 到達した塁まで辺を描き、最終到達塁に黄三角、生還は中央●、残塁は中央○、
-    // 打者アウトはローマ数字、走塁死は赤斜線で表す。
+    // ダイヤモンド(bbscorer公式サンプル準拠)。
+    // 小さい細グレーのダイヤ＋各頂点からセル辺への十字線(4区画に分割)。
+    // 進塁は隅ラベル(cornerLabelsHtml)と中央マークで表す。到達した塁までの辺は
+    // 細い線でなぞる。中央 ●生還(自責)/○生還(非自責)/ℓ残塁、打者アウトはローマ数字、
+    // 走塁死は赤斜線。四隅=塁(下:本, 右:一, 上:二, 左:三)。
     function diamondSvg(cell) {
-      var s = 46, m = 23;
-      var P = { 0: [m, s - 2], 1: [s - 2, m], 2: [m, 2], 3: [2, m], 4: [m, s - 2] }; // 0/4=home,1,2,3
+      var s = 52, m = 26, dr = 13; // 箱52, 中心26, ダイヤ半径13(小さめ)
+      var P = { 0: [m, m + dr], 1: [m + dr, m], 2: [m, m - dr], 3: [m - dr, m], 4: [m, m + dr] };
       var legEnd = [null, [P[0], P[1]], [P[1], P[2]], [P[2], P[3]], [P[3], P[0]]];
       var svg = '<svg width="' + s + '" height="' + s + '" viewBox="0 0 ' + s + ' ' + s + '">';
-      // 外枠ダイヤ(薄いグレー)
-      svg += '<polygon points="' + [P[0], P[1], P[2], P[3]].map(function (p) { return p[0] + ',' + p[1]; }).join(' ') + '" fill="none" stroke="#cbd5e1" stroke-width="1"/>';
+      // 頂点→セル辺の十字線(薄グレー)
+      svg += '<line x1="' + P[3][0] + '" y1="' + m + '" x2="0" y2="' + m + '" stroke="#d1d5db" stroke-width="0.8"/>';
+      svg += '<line x1="' + P[1][0] + '" y1="' + m + '" x2="' + s + '" y2="' + m + '" stroke="#d1d5db" stroke-width="0.8"/>';
+      svg += '<line x1="' + m + '" y1="' + P[2][1] + '" x2="' + m + '" y2="0" stroke="#d1d5db" stroke-width="0.8"/>';
+      svg += '<line x1="' + m + '" y1="' + P[0][1] + '" x2="' + m + '" y2="' + s + '" stroke="#d1d5db" stroke-width="0.8"/>';
+      // ダイヤ外枠(薄グレー)
+      svg += '<polygon points="' + [P[0], P[1], P[2], P[3]].map(function (p) { return p[0] + ',' + p[1]; }).join(' ') + '" fill="none" stroke="#9ca3af" stroke-width="1"/>';
 
       var reached = cell.scored ? 4 : (cell.basesReachedFinal || 0);
-      var color = cell.isError ? '#d97706' : (cell.isHit ? '#1d4ed8' : '#334155');
-      // 到達した各辺を実線で描く
+      // 到達した辺を細くなぞる(控えめ)
       for (var b = 1; b <= reached && b <= 4; b++) {
         var e = legEnd[b];
-        svg += '<line x1="' + e[0][0] + '" y1="' + e[0][1] + '" x2="' + e[1][0] + '" y2="' + e[1][1] + '" stroke="' + color + '" stroke-width="2.4" stroke-linecap="round"/>';
-      }
-      // 最終到達塁の黄三角(生還時は中央●を出すので付けない)
-      if (reached >= 1 && reached <= 3) {
-        var v = P[reached];
-        var inner = [m + (v[0] - m) * 0.42, m + (v[1] - m) * 0.42];
-        var perp = [-(v[1] - m), (v[0] - m)];
-        var pl = Math.sqrt(perp[0] * perp[0] + perp[1] * perp[1]) || 1;
-        var uw = 5;
-        var a = [inner[0] + perp[0] / pl * uw, inner[1] + perp[1] / pl * uw];
-        var c = [inner[0] - perp[0] / pl * uw, inner[1] - perp[1] / pl * uw];
-        svg += '<polygon points="' + v[0] + ',' + v[1] + ' ' + a[0] + ',' + a[1] + ' ' + c[0] + ',' + c[1] + '" fill="#fbbf24"/>';
+        svg += '<line x1="' + e[0][0] + '" y1="' + e[0][1] + '" x2="' + e[1][0] + '" y2="' + e[1][1] + '" stroke="#475569" stroke-width="1.6" stroke-linecap="round"/>';
       }
       // 中央マーク(公式: ●=得点(自責), ○=得点(非自責), ℓ=残塁)
       if (cell.scored) {
         svg += cell.scoredUnearned
-          ? '<circle cx="' + m + '" cy="' + m + '" r="4.5" fill="none" stroke="#dc2626" stroke-width="1.5"/>'
-          : '<circle cx="' + m + '" cy="' + m + '" r="4.5" fill="#dc2626"/>';
+          ? '<circle cx="' + m + '" cy="' + m + '" r="4.2" fill="none" stroke="#dc2626" stroke-width="1.4"/>'
+          : '<circle cx="' + m + '" cy="' + m + '" r="4.2" fill="#dc2626"/>';
       } else if (cell.strandedRunner) {
-        svg += '<text x="' + m + '" y="' + (m + 5) + '" text-anchor="middle" font-size="15" font-style="italic" font-family="Georgia,serif" fill="#334155">ℓ</text>';
+        svg += '<text x="' + m + '" y="' + (m + 5) + '" text-anchor="middle" font-size="14" font-style="italic" font-family="Georgia,serif" fill="#334155">ℓ</text>';
       }
       // 打者アウトのローマ数字
-      if (cell.outOrderInInning) svg += '<text x="' + m + '" y="' + (m + 5) + '" text-anchor="middle" font-size="14" font-weight="bold" fill="#334155">' + (OUT_ROMAN[cell.outOrderInInning] || cell.outOrderInInning) + '</text>';
+      if (cell.outOrderInInning) svg += '<text x="' + m + '" y="' + (m + 5) + '" text-anchor="middle" font-size="13" font-weight="bold" fill="#334155">' + (OUT_ROMAN[cell.outOrderInInning] || cell.outOrderInInning) + '</text>';
       // 走塁死: 到達塁の1つ先の辺に赤斜線＋その塁にローマ数字
       if (cell.outOnBasesOrderInInning) {
         var ob = Math.min(reached + 1, 4);
         var oe = legEnd[ob];
         var mx = (oe[0][0] + oe[1][0]) / 2, my = (oe[0][1] + oe[1][1]) / 2;
-        svg += '<line x1="' + (mx - 5) + '" y1="' + (my - 5) + '" x2="' + (mx + 5) + '" y2="' + (my + 5) + '" stroke="#dc2626" stroke-width="2"/>';
+        svg += '<line x1="' + (mx - 4) + '" y1="' + (my - 4) + '" x2="' + (mx + 4) + '" y2="' + (my + 4) + '" stroke="#dc2626" stroke-width="1.8"/>';
         var ov = P[ob === 4 ? 0 : ob];
-        svg += '<text x="' + ov[0] + '" y="' + (ov[1] + 4) + '" text-anchor="middle" font-size="11" font-weight="bold" fill="#dc2626">' + (OUT_ROMAN[cell.outOnBasesOrderInInning] || cell.outOnBasesOrderInInning) + '</text>';
+        svg += '<text x="' + ov[0] + '" y="' + (ov[1] + 4) + '" text-anchor="middle" font-size="10" font-weight="bold" fill="#dc2626">' + (OUT_ROMAN[cell.outOnBasesOrderInInning] || cell.outOnBasesOrderInInning) + '</text>';
       }
       svg += '</svg>';
       return svg;
@@ -218,7 +213,7 @@
 
     var legend = '<div class="sb-legend">'
       + '<span>投球(上→下): <b>●</b>ボール <b>◎</b>見逃し <b>○</b>空振り <b>－</b>ファウル</span>'
-      + '<span>ダイヤ: 到達塁まで辺を描き最終到達塁に黄三角 / 中央 ●=得点(自責) ○=得点(非自責) ℓ=残塁 / Ⅰ Ⅱ Ⅲ=イニング内アウト順 / 赤斜線=走塁死</span>'
+      + '<span>ダイヤ: 中央 ●=得点(自責) ○=得点(非自責) ℓ=残塁 / Ⅰ Ⅱ Ⅲ=イニング内アウト順 / 赤斜線=走塁死 / 隅の数字(n)=n番打者の打席で進塁 [n]=生還</span>'
       + '<span>結果: K見逃し三振 Ks空振り三振 5-3等=ゴロ守備経路 数字にアーチ=飛球 Ef捕球失 Et送球失 Fc野選 B四球 S盗塁 WP暴投 PB捕逸 / 隅数字(n)=進塁 [n]=生還した打順</span>'
       + '</div>';
 
