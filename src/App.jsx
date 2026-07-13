@@ -8,6 +8,7 @@ import * as storage from './storage.js';
 import { asPlayerObj, findDuplicateNameIndices, mergeRosterPlayers, renamePlayersInGame, detectLineupRenames } from './teamUtils.js';
 import { renumberPitchNumbers, reassignPitchBatter } from './gameUtils.js';
 import { isScorerGdf, convertScorerGame } from './scorerImport.js';
+import { buildScorebookData } from './scorebookData.js';
 
     function App() {
       const makeInitialGameState = () => ({ inning: 1, isTop: true, outs: 0, balls: 0, strikes: 0, batterTop: 1, batterBottom: 1, runners: { first: false, second: false, third: false }, runs: { top: [0,0,0,0,0,0,0,0,0], bottom: [0,0,0,0,0,0,0,0,0] } });
@@ -828,6 +829,12 @@ import { isScorerGdf, convertScorerGame } from './scorerImport.js';
           hitsAndErrors,
           playByPlay: playByPlayData,
         });
+        if (!ok) showToast('ポップアップをブロックしていると印刷できません', 'error');
+      };
+
+      const handleScorebookPrint = () => {
+        const scorebook = buildScorebookData(pitches, lineups, gameInfo, gameState);
+        const ok = window.generateScorebookReport({ scorebook, gameInfo, gameState });
         if (!ok) showToast('ポップアップをブロックしていると印刷できません', 'error');
       };
 
@@ -2459,6 +2466,7 @@ import { isScorerGdf, convertScorerGame } from './scorerImport.js';
                 <div className="p-6 space-y-3">
                   <button onClick={() => { copyShareText(); setShowExport(false); }} className="w-full bg-blue-600 text-white py-3.5 rounded-xl font-black shadow-md active:scale-95 flex items-center justify-center gap-2">📋 試合結果をコピー (LINE用)</button>
                   <button onClick={() => { copyForAI(); setShowExport(false); }} className="w-full bg-indigo-600 text-white py-3.5 rounded-xl font-black shadow-md active:scale-95 flex items-center justify-center gap-2">🤖 AI分析用データをコピー</button>
+                  <button onClick={() => { handleScorebookPrint(); setShowExport(false); }} className="w-full bg-amber-600 text-white py-3.5 rounded-xl font-black shadow-md active:scale-95 flex items-center justify-center gap-2">📖 スコアブックPDF</button>
                   <button onClick={() => { exportCSV(); setShowExport(false); }} className="w-full bg-emerald-600 text-white py-3 rounded-xl font-bold shadow-md active:scale-95 flex items-center justify-center gap-2">📊 CSV ダウンロード</button>
                   <button onClick={() => { exportData(); setShowExport(false); }} className="w-full bg-slate-700 text-white py-3 rounded-xl font-bold shadow-md active:scale-95 flex items-center justify-center gap-2">💾 JSON バックアップ</button>
                   <div className="pt-3 border-t border-slate-200">

@@ -1,0 +1,340 @@
+// ============================================================
+// スコアブック(伝統的な野球記録用紙)PDF出力のためのデータ変換。
+// pitches配列を playByPlay.js と同じ走者シミュレーションで解析し、
+// 「打順×イニング」のマス目(ダイヤモンド1つ=1打席)へ変換する。
+//
+// 各マス目(Cell)は「その打席の結果」だけでなく、その打席で出塁した
+// 走者がイニング終了までにどう進塁/生還/アウトになったかも保持する
+// (盗塁・暴投・捕逸・ボーク・牽制死などは元の打席のマス目に追記する、
+// 実際のスコアブックの書き方に合わせるため)。
+// ============================================================
+
+import { buildPlayByPlayReport, parseFieldResult } from './playByPlay.js';
+
+const POS_NUM = {
+  'ピッチャー': 1, 'キャッチャー': 2, 'ファースト': 3, 'セカンド': 4, 'サード': 5,
+  'ショート': 6, 'レフト': 7, 'センター': 8, 'ライト': 9,
+};
+
+// RBIを記録しない結果(エラーで出塁した打席は打点なし)
+const RBI_ELIGIBLE = new Set(['single', 'double', 'triple', 'homerun', 'walk', 'other', 'sac_bunt', 'sac_fly']);
+
+function fielderNum(fielderName) { return POS_NUM[fielderName] || null; }
+
+// 最終結果の表記(守備位置番号ベース)。二塁送球等の詳細な補殺連鎖は
+// データに存在しないため、一般的な想定(内野ゴロ→一塁送球)で近似する。
+function resultNotation(pf, finalLabel, flight) {
+  if (!pf) {
+    if (['三振', 'スリーバント失敗'].includes(finalLabel)) return 'K';
+    if (finalLabel === '振り逃げアウト') return 'K'; // 振り逃げを試みたがアウト
+    if (finalLabel === '振り逃げ') return '振逃'; // 第3ストライク後に出塁(アウトではない)
+    if (finalLabel === '四球') return 'BB';
+    if (finalLabel === '死球') return 'HBP';
+    if (finalLabel === 'その他出塁') return '打妨';
+    return finalLabel || '';
+  }
+  const n = fielderNum(pf.fielder);
+  const num = n ?? '?';
+  switch (pf.suffix) {
+    case '安': case '二塁打': case '三塁打': case '本塁打': return `${num}`;
+    case 'ゴロ': return n === 3 ? '3' : `${num}-3`;
+    case '飛': return `${num}`;
+    case '併殺打': return n === 3 ? '3-6-3' : `${num}-3`;
+    case '捕球エラー': case '送球エラー': case '落球エラー': return `E${num}`;
+    case '野手選択': return `FC${num}`;
+    case '犠打': return n === 3 ? '3' : `${num}-3`;
+    case '犠飛': return `${num}`;
+    case '安+エラー': case '二塁打+エラー': case '三塁打+エラー': return `${num}+E`;
+    default: return `${num}`;
+  }
+}
+
+// 投球1球ぶんのマーク種別
+function pitchMarkType(result) {
+  if (result.startsWith('牽制')) return 'pickoff';
+  if (['ボール', 'ウエスト'].includes(result)) return 'ball';
+  if (result === 'ストライク') return 'looking';
+  if (['空振り', 'バント空振り'].includes(result)) return 'swing';
+  if (['ファウル', 'バントファウル'].includes(result)) return 'foul';
+  if (result === '死球') return 'hbp';
+  return 'other';
+}
+
+// 本塁打/二塁打/三塁打/併殺打などのフライ・ライナー・ゴロ区別(playByPlay.js内の
+// getBallFlightと同一ロジック。モジュール間の独立性を保つため意図的に重複させる)
+function ballFlight(res) {
+  if (!res) return null;
+  if (res.includes('本塁打')) return 'hr';
+  if (['ゴロ', '併殺打', 'バント'].some((w) => res.includes(w))) return 'grounder';
+  if (['直', 'ライナー', '安', '二塁打', '三塁打'].some((w) => res.includes(w))) return 'liner';
+  return 'fly';
+}
+
+function newCell(play) {
+  const pf = parseFieldResult(play.finalLabel);
+  return {
+    key: play.key,
+    inning: play.inning,
+    isTop: play.isTop,
+    battingSlot: play.batter,
+    batterName: play.batterName,
+    batterPos: play.batterPos,
+    pitcherName: play.pitcherName,
+    finalLabel: play.finalLabel,
+    eventType: play.eventType,
+    resultNotation: resultNotation(pf, play.finalLabel, play.flight),
+    flight: play.flight || ballFlight(play.finalLabel),
+    fielder: pf ? pf.fielder : null,
+    isBatterOut: play.isOut,
+    isHit: play.isHit,
+    isBB: play.isBB,
+    isError: play.isError,
+    pitchMarks: play.pitchRows
+      .filter((r) => !r.isEvent)
+      .map((r) => ({ type: pitchMarkType(r.label), label: r.label })),
+    outOrderInInning: null,
+    outOnBasesOrderInInning: null,
+    outOnBasesReason: null,
+    basesReachedInitial: 0,
+    basesReachedFinal: 0,
+    advancementNotes: [],
+    rbi: 0,
+    scored: false,
+    hitX: play.hitX,
+    hitY: play.hitY,
+    hasHitLocation: play.hasHitLocation,
+  };
+}
+
+// 打席結果による自動進塁(App.jsxのadvanceGameStateと同一ルール)。
+// 走者を表すのは実際の走者名ではなく「元の打席セル」への参照そのもの。
+// 進塁・生還のたびに参照先セルのbasesReachedFinal/scoredを直接更新する。
+function applyAutoMovement(bases, eventType, batterCell) {
+  const b = { ...bases };
+  const scoredCells = [];
+  const setBase = (n, cell) => { b[n] = cell; if (cell) cell.basesReachedFinal = n; };
+  const score = (cell) => { if (cell) { cell.basesReachedFinal = 4; cell.scored = true; scoredCells.push(cell); } };
+
+  if (eventType === 'walk' || eventType === 'other') {
+    if (b[1] && b[2] && b[3]) { score(b[3]); setBase(3, b[2]); setBase(2, b[1]); }
+    else if (b[1] && b[2]) { setBase(3, b[2]); setBase(2, b[1]); }
+    else if (b[1]) { setBase(2, b[1]); }
+    setBase(1, batterCell);
+  } else if (eventType === 'single' || eventType === 'error') {
+    if (b[3]) score(b[3]);
+    setBase(3, b[2]); setBase(2, b[1]); setBase(1, batterCell);
+  } else if (eventType === 'double') {
+    if (b[3]) score(b[3]);
+    if (b[2]) score(b[2]);
+    setBase(3, b[1]); setBase(2, batterCell); setBase(1, null);
+  } else if (eventType === 'triple') {
+    if (b[3]) score(b[3]);
+    if (b[2]) score(b[2]);
+    if (b[1]) score(b[1]);
+    setBase(3, batterCell); setBase(2, null); setBase(1, null);
+  } else if (eventType === 'homerun') {
+    if (b[3]) score(b[3]);
+    if (b[2]) score(b[2]);
+    if (b[1]) score(b[1]);
+    score(batterCell);
+    setBase(1, null); setBase(2, null); setBase(3, null);
+  } else if (eventType === 'sac_bunt') {
+    if (b[3]) score(b[3]);
+    setBase(3, b[2]); setBase(2, b[1]); setBase(1, null);
+  } else if (eventType === 'sac_fly') {
+    if (b[3]) score(b[3]);
+    setBase(3, null);
+  }
+  return { bases: b, scoredCells };
+}
+
+// イベント行(盗塁/暴投/捕逸/ボーク/牽制死/代走など)を処理し、
+// その走者の「元の打席セル」を更新する。App.jsxのrebuildGameStateFromPitches /
+// playByPlay.jsのapplyRunnerEventNarrativeと同じ文字列パターンで判定する。
+function handleRunnerEvent(bases, text, outCounter) {
+  const runnerKey = text.startsWith('1塁走者') ? 1 : text.startsWith('2塁走者') ? 2 : text.startsWith('3塁走者') ? 3 : null;
+  if (!runnerKey) return;
+  const origin = bases[runnerKey];
+  if (text.includes('が')) {
+    const reason = (text.split('が')[1] || '').replace(/。$/, '');
+    if (origin) {
+      outCounter.n++;
+      origin.outOnBasesOrderInInning = outCounter.n;
+      origin.outOnBasesReason = reason;
+      origin.advancementNotes.push({ text: reason, isOut: true });
+    }
+    bases[runnerKey] = null;
+    return;
+  }
+  if (text.includes('に代走')) {
+    if (origin) origin.advancementNotes.push({ text: '代走', isOut: false });
+    return;
+  }
+  const dest = text.match(/で(2塁|3塁|本塁)へ/);
+  if (dest) {
+    // GDF取込時の「元の打球で自動進塁より先の塁まで進んだ」補正には具体的な理由がないため
+    // scorerImport.js側でデフォルト理由「その他」を使っている。スコアブック表示では
+    // その場合を「進塁」という読みやすい表記に置き換える。
+    const rawReason = (text.split(' ')[1] || '').split('で')[0];
+    const reason = rawReason === 'その他' ? '進塁' : rawReason;
+    if (dest[1] === '2塁') { if (origin) { origin.basesReachedFinal = 2; origin.advancementNotes.push({ text: `${reason}→2塁`, isOut: false }); } bases[2] = origin; bases[runnerKey] = null; }
+    else if (dest[1] === '3塁') { if (origin) { origin.basesReachedFinal = 3; origin.advancementNotes.push({ text: `${reason}→3塁`, isOut: false }); } bases[3] = origin; bases[runnerKey] = null; }
+    else { if (origin) { origin.basesReachedFinal = 4; origin.scored = true; origin.advancementNotes.push({ text: `${reason}→生還`, isOut: false }); } bases[runnerKey] = null; }
+    return;
+  }
+  const reason = text.split(' ')[1] || '';
+  if (origin && reason) origin.advancementNotes.push({ text: reason, isOut: false });
+}
+
+function emptyPlayerTotal(name, pos, bats) {
+  return { name, pos, bats, PA: 0, AB: 0, R: 0, H: 0, H2: 0, H3: 0, HR: 0, RBI: 0, BB: 0, HBP: 0, K: 0, SB: 0, SH: 0, SF: 0 };
+}
+
+function accumulatePlayerTotal(totals, cell) {
+  const key = cell.batterName;
+  if (!totals.has(key)) totals.set(key, emptyPlayerTotal(cell.batterName, cell.batterPos, null));
+  const t = totals.get(key);
+  t.PA++;
+  const { eventType, finalLabel } = cell;
+  const isHit = ['single', 'double', 'triple', 'homerun'].includes(eventType);
+  const isWalkLike = finalLabel === '四球';
+  const isHbp = finalLabel === '死球';
+  const isSac = eventType === 'sac_bunt' || eventType === 'sac_fly';
+  if (isHit) { t.H++; if (eventType === 'double') t.H2++; else if (eventType === 'triple') t.H3++; else if (eventType === 'homerun') t.HR++; }
+  if (isWalkLike) t.BB++;
+  else if (isHbp) t.HBP++;
+  else if (finalLabel === 'その他出塁') t.BB++; // 打撃妨害等は四死球列にまとめる
+  else if (eventType === 'sac_bunt') t.SH++;
+  else if (eventType === 'sac_fly') t.SF++;
+  if (['三振', 'スリーバント失敗', '振り逃げアウト', '振り逃げ'].includes(finalLabel)) t.K++;
+  if (!isWalkLike && !isHbp && !isSac && finalLabel !== 'その他出塁') t.AB++;
+  t.RBI += cell.rbi;
+  if (cell.scored) t.R++;
+}
+
+function emptyPitcherStat(name, throws) {
+  return { name, throws, outs: 0, pitches: 0, battersFaced: 0, hits: 0, hr: 0, bb: 0, hbp: 0, k: 0, runs: 0, wildPitches: 0, balks: 0 };
+}
+
+export function buildScorebookData(pitches, lineups, gameInfo, gameState) {
+  const report = buildPlayByPlayReport(pitches);
+  const maxInning = Math.max(gameState?.inning || 1, ...report.map((i) => i.inning), 1);
+
+  const allCells = []; // フラットな全セル一覧(集計・脚注用)
+  const cellsBySlot = { top: Array.from({ length: 9 }, () => ({})), bottom: Array.from({ length: 9 }, () => ({})) };
+  const inningLOB = {}; // `${team}-${inning}` -> 残塁数(半イニング終了時点)
+
+  report.forEach(({ inning, isTop, plays }) => {
+    const team = isTop ? 'top' : 'bottom';
+    let bases = { 1: null, 2: null, 3: null };
+    const outCounter = { n: 0 };
+    plays.forEach((play) => {
+      const cell = newCell(play);
+      allCells.push(cell);
+      const slotArr = cellsBySlot[team][play.batter - 1];
+      if (!slotArr[inning]) slotArr[inning] = [];
+      slotArr[inning].push(cell);
+
+      // pitchRowsはイベント(盗塁/暴投/捕逸/ボーク等)と投球が実際に起きた順に並んでいる。
+      // 最終球(count===null)の時点で打者自身の自動進塁を適用し、それより後に
+      // 続くイベント(例: 自身の安打で3塁へ進んだ走者が続けて生還する等)は
+      // 更新後のbasesを参照して正しく処理できるようにする。
+      let scoredCells = [];
+      play.pitchRows.forEach((row) => {
+        if (row.isEvent) { handleRunnerEvent(bases, row.label || '', outCounter); return; }
+        if (row.count === null) {
+          const moved = applyAutoMovement(bases, play.eventType, cell);
+          bases = moved.bases;
+          scoredCells = moved.scoredCells;
+        }
+      });
+      cell.basesReachedInitial = cell.scored ? 4 : ([1, 2, 3].find((n) => bases[n] === cell) || 0);
+      if (play.isOut) { outCounter.n++; cell.outOrderInInning = outCounter.n; }
+      if (RBI_ELIGIBLE.has(play.eventType)) cell.rbi = scoredCells.length;
+    });
+    inningLOB[`${team}-${inning}`] = [1, 2, 3].filter((n) => bases[n]).length;
+  });
+
+  const buildTeam = (team, teamName) => {
+    const runsArr = (gameState?.runs?.[team]) || [];
+    const slots = cellsBySlot[team].map((cellsByInning, idx) => {
+      const order = idx + 1;
+      // このスロットに登場した打者を時系列順に重複なく抽出(代打/代走を含む選手交代の履歴)
+      const occupants = [];
+      Object.keys(cellsByInning).map(Number).sort((a, b) => a - b).forEach((inn) => {
+        cellsByInning[inn].forEach((c) => {
+          const last = occupants[occupants.length - 1];
+          if (!last || last.name !== c.batterName) occupants.push({ name: c.batterName, pos: c.batterPos, fromInning: inn });
+        });
+      });
+      return { order, occupants, cellsByInning };
+    });
+
+    const inningSummary = [];
+    for (let inn = 1; inn <= maxInning; inn++) {
+      const cellsThisInning = allCells.filter((c) => c.isTop === (team === 'top') && c.inning === inn);
+      const H = cellsThisInning.filter((c) => ['single', 'double', 'triple', 'homerun'].includes(c.eventType)).length;
+      const BB = cellsThisInning.filter((c) => c.finalLabel === '四球' || c.finalLabel === 'その他出塁').length;
+      const K = cellsThisInning.filter((c) => ['三振', 'スリーバント失敗', '振り逃げアウト', '振り逃げ'].includes(c.finalLabel)).length;
+      const E = cellsThisInning.filter((c) => ['捕球エラー', '送球エラー', '落球エラー'].includes(c.finalLabel)).length;
+      const pitchCount = pitches.filter((p) => !p.isEvent && p.isTop === (team === 'top') && p.inning === inn && !p.result?.startsWith('牽制')).length;
+      inningSummary.push({ inning: inn, H, BB, K, R: Number(runsArr[inn - 1]) || 0, LOB: inningLOB[`${team}-${inn}`] ?? 0, pitchCount, E });
+    }
+
+    const playerTotalsMap = new Map();
+    allCells.filter((c) => c.isTop === (team === 'top')).forEach((c) => accumulatePlayerTotal(playerTotalsMap, c));
+    // 盗塁成功数(元の打席セルのadvancementNotesから「盗塁」を含むものを集計)
+    allCells.filter((c) => c.isTop === (team === 'top')).forEach((c) => {
+      const sbCount = c.advancementNotes.filter((n) => !n.isOut && n.text.startsWith('盗塁')).length;
+      if (sbCount > 0) { const t = playerTotalsMap.get(c.batterName); if (t) t.SB += sbCount; }
+    });
+    const firstAppearanceOrder = [];
+    allCells.filter((c) => c.isTop === (team === 'top')).forEach((c) => { if (!firstAppearanceOrder.includes(c.batterName)) firstAppearanceOrder.push(c.batterName); });
+    const playerTotals = firstAppearanceOrder.map((n) => playerTotalsMap.get(n)).filter(Boolean);
+
+    // 投手成績: 相手チームが打者として記録したpitches(=このチームが投げた球)から集計
+    const oppIsTop = team !== 'top';
+    const pitcherMap = new Map();
+    const pitcherOrder = [];
+    pitches.filter((p) => p.isTop === oppIsTop && !p.isEvent && !p.result?.startsWith('牽制')).forEach((p) => {
+      const name = p.pitcherName || '不明';
+      if (!pitcherMap.has(name)) { pitcherMap.set(name, emptyPitcherStat(name, p.pitcherThrows || '右')); pitcherOrder.push(name); }
+      pitcherMap.get(name).pitches++;
+    });
+    allCells.filter((c) => c.isTop === oppIsTop).forEach((c) => {
+      const name = c.pitcherName || '不明';
+      if (!pitcherMap.has(name)) { pitcherMap.set(name, emptyPitcherStat(name, '右')); pitcherOrder.push(name); }
+      const st = pitcherMap.get(name);
+      st.battersFaced++;
+      if (['single', 'double', 'triple', 'homerun'].includes(c.eventType)) st.hits++;
+      if (c.eventType === 'homerun') st.hr++;
+      if (c.finalLabel === '四球') st.bb++;
+      if (c.finalLabel === '死球') st.hbp++;
+      if (['三振', 'スリーバント失敗'].includes(c.finalLabel)) st.k++;
+      if (c.isBatterOut || c.outOrderInInning) st.outs++;
+      if (c.scored) st.runs++;
+      c.advancementNotes.forEach((n) => { if (n.text?.includes('暴投')) st.wildPitches++; if (n.text?.includes('ボーク')) st.balks++; });
+      if (c.outOnBasesReason && c.outOnBasesReason.includes('走塁死')) { /* 走者自身のアウトはbattersFacedに含めない(既にst.outsへ加算済み) */ }
+    });
+    // 走者アウト(盗塁死/牽制死等)は打者としての投手成績には計上しないため、
+    // st.outsは「打者由来のアウト」のみを既に反映している(上のc.isBatterOut判定)
+    const pitcherStats = pitcherOrder.map((n) => pitcherMap.get(n));
+
+    const extraBaseHits = { doubles: [], triples: [], homeruns: [] };
+    allCells.filter((c) => c.isTop === (team === 'top')).forEach((c) => {
+      const label = `${c.batterName}(${c.inning}回)`;
+      if (c.eventType === 'double') extraBaseHits.doubles.push(label);
+      else if (c.eventType === 'triple') extraBaseHits.triples.push(label);
+      else if (c.eventType === 'homerun') extraBaseHits.homeruns.push(label);
+    });
+
+    return { teamName, slots, inningSummary, playerTotals, pitcherStats, extraBaseHits };
+  };
+
+  return {
+    gameInfo,
+    maxInning,
+    top: buildTeam('top', gameInfo?.teamTop || '先攻チーム'),
+    bottom: buildTeam('bottom', gameInfo?.teamBottom || '後攻チーム'),
+  };
+}
