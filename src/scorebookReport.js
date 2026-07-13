@@ -1,6 +1,7 @@
-// 伝統的なスコアブック様式のPDF(印刷用HTML)生成。
+// スコアラー(GDF)様式に忠実な伝統的スコアブックのPDF(印刷用HTML)生成。
 // App からは window.generateScorebookReport({ scorebook, gameInfo, gameState }) で呼ばれる。
 // scorebook は src/scorebookData.js の buildScorebookData(...) の戻り値。
+// 記譜法の解読メモは docs/scorer-notation.md 参照。
   try {
   window.generateScorebookReport = function(data) {
     var w = window.open('', '_blank');
@@ -8,60 +9,116 @@
     var sb = data.scorebook, gi = data.gameInfo, gs = data.gameState;
     function esc(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
-    var PITCH_GLYPH = { ball: '○', looking: '●', swing: '✕', foul: 'F', hbp: 'HB', pickoff: '牽', other: '·' };
-    var PITCH_COLOR = { ball: '#16a34a', looking: '#1e293b', swing: '#dc2626', foul: '#d97706', hbp: '#7c3aed', pickoff: '#0ea5e9', other: '#94a3b8' };
     var OUT_ROMAN = { 1: 'Ⅰ', 2: 'Ⅱ', 3: 'Ⅲ' };
 
-    function pitchMarksHtml(marks) {
-      if (!marks || !marks.length) return '';
-      var h = '<div class="sb-marks">';
-      marks.forEach(function (m) {
-        var label = m.type === 'pickoff' ? '牽' + (m.label.match(/\((.)/) ? m.label.match(/\((.)/)[1] : '') : PITCH_GLYPH[m.type] || '·';
-        h += '<span style="color:' + (PITCH_COLOR[m.type] || '#94a3b8') + ';" title="' + esc(m.label) + '">' + esc(label) + '</span>';
-      });
-      h += '</div>';
+    // 投球1球のマーク(スコアラー様式: ●=ボール, ◎=見逃し, ○=空振り, ⦸=ファウル)。
+    // 牽制(pickoff)・イベントは投球列に出さない。
+    function pitchMarkSvg(type) {
+      var r = 3.4, cx = 5, cy = 5, sz = 10;
+      var body;
+      if (type === 'ball') body = '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="#1e293b"/>';
+      else if (type === 'looking') body = '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="#1e293b" stroke-width="1"/><circle cx="' + cx + '" cy="' + cy + '" r="1.4" fill="#1e293b"/>';
+      else if (type === 'foul') body = '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="#1e293b" stroke-width="1"/><line x1="2.5" y1="7.5" x2="7.5" y2="2.5" stroke="#1e293b" stroke-width="0.8"/>';
+      else if (type === 'hbp') body = '<text x="' + cx + '" y="7.5" text-anchor="middle" font-size="7" fill="#7c3aed">死</text>';
+      else body = '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="#1e293b" stroke-width="1"/>'; // swing/other = 白丸
+      return '<svg width="' + sz + '" height="' + sz + '" viewBox="0 0 ' + sz + ' ' + sz + '" style="display:block;">' + body + '</svg>';
+    }
+    function pitchColumnHtml(marks) {
+      var list = (marks || []).filter(function (m) { return m.type !== 'pickoff'; });
+      if (!list.length) return '<div class="sb-pit"></div>';
+      return '<div class="sb-pit">' + list.map(function (m) { return pitchMarkSvg(m.type); }).join('') + '</div>';
+    }
+
+    // ダイヤモンド。四隅=塁(下:本, 右:一, 上:二, 左:三)。
+    // 到達した塁まで辺を描き、最終到達塁に黄三角、生還は中央●、残塁は中央○、
+    // 打者アウトはローマ数字、走塁死は赤斜線で表す。
+    function diamondSvg(cell) {
+      var s = 46, m = 23;
+      var P = { 0: [m, s - 2], 1: [s - 2, m], 2: [m, 2], 3: [2, m], 4: [m, s - 2] }; // 0/4=home,1,2,3
+      var legEnd = [null, [P[0], P[1]], [P[1], P[2]], [P[2], P[3]], [P[3], P[0]]];
+      var svg = '<svg width="' + s + '" height="' + s + '" viewBox="0 0 ' + s + ' ' + s + '">';
+      // 外枠ダイヤ(薄いグレー)
+      svg += '<polygon points="' + [P[0], P[1], P[2], P[3]].map(function (p) { return p[0] + ',' + p[1]; }).join(' ') + '" fill="none" stroke="#cbd5e1" stroke-width="1"/>';
+
+      var reached = cell.scored ? 4 : (cell.basesReachedFinal || 0);
+      var color = cell.isError ? '#d97706' : (cell.isHit ? '#1d4ed8' : '#334155');
+      // 到達した各辺を実線で描く
+      for (var b = 1; b <= reached && b <= 4; b++) {
+        var e = legEnd[b];
+        svg += '<line x1="' + e[0][0] + '" y1="' + e[0][1] + '" x2="' + e[1][0] + '" y2="' + e[1][1] + '" stroke="' + color + '" stroke-width="2.4" stroke-linecap="round"/>';
+      }
+      // 最終到達塁の黄三角(生還時は中央●を出すので付けない)
+      if (reached >= 1 && reached <= 3) {
+        var v = P[reached];
+        var inner = [m + (v[0] - m) * 0.42, m + (v[1] - m) * 0.42];
+        var perp = [-(v[1] - m), (v[0] - m)];
+        var pl = Math.sqrt(perp[0] * perp[0] + perp[1] * perp[1]) || 1;
+        var uw = 5;
+        var a = [inner[0] + perp[0] / pl * uw, inner[1] + perp[1] / pl * uw];
+        var c = [inner[0] - perp[0] / pl * uw, inner[1] - perp[1] / pl * uw];
+        svg += '<polygon points="' + v[0] + ',' + v[1] + ' ' + a[0] + ',' + a[1] + ' ' + c[0] + ',' + c[1] + '" fill="#fbbf24"/>';
+      }
+      // 中央マーク
+      if (cell.scored) svg += '<circle cx="' + m + '" cy="' + m + '" r="4.5" fill="#dc2626"/>';
+      else if (reached >= 1 && reached <= 3) svg += '<circle cx="' + m + '" cy="' + m + '" r="4.5" fill="none" stroke="#334155" stroke-width="1.3"/>';
+      // 打者アウトのローマ数字
+      if (cell.outOrderInInning) svg += '<text x="' + m + '" y="' + (m + 5) + '" text-anchor="middle" font-size="14" font-weight="bold" fill="#334155">' + (OUT_ROMAN[cell.outOrderInInning] || cell.outOrderInInning) + '</text>';
+      // 走塁死: 到達塁の1つ先の辺に赤斜線＋その塁にローマ数字
+      if (cell.outOnBasesOrderInInning) {
+        var ob = Math.min(reached + 1, 4);
+        var oe = legEnd[ob];
+        var mx = (oe[0][0] + oe[1][0]) / 2, my = (oe[0][1] + oe[1][1]) / 2;
+        svg += '<line x1="' + (mx - 5) + '" y1="' + (my - 5) + '" x2="' + (mx + 5) + '" y2="' + (my + 5) + '" stroke="#dc2626" stroke-width="2"/>';
+        var ov = P[ob === 4 ? 0 : ob];
+        svg += '<text x="' + ov[0] + '" y="' + (ov[1] + 4) + '" text-anchor="middle" font-size="11" font-weight="bold" fill="#dc2626">' + (OUT_ROMAN[cell.outOnBasesOrderInInning] || cell.outOnBasesOrderInInning) + '</text>';
+      }
+      svg += '</svg>';
+      return svg;
+    }
+
+    // 4隅の塁ラベル。塁→セル隅の対応(スコアラー様式):
+    //   一塁=右下, 二塁=右上, 三塁=左上, 本塁=左下。
+    // 各塁には「何番打者の打席で進んだか」の数字を (n)=進塁 / [n]=生還 で表示。
+    // 一塁隅には打者自身の到達理由(B=四球, 死=死球)を置く。
+    function cornerLabelsHtml(cell) {
+      var rb = cell.reachedBy || {};
+      var corner = { tl: '', tr: '', bl: '', br: '' };
+      if (rb[3]) corner.tl = '(' + rb[3] + ')';       // 三塁=左上
+      if (rb[2]) corner.tr = '(' + rb[2] + ')';       // 二塁=右上
+      if (rb[4]) corner.bl = '[' + rb[4] + ']';       // 本塁(生還)=左下
+      // 一塁=右下: 打者自身の到達理由
+      if (cell.finalLabel === '四球') corner.br = 'B';
+      else if (cell.finalLabel === '死球') corner.br = '死';
+      else if (cell.finalLabel === 'その他出塁') corner.br = 'DIB';
+      var h = '';
+      if (corner.tl) h += '<span class="sb-c sb-c-tl">' + esc(corner.tl) + '</span>';
+      if (corner.tr) h += '<span class="sb-c sb-c-tr">' + esc(corner.tr) + '</span>';
+      if (corner.bl) h += '<span class="sb-c sb-c-bl">' + esc(corner.bl) + '</span>';
+      if (corner.br) h += '<span class="sb-c sb-c-br">' + esc(corner.br) + '</span>';
       return h;
     }
 
-    // ダイヤモンド: home(下)→1塁(右)→2塁(上)→3塁(左)→home。
-    // basesReachedInitialまでの区間は実線(その打席自身の進塁)、
-    // それ以降basesReachedFinalまでは破線(盗塁・暴投・捕逸・失策等による後続の進塁)で描く。
-    function diamondSvg(cell) {
-      var s = 34;
-      var home = [s / 2, s - 2], first = [s - 2, s / 2], second = [s / 2, 2], third = [2, s / 2];
-      var edges = [[home, first], [first, second], [second, third], [third, home]];
-      var outline = '<polygon points="' + [home, first, second, third].map(function (p) { return p[0] + ',' + p[1]; }).join(' ') + '" fill="none" stroke="#cbd5e1" stroke-width="1"/>';
-      var segs = '';
-      var initial = cell.basesReachedInitial || 0, final = cell.basesReachedFinal || 0;
-      var color = cell.eventType === 'error' ? '#d97706' : '#2563eb';
-      for (var leg = 1; leg <= 4 && leg <= final; leg++) {
-        var e = edges[leg - 1], solid = leg <= initial;
-        segs += '<line x1="' + e[0][0] + '" y1="' + e[0][1] + '" x2="' + e[1][0] + '" y2="' + e[1][1] + '" stroke="' + color + '" stroke-width="2.5"' + (solid ? '' : ' stroke-dasharray="3,2"') + ' stroke-linecap="round"/>';
+    // 守備結果テキスト(青字)。飛球(fly)は番号にアーチを付ける。
+    function resultTextHtml(cell) {
+      var t = cell.resultNotation || '';
+      if (!t) return '';
+      var cls = 'sb-res';
+      if (cell.resultKind === 'fly' || cell.resultKind === 'sacfly') {
+        return '<div class="' + cls + '"><span class="sb-arch">' + esc(t) + '</span></div>';
       }
-      var scoredDot = final === 4 ? '<circle cx="' + home[0] + '" cy="' + home[1] + '" r="2.6" fill="#dc2626"/>' : '';
-      var outVertex = [null, first, second, third, home];
-      var outMark = '';
-      if (cell.outOnBasesOrderInInning) {
-        var v = outVertex[final] || first;
-        outMark = '<line x1="' + (v[0] - 3) + '" y1="' + (v[1] - 3) + '" x2="' + (v[0] + 3) + '" y2="' + (v[1] + 3) + '" stroke="#dc2626" stroke-width="1.6"/>'
-          + '<line x1="' + (v[0] - 3) + '" y1="' + (v[1] + 3) + '" x2="' + (v[0] + 3) + '" y2="' + (v[1] - 3) + '" stroke="#dc2626" stroke-width="1.6"/>';
-      }
-      return '<svg width="' + s + '" height="' + s + '" viewBox="0 0 ' + s + ' ' + s + '">' + outline + segs + scoredDot + outMark + '</svg>';
+      if (cell.resultKind === 'k_look') return '<div class="' + cls + ' sb-res-k">Ｋ</div>'; // 見逃しは逆K相当(簡易)
+      return '<div class="' + cls + '">' + esc(t) + '</div>';
     }
 
     function cellBoxHtml(cell) {
-      var h = '<div class="sb-box">';
-      h += pitchMarksHtml(cell.pitchMarks);
-      h += '<div class="sb-diamond-wrap">' + diamondSvg(cell);
-      if (cell.outOrderInInning) h += '<div class="sb-outorder">' + (OUT_ROMAN[cell.outOrderInInning] || cell.outOrderInInning) + '</div>';
-      if (cell.rbi > 0) h += '<div class="sb-rbi">' + '●'.repeat(Math.min(cell.rbi, 4)) + '</div>';
-      h += '</div>';
-      h += '<div class="sb-result">' + esc(cell.resultNotation || '') + '</div>';
-      var notes = (cell.advancementNotes || []).map(function (n) { return n.text; }).filter(Boolean);
-      if (cell.outOnBasesReason) notes.push(cell.outOnBasesReason);
-      if (notes.length) h += '<div class="sb-notes">' + esc(notes.join(' / ')) + '</div>';
-      h += '</div>';
-      return h;
+      return '<div class="sb-box">'
+        + pitchColumnHtml(cell.pitchMarks)
+        + '<div class="sb-play">'
+        + cornerLabelsHtml(cell)
+        + '<div class="sb-dia">' + diamondSvg(cell) + '</div>'
+        + resultTextHtml(cell)
+        + '</div>'
+        + '</div>';
     }
 
     function inningTd(cellsArr) {
@@ -76,12 +133,8 @@
       for (var i = 1; i <= n; i++) h += '<th>' + i + '</th>';
       h += '<th>R</th><th>H</th><th>E</th></tr></thead><tbody>';
       function row(teamName, runsArr, team) {
-        var r = 0, hSum = 0, eSum = 0;
-        var cells = '';
-        for (var i = 1; i <= n; i++) {
-          var v = Number(runsArr[i - 1]) || 0; r += v;
-          cells += '<td>' + (i <= n ? v : '') + '</td>';
-        }
+        var r = 0, hSum = 0, eSum = 0, cells = '';
+        for (var i = 1; i <= n; i++) { var v = Number(runsArr[i - 1]) || 0; r += v; cells += '<td>' + v + '</td>'; }
         sb[team].inningSummary.forEach(function (s) { hSum += s.H; eSum += s.E; });
         return '<tr><td class="sb-ls-team">' + esc(teamName) + '</td>' + cells + '<td class="sb-ls-total">' + r + '</td><td class="sb-ls-total">' + hSum + '</td><td class="sb-ls-total">' + eSum + '</td></tr>';
       }
@@ -90,12 +143,11 @@
       return h;
     }
 
-    function teamGrid(team, teamName, accent) {
+    function teamGrid(team, teamName, headBg) {
       var n = sb.maxInning;
       var head = '<tr><th class="sb-hd-narrow">打順</th><th class="sb-hd-name">名前</th><th class="sb-hd-narrow">守備</th>';
       for (var i = 1; i <= n; i++) head += '<th>' + i + '</th>';
       head += '</tr>';
-
       var rows = team.slots.map(function (slot) {
         var names = slot.occupants.length ? slot.occupants.map(function (o) { return esc(o.name); }).join('<br>') : '<span class="sb-empty">-</span>';
         var poss = slot.occupants.map(function (o) { return esc(o.pos || ''); }).join('<br>');
@@ -103,132 +155,97 @@
         for (var i = 1; i <= n; i++) tds += inningTd(slot.cellsByInning[i]);
         return '<tr><td class="sb-hd-narrow">' + slot.order + '</td><td class="sb-hd-name">' + names + '</td><td class="sb-hd-narrow">' + poss + '</td>' + tds + '</tr>';
       }).join('');
-
-      function sumRow(label, key) {
-        var cells = '';
-        for (var i = 1; i <= n; i++) { var s = team.inningSummary[i - 1]; cells += '<td>' + (s ? s[key] : '') + '</td>'; }
-        return '<tr class="sb-sum-row"><td colspan="3" class="sb-sum-label">' + label + '</td>' + cells + '</tr>';
-      }
-      var foot = sumRow('安打|四球|三振', 'H') // 3値を1セルにまとめて描画するため下でカスタム処理
-        ;
-      // 安打/四球/三振、得点/残塁、投球数/失策を1セルに2〜3行でまとめる
       function multiRow(label, keys) {
         var cells = '';
-        for (var i = 1; i <= n; i++) {
-          var s = team.inningSummary[i - 1];
-          cells += '<td>' + (s ? keys.map(function (k) { return s[k]; }).join('|') : '') + '</td>';
-        }
+        for (var i = 1; i <= n; i++) { var s = team.inningSummary[i - 1]; cells += '<td>' + (s ? keys.map(function (k) { return s[k]; }).join('|') : '') + '</td>'; }
         return '<tr class="sb-sum-row"><td colspan="3" class="sb-sum-label">' + label + '</td>' + cells + '</tr>';
       }
-      foot = multiRow('安打|四球|三振', ['H', 'BB', 'K'])
-        + multiRow('得点|残塁', ['R', 'LOB'])
-        + multiRow('投球数|失策', ['pitchCount', 'E']);
-
-      return '<table class="sb-grid"><thead style="background:' + accent + ';">' + head + '</thead><tbody>' + rows + '</tbody><tfoot>' + foot + '</tfoot></table>';
+      var foot = multiRow('安打|四球|三振', ['H', 'BB', 'K']) + multiRow('得点|残塁', ['R', 'LOB']) + multiRow('投球数|失策', ['pitchCount', 'E']);
+      return '<table class="sb-grid"><thead style="background:' + headBg + ';">' + head + '</thead><tbody>' + rows + '</tbody><tfoot>' + foot + '</tfoot></table>';
     }
 
     function playerTotalsTable(team) {
-      var h = '<table class="sb-totals"><thead><tr><th>選手</th><th>打席</th><th>打数</th><th>得点</th><th>安打</th><th>二塁打</th><th>三塁打</th><th>本塁打</th><th>打点</th><th>四死球</th><th>三振</th><th>盗塁</th><th>犠打</th><th>犠飛</th></tr></thead><tbody>';
+      var h = '<table class="sb-totals"><thead><tr><th>選手</th><th>打席</th><th>打数</th><th>得点</th><th>安打</th><th>二</th><th>三</th><th>本</th><th>打点</th><th>四死</th><th>三振</th><th>盗塁</th><th>犠打</th><th>犠飛</th></tr></thead><tbody>';
       team.playerTotals.forEach(function (p) {
         h += '<tr><td class="sb-tot-name">' + esc(p.name) + '</td><td>' + p.PA + '</td><td>' + p.AB + '</td><td>' + p.R + '</td><td>' + p.H + '</td><td>' + p.H2 + '</td><td>' + p.H3 + '</td><td>' + p.HR + '</td><td>' + p.RBI + '</td><td>' + (p.BB + p.HBP) + '</td><td>' + p.K + '</td><td>' + p.SB + '</td><td>' + p.SH + '</td><td>' + p.SF + '</td></tr>';
       });
       h += '</tbody></table>';
       return h;
     }
-
     function pitcherTable(team) {
       if (!team.pitcherStats.length) return '';
-      var h = '<table class="sb-pitchers"><thead><tr><th>投手</th><th>投打</th><th>回</th><th>球数</th><th>打者</th><th>安打</th><th>本塁打</th><th>四死球</th><th>三振</th><th>失点</th><th>暴投</th><th>ボーク</th></tr></thead><tbody>';
+      var h = '<table class="sb-pitchers"><thead><tr><th>投手</th><th>投打</th><th>回</th><th>球数</th><th>打者</th><th>安打</th><th>本</th><th>四死</th><th>三振</th><th>失点</th><th>暴投</th><th>ボーク</th></tr></thead><tbody>';
       team.pitcherStats.forEach(function (p) {
-        var innPitched = (Math.floor(p.outs / 3) + (p.outs % 3) / 10).toFixed(1);
-        h += '<tr><td class="sb-tot-name">' + esc(p.name) + '</td><td>' + esc(p.throws) + '</td><td>' + innPitched + '</td><td>' + p.pitches + '</td><td>' + p.battersFaced + '</td><td>' + p.hits + '</td><td>' + p.hr + '</td><td>' + (p.bb + p.hbp) + '</td><td>' + p.k + '</td><td>' + p.runs + '</td><td>' + p.wildPitches + '</td><td>' + p.balks + '</td></tr>';
+        var innP = (Math.floor(p.outs / 3) + (p.outs % 3) / 10).toFixed(1);
+        h += '<tr><td class="sb-tot-name">' + esc(p.name) + '</td><td>' + esc(p.throws) + '</td><td>' + innP + '</td><td>' + p.pitches + '</td><td>' + p.battersFaced + '</td><td>' + p.hits + '</td><td>' + p.hr + '</td><td>' + (p.bb + p.hbp) + '</td><td>' + p.k + '</td><td>' + p.runs + '</td><td>' + p.wildPitches + '</td><td>' + p.balks + '</td></tr>';
       });
       h += '</tbody></table>';
       return h;
     }
-
-    function extraBaseHitsFootnote(team) {
+    function extraBaseFootnote(team) {
       var parts = [];
       if (team.extraBaseHits.doubles.length) parts.push('二塁打: ' + team.extraBaseHits.doubles.map(esc).join(', '));
       if (team.extraBaseHits.triples.length) parts.push('三塁打: ' + team.extraBaseHits.triples.map(esc).join(', '));
       if (team.extraBaseHits.homeruns.length) parts.push('本塁打: ' + team.extraBaseHits.homeruns.map(esc).join(', '));
-      if (!parts.length) return '';
-      return '<div class="sb-footnote">' + parts.join(' 　 ') + '</div>';
+      return parts.length ? '<div class="sb-footnote">' + parts.join(' 　 ') + '</div>' : '';
     }
 
-    function teamSection(team, teamName, accent) {
-      var h = '<section class="sb-section">';
-      h += '<h3 class="sb-team-heading" style="color:' + accent + ';">' + esc(teamName) + '</h3>';
-      h += teamGrid(team, teamName, accent === '#1d4ed8' ? '#eff6ff' : '#fef2f2');
-      h += extraBaseHitsFootnote(team);
-      h += playerTotalsTable(team);
-      h += pitcherTable(team);
-      h += '</section>';
-      return h;
+    function teamSection(team, teamName, accent, headBg) {
+      return '<section class="sb-section"><h3 class="sb-team-heading" style="color:' + accent + ';">' + esc(teamName) + '</h3>'
+        + teamGrid(team, teamName, headBg) + extraBaseFootnote(team) + playerTotalsTable(team) + pitcherTable(team) + '</section>';
     }
 
-    var header = '<div class="sb-header">'
-      + '<div class="sb-header-main"><span class="sb-vs">' + esc(gi.teamTop) + ' 対 ' + esc(gi.teamBottom) + '</span>'
-      + '<span class="sb-meta">' + esc(gi.date || '') + (gi.venue ? ' ／ ' + esc(gi.venue) : '') + (gi.tournament ? ' ／ ' + esc(gi.tournament) : '') + '</span></div>'
-      + linescoreTable()
-      + '</div>';
+    var header = '<div class="sb-header"><div class="sb-header-main"><span class="sb-vs">' + esc(gi.teamTop) + ' 対 ' + esc(gi.teamBottom) + '</span>'
+      + '<span class="sb-meta">' + esc(gi.date || '') + (gi.venue ? ' ／ ' + esc(gi.venue) : '') + (gi.tournament ? ' ／ ' + esc(gi.tournament) : '') + '</span></div>' + linescoreTable() + '</div>';
 
-    var legend = '<div class="sb-legend no-print-hide">'
-      + '<span>投球記号: <span style="color:' + PITCH_COLOR.ball + ';">○ボール</span> <span style="color:' + PITCH_COLOR.looking + ';">●見逃し</span> <span style="color:' + PITCH_COLOR.swing + ';">✕空振り</span> <span style="color:' + PITCH_COLOR.foul + ';">Fファウル</span> <span style="color:' + PITCH_COLOR.pickoff + ';">牽制</span></span>'
-      + '<span>ダイヤモンド: 実線=打席自身の進塁 / 破線=盗塁・暴投・捕逸・失策等での進塁 / 赤点=生還 / 赤✕=走塁死 / Ⅰ Ⅱ Ⅲ=イニング内の何アウト目か / ●=打点</span>'
+    var legend = '<div class="sb-legend">'
+      + '<span>投球: <b>●</b>ボール <b>◎</b>見逃し <b>○</b>空振り <b>⦸</b>ファウル（上→下）</span>'
+      + '<span>ダイヤ: 到達塁まで辺を描き最終到達塁に黄三角 / 中央●=生還 ○=残塁 / Ⅰ Ⅱ Ⅲ=イニング内アウト順 / 赤斜線=走塁死</span>'
+      + '<span>結果: Ks空振り三振 Kc見逃し三振 5-3等=ゴロ守備経路 数字にアーチ=飛球 B四球 S盗塁 WP暴投 PB捕逸</span>'
       + '</div>';
 
     var body = '<div class="sb-page">' + header + legend
-      + teamSection(sb.top, gi.teamTop, '#1d4ed8')
-      + teamSection(sb.bottom, gi.teamBottom, '#e11d48')
-      + '</div>';
+      + teamSection(sb.top, gi.teamTop, '#1d4ed8', '#eff6ff')
+      + teamSection(sb.bottom, gi.teamBottom, '#e11d48', '#fef2f2') + '</div>';
 
     var reportFileName = [gi.date, gi.teamTop, 'vs', gi.teamBottom, 'scorebook'].join('_').replace(/[\\\/:*?"<>|]/g, '').replace(/\s+/g, '_');
     var closeBtn = '<div class="no-print" style="position:fixed;top:12px;right:16px;z-index:999;display:flex;gap:8px;">'
       + '<button onclick="window.print()" style="background:#1e293b;color:#fff;border:none;padding:8px 18px;border-radius:8px;font-size:13px;font-weight:bold;cursor:pointer;">🖨️ 印刷 / PDF</button>'
-      + '<button onclick="window.close()" style="background:#e2e8f0;color:#334155;border:none;padding:8px 18px;border-radius:8px;font-size:13px;font-weight:bold;cursor:pointer;">✕ 閉じる</button>'
-      + '</div>';
+      + '<button onclick="window.close()" style="background:#e2e8f0;color:#334155;border:none;padding:8px 18px;border-radius:8px;font-size:13px;font-weight:bold;cursor:pointer;">✕ 閉じる</button></div>';
 
     var style = '@page{size:landscape;margin:8mm;}'
       + 'body{margin:0;background:#f1f5f9;font-family:sans-serif;color:#1e293b;}'
-      + '.sb-page{max-width:1400px;margin:0 auto;padding:16px 20px 40px;}'
+      + '.sb-page{max-width:1500px;margin:0 auto;padding:16px 20px 40px;}'
       + '.sb-header-main{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;}'
-      + '.sb-vs{font-size:18px;font-weight:bold;}'
-      + '.sb-meta{font-size:11px;color:#64748b;}'
-      + 'table.sb-linescore{border-collapse:collapse;font-size:11px;margin-bottom:10px;}'
+      + '.sb-vs{font-size:18px;font-weight:bold;}.sb-meta{font-size:11px;color:#64748b;}'
+      + 'table.sb-linescore{border-collapse:collapse;font-size:11px;margin-bottom:8px;}'
       + '.sb-linescore th,.sb-linescore td{border:1px solid #cbd5e1;padding:3px 8px;text-align:center;}'
-      + '.sb-ls-team{text-align:left !important;font-weight:bold;background:#f8fafc;}'
-      + '.sb-ls-total{font-weight:bold;background:#f8fafc;}'
-      + '.sb-legend{display:flex;flex-direction:column;gap:2px;font-size:9px;color:#64748b;margin-bottom:10px;}'
+      + '.sb-ls-team{text-align:left !important;font-weight:bold;background:#f8fafc;}.sb-ls-total{font-weight:bold;background:#f8fafc;}'
+      + '.sb-legend{display:flex;flex-direction:column;gap:1px;font-size:9px;color:#64748b;margin-bottom:10px;}'
       + '.sb-team-heading{font-size:14px;font-weight:bold;margin:14px 0 4px;border-bottom:2px solid currentColor;padding-bottom:2px;}'
       + '.sb-section{break-inside:avoid;page-break-inside:avoid;}'
       + 'table.sb-grid{border-collapse:collapse;font-size:9px;width:100%;margin-bottom:4px;table-layout:fixed;}'
       + '.sb-grid th,.sb-grid td{border:1px solid #cbd5e1;text-align:center;vertical-align:top;}'
-      + '.sb-grid thead th{padding:3px 2px;font-size:10px;color:#1e293b;}'
-      + '.sb-hd-narrow{width:28px;}'
-      + '.sb-hd-name{width:70px;font-weight:bold;font-size:9px;text-align:left !important;padding-left:4px !important;}'
+      + '.sb-grid thead th{padding:3px 2px;font-size:10px;}'
+      + '.sb-hd-narrow{width:26px;}.sb-hd-name{width:66px;font-weight:bold;font-size:9px;text-align:left !important;padding-left:3px !important;}'
       + '.sb-empty{color:#cbd5e1;}'
-      + '.sb-td{width:56px;padding:1px;background:#fff;}'
-      + '.sb-box{position:relative;display:inline-block;width:100%;padding:1px 0;border-bottom:1px dotted #e2e8f0;}'
+      + '.sb-td{width:66px;padding:0;background:#fff;}'
+      + '.sb-box{position:relative;display:flex;align-items:stretch;border-bottom:1px dotted #e2e8f0;min-height:52px;}'
       + '.sb-box:last-child{border-bottom:none;}'
-      + '.sb-marks{font-size:7px;line-height:1;letter-spacing:0.5px;min-height:8px;}'
-      + '.sb-diamond-wrap{position:relative;width:34px;height:34px;margin:0 auto;}'
-      + '.sb-outorder{position:absolute;top:-2px;left:-2px;font-size:9px;font-weight:bold;color:#475569;}'
-      + '.sb-rbi{position:absolute;bottom:-2px;right:-2px;font-size:6px;color:#dc2626;letter-spacing:-1px;}'
-      + '.sb-result{font-size:9px;font-weight:bold;color:#1d4ed8;line-height:1.1;}'
-      + '.sb-notes{font-size:6.5px;color:#d97706;line-height:1.1;word-break:break-all;}'
-      + '.sb-sum-row{background:#f8fafc;font-size:8px;}'
-      + '.sb-sum-label{text-align:left !important;padding-left:4px !important;font-weight:bold;color:#475569;white-space:nowrap;}'
+      + '.sb-pit{width:11px;display:flex;flex-direction:column;align-items:center;padding-top:1px;gap:0px;flex-shrink:0;}'
+      + '.sb-play{position:relative;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:1px 0;}'
+      + '.sb-dia{position:relative;}'
+      + '.sb-c{position:absolute;font-size:7px;font-weight:bold;color:#334155;line-height:1;z-index:2;}'
+      + '.sb-c-tl{top:2px;left:1px;}.sb-c-tr{top:2px;right:1px;}.sb-c-bl{bottom:12px;left:1px;}.sb-c-br{bottom:12px;right:1px;}'
+      + '.sb-res{font-size:9px;font-weight:bold;color:#1d4ed8;line-height:1;margin-top:-2px;}'
+      + '.sb-res-k{color:#1d4ed8;}'
+      + '.sb-arch{border-top:1.4px solid #1d4ed8;padding:0 1px;}'
+      + '.sb-sum-row{background:#f8fafc;font-size:8px;}.sb-sum-label{text-align:left !important;padding-left:3px !important;font-weight:bold;color:#475569;white-space:nowrap;}'
       + 'table.sb-totals,table.sb-pitchers{border-collapse:collapse;font-size:9px;width:100%;margin:4px 0;}'
-      + '.sb-totals th,.sb-totals td,.sb-pitchers th,.sb-pitchers td{border:1px solid #e2e8f0;padding:2px 4px;text-align:center;}'
-      + '.sb-totals thead,.sb-pitchers thead{background:#f1f5f9;}'
-      + '.sb-tot-name{text-align:left !important;font-weight:bold;}'
+      + '.sb-totals th,.sb-totals td,.sb-pitchers th,.sb-pitchers td{border:1px solid #e2e8f0;padding:2px 3px;text-align:center;}'
+      + '.sb-totals thead,.sb-pitchers thead{background:#f1f5f9;}.sb-tot-name{text-align:left !important;font-weight:bold;}'
       + '.sb-footnote{font-size:9px;color:#64748b;margin:2px 0 4px;}'
-      + '@media print{'
-      + 'body{background:#fff !important;}*{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;}'
-      + '.no-print{display:none !important;}'
-      + '.sb-section{break-inside:avoid;page-break-inside:avoid;}'
-      + '}';
+      + '@media print{body{background:#fff !important;}*{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;}.no-print{display:none !important;}.sb-section{break-inside:avoid;page-break-inside:avoid;}}';
 
     w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>' + esc(reportFileName) + '<\/title><style>' + style + '<\/style><\/head><body>' + closeBtn + body + '<\/body><\/html>');
     w.document.close();

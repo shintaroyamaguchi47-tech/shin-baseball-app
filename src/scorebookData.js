@@ -21,31 +21,41 @@ const RBI_ELIGIBLE = new Set(['single', 'double', 'triple', 'homerun', 'walk', '
 
 function fielderNum(fielderName) { return POS_NUM[fielderName] || null; }
 
-// 最終結果の表記(守備位置番号ベース)。二塁送球等の詳細な補殺連鎖は
-// データに存在しないため、一般的な想定(内野ゴロ→一塁送球)で近似する。
-function resultNotation(pf, finalLabel, flight) {
+// 最終結果の表記(守備位置番号ベース)＋描画用の種別(kind)を返す。
+// スコアラー様式に合わせ、三振は最終ストライクの空振り/見逃しでKs/Kcを分ける。
+// 飛球はkind='fly'として番号にアーチを付けて描く(レンダラー側)。
+// 二塁送球等の詳細な補殺連鎖はデータに無いため一般的な想定(内野ゴロ→一塁送球)で近似する。
+function resultNotation(pf, finalLabel, lastStrikeType) {
   if (!pf) {
-    if (['三振', 'スリーバント失敗'].includes(finalLabel)) return 'K';
-    if (finalLabel === '振り逃げアウト') return 'K'; // 振り逃げを試みたがアウト
-    if (finalLabel === '振り逃げ') return '振逃'; // 第3ストライク後に出塁(アウトではない)
-    if (finalLabel === '四球') return 'BB';
-    if (finalLabel === '死球') return 'HBP';
-    if (finalLabel === 'その他出塁') return '打妨';
-    return finalLabel || '';
+    if (['三振', 'スリーバント失敗'].includes(finalLabel)) {
+      return lastStrikeType === 'looking'
+        ? { text: 'Kc', kind: 'k_look' }   // 見逃し三振(逆K)
+        : { text: 'Ks', kind: 'k_swing' }; // 空振り三振
+    }
+    if (finalLabel === '振り逃げアウト') return { text: 'Ks', kind: 'k_swing' };
+    if (finalLabel === '振り逃げ') return { text: '振逃', kind: 'dropped3' };
+    if (finalLabel === '四球') return { text: 'B', kind: 'walk' };
+    if (finalLabel === '死球') return { text: 'HBP', kind: 'hbp' };
+    if (finalLabel === 'その他出塁') return { text: 'DIB', kind: 'other' };
+    return { text: finalLabel || '', kind: 'other' };
   }
   const n = fielderNum(pf.fielder);
   const num = n ?? '?';
   switch (pf.suffix) {
-    case '安': case '二塁打': case '三塁打': case '本塁打': return `${num}`;
-    case 'ゴロ': return n === 3 ? '3' : `${num}-3`;
-    case '飛': return `${num}`;
-    case '併殺打': return n === 3 ? '3-6-3' : `${num}-3`;
-    case '捕球エラー': case '送球エラー': case '落球エラー': return `E${num}`;
-    case '野手選択': return `FC${num}`;
-    case '犠打': return n === 3 ? '3' : `${num}-3`;
-    case '犠飛': return `${num}`;
-    case '安+エラー': case '二塁打+エラー': case '三塁打+エラー': return `${num}+E`;
-    default: return `${num}`;
+    case '安': return { text: `${num}`, kind: 'hit' };
+    case '二塁打': return { text: `${num}`, kind: 'hit2' };
+    case '三塁打': return { text: `${num}`, kind: 'hit3' };
+    case '本塁打': return { text: `${num}`, kind: 'hr' };
+    case 'ゴロ': return { text: n === 3 ? '3' : `${num}-3`, kind: 'ground' };
+    case '飛': return { text: `${num}`, kind: 'fly' };
+    case '併殺打': return { text: n === 3 ? '3-6' : `${num}-4-3`, kind: 'dp' };
+    case '捕球エラー': case '落球エラー': return { text: `E${num}`, kind: 'error' };
+    case '送球エラー': return { text: `${num}E`, kind: 'error' };
+    case '野手選択': return { text: `FC${num}`, kind: 'fc' };
+    case '犠打': return { text: n === 3 ? '3' : `${num}-3`, kind: 'sac' };
+    case '犠飛': return { text: `${num}`, kind: 'sacfly' };
+    case '安+エラー': case '二塁打+エラー': case '三塁打+エラー': return { text: `${num}+E`, kind: 'hit' };
+    default: return { text: `${num}`, kind: 'other' };
   }
 }
 
@@ -72,6 +82,12 @@ function ballFlight(res) {
 
 function newCell(play) {
   const pf = parseFieldResult(play.finalLabel);
+  const pitchMarks = play.pitchRows
+    .filter((r) => !r.isEvent)
+    .map((r) => ({ type: pitchMarkType(r.label), label: r.label }));
+  // 三振のKs/Kc判定用に、最後のストライク種別(見逃し/空振り)を取る
+  const lastStrike = [...pitchMarks].reverse().find((m) => m.type === 'looking' || m.type === 'swing');
+  const res = resultNotation(pf, play.finalLabel, lastStrike ? lastStrike.type : null);
   return {
     key: play.key,
     inning: play.inning,
@@ -82,22 +98,24 @@ function newCell(play) {
     pitcherName: play.pitcherName,
     finalLabel: play.finalLabel,
     eventType: play.eventType,
-    resultNotation: resultNotation(pf, play.finalLabel, play.flight),
+    resultNotation: res.text,
+    resultKind: res.kind,
     flight: play.flight || ballFlight(play.finalLabel),
     fielder: pf ? pf.fielder : null,
     isBatterOut: play.isOut,
     isHit: play.isHit,
     isBB: play.isBB,
     isError: play.isError,
-    pitchMarks: play.pitchRows
-      .filter((r) => !r.isEvent)
-      .map((r) => ({ type: pitchMarkType(r.label), label: r.label })),
+    pitchMarks,
     outOrderInInning: null,
     outOnBasesOrderInInning: null,
     outOnBasesReason: null,
     basesReachedInitial: 0,
     basesReachedFinal: 0,
     advancementNotes: [],
+    // 各塁(2/3/home=4)へ「何番打者の打席で」進んだか。スコアラー様式の隅数字用。
+    // 打者自身の到達(初期塁)は記録しない(結果記号で示すため)。
+    reachedBy: {},
     rbi: 0,
     scored: false,
     hitX: play.hitX,
@@ -109,11 +127,13 @@ function newCell(play) {
 // 打席結果による自動進塁(App.jsxのadvanceGameStateと同一ルール)。
 // 走者を表すのは実際の走者名ではなく「元の打席セル」への参照そのもの。
 // 進塁・生還のたびに参照先セルのbasesReachedFinal/scoredを直接更新する。
-function applyAutoMovement(bases, eventType, batterCell) {
+function applyAutoMovement(bases, eventType, batterCell, order) {
   const b = { ...bases };
   const scoredCells = [];
-  const setBase = (n, cell) => { b[n] = cell; if (cell) cell.basesReachedFinal = n; };
-  const score = (cell) => { if (cell) { cell.basesReachedFinal = 4; cell.scored = true; scoredCells.push(cell); } };
+  // 打者自身以外の走者が新しい塁へ進んだら「何番打者の打席で」を記録する
+  const stamp = (cell, n) => { if (cell && cell !== batterCell && order) cell.reachedBy[n] = order; };
+  const setBase = (n, cell) => { b[n] = cell; if (cell) { cell.basesReachedFinal = n; stamp(cell, n); } };
+  const score = (cell) => { if (cell) { cell.basesReachedFinal = 4; cell.scored = true; stamp(cell, 4); scoredCells.push(cell); } };
 
   if (eventType === 'walk' || eventType === 'other') {
     if (b[1] && b[2] && b[3]) { score(b[3]); setBase(3, b[2]); setBase(2, b[1]); }
@@ -151,7 +171,7 @@ function applyAutoMovement(bases, eventType, batterCell) {
 // イベント行(盗塁/暴投/捕逸/ボーク/牽制死/代走など)を処理し、
 // その走者の「元の打席セル」を更新する。App.jsxのrebuildGameStateFromPitches /
 // playByPlay.jsのapplyRunnerEventNarrativeと同じ文字列パターンで判定する。
-function handleRunnerEvent(bases, text, outCounter) {
+function handleRunnerEvent(bases, text, outCounter, order) {
   const runnerKey = text.startsWith('1塁走者') ? 1 : text.startsWith('2塁走者') ? 2 : text.startsWith('3塁走者') ? 3 : null;
   if (!runnerKey) return;
   const origin = bases[runnerKey];
@@ -177,9 +197,9 @@ function handleRunnerEvent(bases, text, outCounter) {
     // その場合を「進塁」という読みやすい表記に置き換える。
     const rawReason = (text.split(' ')[1] || '').split('で')[0];
     const reason = rawReason === 'その他' ? '進塁' : rawReason;
-    if (dest[1] === '2塁') { if (origin) { origin.basesReachedFinal = 2; origin.advancementNotes.push({ text: `${reason}→2塁`, isOut: false }); } bases[2] = origin; bases[runnerKey] = null; }
-    else if (dest[1] === '3塁') { if (origin) { origin.basesReachedFinal = 3; origin.advancementNotes.push({ text: `${reason}→3塁`, isOut: false }); } bases[3] = origin; bases[runnerKey] = null; }
-    else { if (origin) { origin.basesReachedFinal = 4; origin.scored = true; origin.advancementNotes.push({ text: `${reason}→生還`, isOut: false }); } bases[runnerKey] = null; }
+    if (dest[1] === '2塁') { if (origin) { origin.basesReachedFinal = 2; if (order) origin.reachedBy[2] = order; origin.advancementNotes.push({ text: `${reason}→2塁`, isOut: false }); } bases[2] = origin; bases[runnerKey] = null; }
+    else if (dest[1] === '3塁') { if (origin) { origin.basesReachedFinal = 3; if (order) origin.reachedBy[3] = order; origin.advancementNotes.push({ text: `${reason}→3塁`, isOut: false }); } bases[3] = origin; bases[runnerKey] = null; }
+    else { if (origin) { origin.basesReachedFinal = 4; origin.scored = true; if (order) origin.reachedBy[4] = order; origin.advancementNotes.push({ text: `${reason}→生還`, isOut: false }); } bases[runnerKey] = null; }
     return;
   }
   const reason = text.split(' ')[1] || '';
@@ -239,16 +259,19 @@ export function buildScorebookData(pitches, lineups, gameInfo, gameState) {
       // 最終球(count===null)の時点で打者自身の自動進塁を適用し、それより後に
       // 続くイベント(例: 自身の安打で3塁へ進んだ走者が続けて生還する等)は
       // 更新後のbasesを参照して正しく処理できるようにする。
+      const order = play.batter; // この打席の打順(1-9)。走者の進塁を「何番で」と記録するのに使う
       let scoredCells = [];
       play.pitchRows.forEach((row) => {
-        if (row.isEvent) { handleRunnerEvent(bases, row.label || '', outCounter); return; }
+        if (row.isEvent) { handleRunnerEvent(bases, row.label || '', outCounter, order); return; }
         if (row.count === null) {
-          const moved = applyAutoMovement(bases, play.eventType, cell);
+          const moved = applyAutoMovement(bases, play.eventType, cell, order);
           bases = moved.bases;
           scoredCells = moved.scoredCells;
         }
       });
       cell.basesReachedInitial = cell.scored ? 4 : ([1, 2, 3].find((n) => bases[n] === cell) || 0);
+      // 打者自身の打席で到達した初期塁はreachedByから除く(結果記号で示すため)
+      for (let n = 1; n <= cell.basesReachedInitial; n++) delete cell.reachedBy[n];
       if (play.isOut) { outCounter.n++; cell.outOrderInInning = outCounter.n; }
       if (RBI_ELIGIBLE.has(play.eventType)) cell.rbi = scoredCells.length;
     });

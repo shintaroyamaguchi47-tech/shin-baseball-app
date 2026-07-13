@@ -84,7 +84,7 @@ describe('buildScorebookData (合成GDFデータ)', () => {
   });
 
   it('守備位置番号ベースの結果表記を生成する', () => {
-    expect(sb.top.slots[0].cellsByInning[1][0].resultNotation).toBe('K'); // 三振
+    expect(sb.top.slots[0].cellsByInning[1][0].resultNotation).toBe('Ks'); // 空振り三振(最終球が空振り)
     expect(sb.top.slots[4].cellsByInning[1][0].resultNotation).toBe('6-3'); // 遊ゴロ
     expect(sb.bottom.slots[0].cellsByInning[1][0].resultNotation).toBe('1-3'); // 投ゴロ→一塁送球
   });
