@@ -1255,7 +1255,7 @@ import { renumberPitchNumbers, reassignPitchBatter } from './gameUtils.js';
           )}
 
           {/* ===== HEADER ===== */}
-          <header className="bg-white shadow-sm border-b border-slate-200 p-2 md:p-4 flex flex-col md:flex-row md:items-center md:justify-between md:flex-wrap shrink-0 gap-3 z-10 relative">
+          <header className="bg-white shadow-sm border-b border-slate-200 p-2 md:p-4 flex flex-col md:flex-row md:items-center md:justify-between shrink-0 gap-3 z-10 relative">
             <div className="flex flex-col gap-2 md:w-auto w-full">
               <div className="flex items-center justify-between md:justify-start gap-4">
                 <div className="flex items-center gap-2 text-xl md:text-2xl font-black text-blue-700 tracking-tighter whitespace-nowrap"><span className="text-2xl">⚾</span>配球スコア <span className="text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full uppercase tracking-widest ml-1 font-bold border border-blue-200">Pro</span></div>
@@ -1320,7 +1320,7 @@ import { renumberPitchNumbers, reassignPitchBatter } from './gameUtils.js';
               </div>
             </div>
 
-            <div className="hidden md:flex gap-2 items-center md:ml-auto min-w-0">
+            <div className="hidden md:flex gap-2 items-center min-w-0">
               <div className="flex flex-col gap-1 items-start px-2 border-l border-r border-slate-200 font-mono w-auto shrink-0">
                 <div className="flex items-center gap-2 w-full"><span className="text-[13px] font-black text-emerald-600 w-3">B</span><div className="flex gap-1">{[0,1,2].map(i=><div key={i} className={`w-4 h-4 rounded-full border-2 border-emerald-600 ${i<gameState.balls?'bg-emerald-500':'bg-slate-100'}`}></div>)}</div></div>
                 <div className="flex items-center gap-2 w-full"><span className="text-[13px] font-black text-amber-500 w-3">S</span><div className="flex gap-1">{[0,1].map(i=><div key={i} className={`w-4 h-4 rounded-full border-2 border-amber-500 ${i<gameState.strikes?'bg-amber-400':'bg-slate-100'}`}></div>)}</div></div>
