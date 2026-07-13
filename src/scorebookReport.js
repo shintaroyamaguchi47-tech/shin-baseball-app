@@ -11,16 +11,16 @@
 
     var OUT_ROMAN = { 1: 'Ⅰ', 2: 'Ⅱ', 3: 'Ⅲ' };
 
-    // 投球1球のマーク(スコアラー様式: ●=ボール, ◎=見逃し, ○=空振り, ⦸=ファウル)。
+    // 投球1球のマーク(bbscorer公式: ●=ボール, ◎=見逃し, ○=空振り, －=ファウル)。
     // 牽制(pickoff)・イベントは投球列に出さない。
     function pitchMarkSvg(type) {
       var r = 3.4, cx = 5, cy = 5, sz = 10;
       var body;
       if (type === 'ball') body = '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="#1e293b"/>';
       else if (type === 'looking') body = '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="#1e293b" stroke-width="1"/><circle cx="' + cx + '" cy="' + cy + '" r="1.4" fill="#1e293b"/>';
-      else if (type === 'foul') body = '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="#1e293b" stroke-width="1"/><line x1="2.5" y1="7.5" x2="7.5" y2="2.5" stroke="#1e293b" stroke-width="0.8"/>';
+      else if (type === 'foul') body = '<line x1="1.5" y1="5" x2="8.5" y2="5" stroke="#1e293b" stroke-width="1.3"/>'; // ファウル=ダッシュ
       else if (type === 'hbp') body = '<text x="' + cx + '" y="7.5" text-anchor="middle" font-size="7" fill="#7c3aed">死</text>';
-      else body = '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="#1e293b" stroke-width="1"/>'; // swing/other = 白丸
+      else body = '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="#1e293b" stroke-width="1"/>'; // swing/other = 白丸(空振り)
       return '<svg width="' + sz + '" height="' + sz + '" viewBox="0 0 ' + sz + ' ' + sz + '" style="display:block;">' + body + '</svg>';
     }
     function pitchColumnHtml(marks) {
@@ -58,9 +58,14 @@
         var c = [inner[0] - perp[0] / pl * uw, inner[1] - perp[1] / pl * uw];
         svg += '<polygon points="' + v[0] + ',' + v[1] + ' ' + a[0] + ',' + a[1] + ' ' + c[0] + ',' + c[1] + '" fill="#fbbf24"/>';
       }
-      // 中央マーク
-      if (cell.scored) svg += '<circle cx="' + m + '" cy="' + m + '" r="4.5" fill="#dc2626"/>';
-      else if (reached >= 1 && reached <= 3) svg += '<circle cx="' + m + '" cy="' + m + '" r="4.5" fill="none" stroke="#334155" stroke-width="1.3"/>';
+      // 中央マーク(公式: ●=得点(自責), ○=得点(非自責), ℓ=残塁)
+      if (cell.scored) {
+        svg += cell.scoredUnearned
+          ? '<circle cx="' + m + '" cy="' + m + '" r="4.5" fill="none" stroke="#dc2626" stroke-width="1.5"/>'
+          : '<circle cx="' + m + '" cy="' + m + '" r="4.5" fill="#dc2626"/>';
+      } else if (cell.strandedRunner) {
+        svg += '<text x="' + m + '" y="' + (m + 5) + '" text-anchor="middle" font-size="15" font-style="italic" font-family="Georgia,serif" fill="#334155">ℓ</text>';
+      }
       // 打者アウトのローマ数字
       if (cell.outOrderInInning) svg += '<text x="' + m + '" y="' + (m + 5) + '" text-anchor="middle" font-size="14" font-weight="bold" fill="#334155">' + (OUT_ROMAN[cell.outOrderInInning] || cell.outOrderInInning) + '</text>';
       // 走塁死: 到達塁の1つ先の辺に赤斜線＋その塁にローマ数字
@@ -81,11 +86,13 @@
     // 各塁には「何番打者の打席で進んだか」の数字を (n)=進塁 / [n]=生還 で表示。
     // 一塁隅には打者自身の到達理由(B=四球, 死=死球)を置く。
     function cornerLabelsHtml(cell) {
-      var rb = cell.reachedBy || {};
+      var rb = cell.reachedBy || {}, am = cell.advanceMarks || {};
+      // 各塁: 盗塁等のコード(S/WP/PB)があればそれを、無ければ「何番打者で進塁」の数字を表示
+      var at = function (base, wrap) { return am[base] ? am[base] : (rb[base] ? wrap.charAt(0) + rb[base] + wrap.charAt(1) : ''); };
       var corner = { tl: '', tr: '', bl: '', br: '' };
-      if (rb[3]) corner.tl = '(' + rb[3] + ')';       // 三塁=左上
-      if (rb[2]) corner.tr = '(' + rb[2] + ')';       // 二塁=右上
-      if (rb[4]) corner.bl = '[' + rb[4] + ']';       // 本塁(生還)=左下
+      corner.tl = at(3, '()');   // 三塁=左上
+      corner.tr = at(2, '()');   // 二塁=右上
+      corner.bl = at(4, '[]');   // 本塁(生還)=左下
       // 一塁=右下: 打者自身の到達理由
       if (cell.finalLabel === '四球') corner.br = 'B';
       else if (cell.finalLabel === '死球') corner.br = '死';
@@ -104,9 +111,9 @@
       if (!t) return '';
       var cls = 'sb-res';
       if (cell.resultKind === 'fly' || cell.resultKind === 'sacfly') {
+        // 飛球は番号にアーチ(公式の ")" 相当)
         return '<div class="' + cls + '"><span class="sb-arch">' + esc(t) + '</span></div>';
       }
-      if (cell.resultKind === 'k_look') return '<div class="' + cls + ' sb-res-k">Ｋ</div>'; // 見逃しは逆K相当(簡易)
       return '<div class="' + cls + '">' + esc(t) + '</div>';
     }
 
@@ -199,9 +206,9 @@
       + '<span class="sb-meta">' + esc(gi.date || '') + (gi.venue ? ' ／ ' + esc(gi.venue) : '') + (gi.tournament ? ' ／ ' + esc(gi.tournament) : '') + '</span></div>' + linescoreTable() + '</div>';
 
     var legend = '<div class="sb-legend">'
-      + '<span>投球: <b>●</b>ボール <b>◎</b>見逃し <b>○</b>空振り <b>⦸</b>ファウル（上→下）</span>'
-      + '<span>ダイヤ: 到達塁まで辺を描き最終到達塁に黄三角 / 中央●=生還 ○=残塁 / Ⅰ Ⅱ Ⅲ=イニング内アウト順 / 赤斜線=走塁死</span>'
-      + '<span>結果: Ks空振り三振 Kc見逃し三振 5-3等=ゴロ守備経路 数字にアーチ=飛球 B四球 S盗塁 WP暴投 PB捕逸</span>'
+      + '<span>投球(上→下): <b>●</b>ボール <b>◎</b>見逃し <b>○</b>空振り <b>－</b>ファウル</span>'
+      + '<span>ダイヤ: 到達塁まで辺を描き最終到達塁に黄三角 / 中央 ●=得点(自責) ○=得点(非自責) ℓ=残塁 / Ⅰ Ⅱ Ⅲ=イニング内アウト順 / 赤斜線=走塁死</span>'
+      + '<span>結果: K見逃し三振 Ks空振り三振 5-3等=ゴロ守備経路 数字にアーチ=飛球 Ef捕球失 Et送球失 Fc野選 B四球 S盗塁 WP暴投 PB捕逸 / 隅数字(n)=進塁 [n]=生還した打順</span>'
       + '</div>';
 
     var body = '<div class="sb-page">' + header + legend
