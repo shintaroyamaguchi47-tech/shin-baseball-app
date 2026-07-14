@@ -111,24 +111,28 @@
       return h;
     }
 
-    // 守備結果テキスト(青字)。飛球(fly)は番号にアーチを付ける。
+    // 守備結果テキスト(青字)。十字で区切られた「右下の区画」に置く(実際のスコアブック
+    // と同じ: 例「サードゴロ」→ 5-3)。公式凡例: 飛球=アーチ")", ライナー=直線"－",
+    // ファウルフライ=F+アーチ, 犠打/犠飛=四角枠。
+    // 四球/死球/その他出塁は到達理由として隅ラベル(B/死/DIB)で表示済みなので、
+    // 守備結果としては重複させない。
     function resultTextHtml(cell) {
       var t = cell.resultNotation || '';
       if (!t) return '';
-      var cls = 'sb-res';
-      if (cell.resultKind === 'fly' || cell.resultKind === 'sacfly') {
-        // 飛球は番号にアーチ(公式の ")" 相当)
-        return '<div class="' + cls + '"><span class="sb-arch">' + esc(t) + '</span></div>';
-      }
-      return '<div class="' + cls + '">' + esc(t) + '</div>';
+      if (['四球', '死球', 'その他出塁'].indexOf(cell.finalLabel) !== -1) return '';
+      var inner = esc(t);
+      if (cell.resultKind === 'fly' || cell.resultKind === 'sacfly' || cell.resultKind === 'foulfly') inner = '<span class="sb-arch">' + inner + '</span>';
+      else if (cell.resultKind === 'liner') inner = '<span class="sb-line">' + inner + '</span>';
+      if (cell.resultKind === 'sac' || cell.resultKind === 'sacfly') inner = '<span class="sb-sqr">' + inner + '</span>';
+      return '<div class="sb-res">' + inner + '</div>';
     }
 
     function cellBoxHtml(cell) {
       return '<div class="sb-box">'
         + pitchColumnHtml(cell)
         + '<div class="sb-play">'
-        + cornerLabelsHtml(cell)
         + '<div class="sb-dia">' + diamondSvg(cell) + '</div>'
+        + cornerLabelsHtml(cell)
         + resultTextHtml(cell)
         + '</div>'
         + '</div>';
@@ -214,7 +218,7 @@
     var legend = '<div class="sb-legend">'
       + '<span>投球(上→下): <b>●</b>ボール <b>◎</b>見逃し <b>○</b>空振り <b>－</b>ファウル</span>'
       + '<span>ダイヤ: 中央 ●=得点(自責) ○=得点(非自責) ℓ=残塁 / Ⅰ Ⅱ Ⅲ=イニング内アウト順 / 赤斜線=走塁死 / 隅の数字(n)=n番打者の打席で進塁 [n]=生還</span>'
-      + '<span>結果: K見逃し三振 Ks空振り三振 5-3等=ゴロ守備経路 数字にアーチ=飛球 Ef捕球失 Et送球失 Fc野選 B四球 S盗塁 WP暴投 PB捕逸 / 隅数字(n)=進塁 [n]=生還した打順</span>'
+      + '<span>結果: K見逃し三振 Ks空振り三振 5-3等=ゴロ守備経路 数字にアーチ=飛球 直線=ライナー F+数字=邪飛 四角枠=犠打/犠飛 Ef捕球失 Et送球失 Fc野選 B四球 S盗塁 WP暴投 PB捕逸 / 隅数字(n)=進塁 [n]=生還した打順</span>'
       + '</div>';
 
     var body = '<div class="sb-page">' + header + legend
@@ -249,13 +253,16 @@
       + '.sb-pm{position:relative;display:flex;align-items:center;}'
       + '.sb-pl{position:absolute;left:10px;top:0;font-size:6px;font-weight:bold;color:#c026d3;}'
       + '.sb-lk{font-size:5.5px;font-weight:bold;color:#c026d3;vertical-align:super;}'
-      + '.sb-play{position:relative;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:1px 0;}'
-      + '.sb-dia{position:relative;}'
+      + '.sb-play{position:relative;width:52px;height:52px;flex:none;}'
+      + '.sb-dia{position:absolute;top:0;left:0;}'
       + '.sb-c{position:absolute;font-size:7px;font-weight:bold;color:#334155;line-height:1;z-index:2;}'
       + '.sb-c-tl{top:2px;left:1px;}.sb-c-tr{top:2px;right:1px;}.sb-c-bl{bottom:12px;left:1px;}.sb-c-br{bottom:12px;right:1px;}'
-      + '.sb-res{font-size:9px;font-weight:bold;color:#1d4ed8;line-height:1;margin-top:-2px;}'
+      // 守備結果は十字の右下区画(一塁側・本塁より下)に配置する
+      + '.sb-res{position:absolute;right:1px;bottom:1px;font-size:9px;font-weight:bold;color:#1d4ed8;line-height:1;z-index:2;text-align:right;white-space:nowrap;}'
       + '.sb-res-k{color:#1d4ed8;}'
-      + '.sb-arch{border-top:1.4px solid #1d4ed8;padding:0 1px;}'
+      + '.sb-arch{border-top:1.4px solid #1d4ed8;border-radius:60% 60% 0 0/100% 100% 0 0;padding:0 2px;}'
+      + '.sb-line{border-top:1.4px solid #1d4ed8;padding:0 1px;}'
+      + '.sb-sqr{border:1px solid #1d4ed8;border-radius:1px;padding:0 2px 1px;display:inline-block;line-height:1.1;}'
       + '.sb-sum-row{background:#f8fafc;font-size:8px;}.sb-sum-label{text-align:left !important;padding-left:3px !important;font-weight:bold;color:#475569;white-space:nowrap;}'
       + 'table.sb-totals,table.sb-pitchers{border-collapse:collapse;font-size:9px;width:100%;margin:4px 0;}'
       + '.sb-totals th,.sb-totals td,.sb-pitchers th,.sb-pitchers td{border:1px solid #e2e8f0;padding:2px 3px;text-align:center;}'

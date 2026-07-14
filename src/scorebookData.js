@@ -23,9 +23,10 @@ function fielderNum(fielderName) { return POS_NUM[fielderName] || null; }
 
 // 最終結果の表記(守備位置番号ベース)＋描画用の種別(kind)を返す。
 // スコアラー様式に合わせ、三振は最終ストライクの空振り/見逃しでKs/Kcを分ける。
-// 飛球はkind='fly'として番号にアーチを付けて描く(レンダラー側)。
-// 二塁送球等の詳細な補殺連鎖はデータに無いため一般的な想定(内野ゴロ→一塁送球)で近似する。
-function resultNotation(pf, finalLabel, lastStrikeType) {
+// 飛球はkind='fly'として番号にアーチ、ライナーは直線、犠打/犠飛は四角枠(レンダラー側)。
+// throwTo(GDF由来の送球先チェーン)があれば実際の守備経路(6-4, 3-1等)を表記し、
+// 無い場合のみ一般的な想定(内野ゴロ→一塁送球)で近似する。
+function resultNotation(pf, finalLabel, lastStrikeType, throwTo) {
   if (!pf) {
     if (['三振', 'スリーバント失敗'].includes(finalLabel)) {
       // 公式(bbscorer): K=見逃し三振, Ks=空振り三振
@@ -42,19 +43,26 @@ function resultNotation(pf, finalLabel, lastStrikeType) {
   }
   const n = fielderNum(pf.fielder);
   const num = n ?? '?';
+  // 実際の送球経路(捕球者→送球先...)。連続する同一番号は畳む(自力アウト等)
+  const route = () => [num, ...(throwTo || [])]
+    .filter((v, i, a) => i === 0 || v !== a[i - 1])
+    .join('-');
+  const hasRoute = throwTo && throwTo.length > 0;
   switch (pf.suffix) {
     case '安': return { text: `${num}`, kind: 'hit' };
     case '二塁打': return { text: `${num}`, kind: 'hit2' };
     case '三塁打': return { text: `${num}`, kind: 'hit3' };
     case '本塁打': return { text: `${num}`, kind: 'hr' };
-    case 'ゴロ': return { text: n === 3 ? '3' : `${num}-3`, kind: 'ground' };
+    case 'ゴロ': return { text: hasRoute ? route() : (n === 3 ? '3' : `${num}-3`), kind: 'ground' };
     case '飛': return { text: `${num}`, kind: 'fly' };
-    case '併殺打': return { text: n === 3 ? '3-6' : `${num}-4-3`, kind: 'dp' };
+    case '邪飛': return { text: `F${num}`, kind: 'foulfly' };
+    case '直飛': return { text: `${num}`, kind: 'liner' };
+    case '併殺打': return { text: hasRoute ? route() : (n === 3 ? '3-6' : `${num}-4-3`), kind: 'dp' };
     // 公式: 捕球エラー=Ef, 送球エラー=Et(守備位置番号+記号)
     case '捕球エラー': case '落球エラー': return { text: `${num}Ef`, kind: 'error' };
     case '送球エラー': return { text: `${num}Et`, kind: 'error' };
     case '野手選択': return { text: 'Fc', kind: 'fc' };
-    case '犠打': return { text: n === 3 ? '3' : `${num}-3`, kind: 'sac' };
+    case '犠打': return { text: hasRoute ? route() : (n === 3 ? '3' : `${num}-3`), kind: 'sac' };
     case '犠飛': return { text: `${num}`, kind: 'sacfly' };
     case '安+エラー': case '二塁打+エラー': case '三塁打+エラー': return { text: `${num}+E`, kind: 'hit' };
     default: return { text: `${num}`, kind: 'other' };
@@ -89,7 +97,7 @@ function newCell(play) {
     .map((r) => ({ type: pitchMarkType(r.label), label: r.label }));
   // 三振のKs/Kc判定用に、最後のストライク種別(見逃し/空振り)を取る
   const lastStrike = [...pitchMarks].reverse().find((m) => m.type === 'looking' || m.type === 'swing');
-  const res = resultNotation(pf, play.finalLabel, lastStrike ? lastStrike.type : null);
+  const res = resultNotation(pf, play.finalLabel, lastStrike ? lastStrike.type : null, play.throwTo);
   return {
     key: play.key,
     inning: play.inning,

@@ -25,7 +25,7 @@ const circledPos = (pos) => { const n = POS_NUM[pos]; return n ? CIRCLED[n] : ''
 
 const SUFFIX_LABEL = {
   '安': '安打', '二塁打': '二塁打', '三塁打': '三塁打', '本塁打': '本塁打',
-  'ゴロ': 'ゴロ', '飛': 'フライ', '併殺打': '併殺打',
+  'ゴロ': 'ゴロ', '飛': 'フライ', '邪飛': 'ファウルフライ', '直飛': 'ライナー', '併殺打': '併殺打',
   '捕球エラー': '捕球エラー', '送球エラー': '送球エラー', '落球エラー': '落球エラー',
   '野手選択': '野手選択', '犠打': '犠打', '犠飛': '犠飛',
   '安+エラー': '安打(相手失策)', '二塁打+エラー': '二塁打(相手失策)', '三塁打+エラー': '三塁打(相手失策)',
@@ -62,7 +62,7 @@ function outsAddedFor(finalLabel) {
   const pf = parseFieldResult(finalLabel);
   if (pf) {
     if (pf.suffix === '併殺打') return 2;
-    if (['ゴロ', '飛', '犠打', '犠飛'].includes(pf.suffix)) return 1;
+    if (['ゴロ', '飛', '邪飛', '直飛', '犠打', '犠飛'].includes(pf.suffix)) return 1;
   }
   return 0;
 }
@@ -306,6 +306,7 @@ export function buildPlayByPlayReport(pitches) {
       hitX: last.hitX, hitY: last.hitY,
       fielder: pf ? pf.fielder : null,
       flight: pf ? getBallFlight(finalLabel) : null,
+      throwTo: last.throwTo || null,
       count: { balls: finalCount.b, strikes: finalCount.s, outs: outsAfter },
     });
     buf = [];

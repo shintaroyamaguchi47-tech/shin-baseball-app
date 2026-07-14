@@ -5,7 +5,7 @@ import { buildScorebookData } from '../scorebookData.js';
 // scorerImport.test.jsと同じ合成GDF(1イニング完結)を使い回す。
 // 表: 三振 → 四球 → (盗塁) レフト前ヒット(2走が3塁へ) → レフト犠飛(得点) → 遊ゴロ
 // 裏: 投ゴロ → 見逃し三振 → セカンドフライ
-const makeGdf = () => {
+const makeGdf = (cdOverride) => {
   const mk = (id, name) => ({ id, disp: name, last: name, first: '', num: String(id % 100), arm: 5, pos: 0, grd: 0, birth: '', note: '', tm1: '' });
   const pl = [
     ...Array.from({ length: 9 }, (_, i) => mk(101 + i, `攻${i + 1}`)),
@@ -17,7 +17,7 @@ const makeGdf = () => {
     ordnum: 9, dheh: -1, icomp: -1, alias: '',
   });
   const cf = { date: '2026-07-12', title: 'テスト大会', stadi: 'テスト球場', gteams: [gteam(101), gteam(201)] };
-  const cd = [
+  const cd = cdOverride ? cdOverride.join('=') : [
     'It01', 'Na', 'Pb', 'Pl', 'Ps', 'Ps', 'Ko',
     'Nb', 'Na', 'Pb', 'Pb', 'Pb', 'Pb', 'BbJ01',
     'Nb', 'Na', 'Ru1', 'Pb', 'RsJ12', 'Pl', 'H1--74J23J01', 'Wtf',
@@ -94,6 +94,62 @@ describe('buildScorebookData (合成GDFデータ)', () => {
       expect(s.LOB).toBeGreaterThanOrEqual(0);
       expect(s.LOB).toBeLessThanOrEqual(3);
     });
+  });
+
+  it('犠飛はkind=sacfly(四角枠+アーチ描画用)になる', () => {
+    const cell = sb.top.slots[3].cellsByInning[1][0]; // レフト犠飛
+    expect(cell.resultKind).toBe('sacfly');
+    expect(cell.resultNotation).toBe('7');
+  });
+});
+
+describe('buildScorebookData (Th送球経路・邪飛・ライナーの表記)', () => {
+  // 実データに現れたトークン形を使う:
+  //   Go--23Th0O01 = 一塁手ゴロ→投手ベースカバー(3-1)
+  //   Fol-44O00    = サードライナー(直飛)
+  //   Fof-21O00    = 一塁手ファウルフライ(邪飛)
+  const cd = [
+    'It01', 'Na', 'Go--23Th0O01',
+    'Nb', 'Na', 'Fol-44O00',
+    'Nb', 'Na', 'Fof-21O00', 'At01Lb0',
+    'Ib01', 'Na', 'Go--54Th3O01', 'Ab01', 'Ah',
+  ];
+  const { savedGame } = convertScorerGame(makeGdf(cd));
+  const { gameState, gameInfo, lineups, pitches } = savedGame.data;
+  const sb = buildScorebookData(pitches, lineups, gameInfo, gameState);
+
+  it('送球先(Th)から実際の守備経路を表記する(一ゴロ→投手カバー=3-1)', () => {
+    const cell = sb.top.slots[0].cellsByInning[1][0];
+    expect(cell.finalLabel).toBe('ファーストゴロ');
+    expect(cell.resultNotation).toBe('3-1');
+    expect(cell.resultKind).toBe('ground');
+  });
+
+  it('通常と異なる送球先も実経路で表記する(遊ゴロ→二塁手=6-4)', () => {
+    const cell = sb.bottom.slots[0].cellsByInning[1][0];
+    expect(cell.resultNotation).toBe('6-4');
+  });
+
+  it('ライナー(Fol)はkind=liner・番号のみの表記になる', () => {
+    const cell = sb.top.slots[1].cellsByInning[1][0];
+    expect(cell.finalLabel).toBe('サード直飛');
+    expect(cell.resultNotation).toBe('5');
+    expect(cell.resultKind).toBe('liner');
+    expect(cell.isBatterOut).toBe(true);
+  });
+
+  it('ファウルフライ(Fof)はF+数字の表記になる', () => {
+    const cell = sb.top.slots[2].cellsByInning[1][0];
+    expect(cell.finalLabel).toBe('ファースト邪飛');
+    expect(cell.resultNotation).toBe('F3');
+    expect(cell.resultKind).toBe('foulfly');
+    expect(cell.isBatterOut).toBe(true);
+  });
+
+  it('邪飛・直飛でもイニング内アウト順が正しく進む', () => {
+    expect(sb.top.slots[0].cellsByInning[1][0].outOrderInInning).toBe(1);
+    expect(sb.top.slots[1].cellsByInning[1][0].outOrderInInning).toBe(2);
+    expect(sb.top.slots[2].cellsByInning[1][0].outOrderInInning).toBe(3);
   });
 });
 

@@ -18,7 +18,7 @@
 //   -{zc}         : 打球位置(1桁目=野手0-8(投〜右)、2桁目=深さ)
 //   Cb / Cf       : 犠打 / 犠飛
 //   E{s|k|j|c}{n} : エラー(送球/捕球/落球/捕手)
-//   Th{n}/Tb{n}   : 送球先の野手(表示用)
+//   Th{n}/Tb{n}   : 送球先/送球元の野手(n=0投〜8右)。Thはスコアブックの守備経路に使う
 //   J{f}{t}       : 走者の移動 f=元(0=打者,1-3=塁) t=到達(1-3=塁,4=生還,a-d=エラーで同)
 //                   ※成分は出現順に適用され、fは適用時点の位置を指す
 //   O{f}{t}/T{f}{t}: 走者アウト(フォース/タッチ)
@@ -325,7 +325,7 @@ export function convertScorerGame(text) {
   // アプリ準拠の自動進塁と、GDFのJ/O/T成分の示す実際の結果との差分を
   // 進塁/走者アウトイベントで埋める。withPitch=falseなら最終球は出力済み(四球など)。
   const finalizePlay = (comps, eventType, opts = {}) => {
-    const { resultStr = null, zone = null, pitchOuts = 0, outReason = '走塁死' } = opts;
+    const { resultStr = null, zone = null, pitchOuts = 0, outReason = '走塁死', throwTo = [] } = opts;
     const batterId = battingTeam().slots[batterSlot] ?? `slot-${inning}-${isTop}-${batterSlot}`;
     const before = { ...bases };
     const target = applyComps(before, batterId, comps);
@@ -377,7 +377,7 @@ export function convertScorerGame(text) {
     }
 
     // 最終球を出力し、アプリ準拠の自動進塁を状態へ反映
-    if (resultStr) emitPitch(resultStr, zone ? { hitX: zone.x, hitY: zone.y } : {});
+    if (resultStr) emitPitch(resultStr, { ...(zone ? { hitX: zone.x, hitY: zone.y } : {}), ...(throwTo.length ? { throwTo } : {}) });
     const auto = applyAutoMovement(bases, eventType, batterId);
     auto.scored.forEach((id) => addRun(id));
     bases = auto.bases;
@@ -403,6 +403,9 @@ export function convertScorerGame(text) {
     const comps = parseComps(t);
     const zone = zoneInfo(t);
     const pos = posName(zone);
+    // Th{n}=送球先の野手(0=投〜8=右)。出現順に守備位置番号へ変換し、
+    // スコアブックの守備経路表記(6-4, 3-1等)に使う。Tb{n}は送球元なので含めない。
+    const throwTo = [...t.matchAll(/Th(\d)/g)].map((m) => Number(m[1]) + 1).filter((n) => n >= 1 && n <= 9);
     const batterOut = comps.some((c) => (c.kind === 'O' || c.kind === 'T') && c.from === 0);
     const runnerOuts = comps.filter((c) => (c.kind === 'O' || c.kind === 'T') && c.from !== 0);
     const errM = t.match(/E([a-z])\d/);
@@ -419,7 +422,7 @@ export function convertScorerGame(text) {
       resultStr = `${pos}犠飛`; eventType = 'sac_fly'; pitchOuts = 1;
     } else if (batterOut) {
       // 打者アウト。走者アウトが同時にある場合(併殺)は走塁死イベントで表現する
-      resultStr = /^Go/.test(t) ? `${pos}ゴロ` : `${pos}飛`;
+      resultStr = /^Go/.test(t) ? `${pos}ゴロ` : /^Fol/.test(t) ? `${pos}直飛` : /^Fof/.test(t) ? `${pos}邪飛` : `${pos}飛`;
       eventType = 'out'; pitchOuts = 1;
     } else if (errM) {
       const word = errM[1] === 'j' ? '落球エラー' : (errM[1] === 's' || t.includes('Th')) ? '送球エラー' : '捕球エラー';
@@ -431,7 +434,7 @@ export function convertScorerGame(text) {
       warn(`結果の判別が曖昧なため安打として扱いました: ${t}`);
       resultStr = `${pos}安`; eventType = 'single'; pitchOuts = 0;
     }
-    finalizePlay(comps, eventType, { resultStr, zone, pitchOuts });
+    finalizePlay(comps, eventType, { resultStr, zone, pitchOuts, throwTo });
   };
 
   // ---- トークン処理 ----
