@@ -63,7 +63,7 @@ function resultNotation(pf, finalLabel, lastStrikeType, throwTo) {
     // 公式: 捕球エラー=Ef, 送球エラー=Et(守備位置番号+記号)
     case '捕球エラー': case '落球エラー': return { text: `${num}Ef`, kind: 'error' };
     case '送球エラー': return { text: `${num}Et`, kind: 'error' };
-    case '野手選択': return { text: 'Fc', kind: 'fc' };
+    case '野手選択': return { text: hasRoute ? `Fc ${route()}` : 'Fc', kind: 'fc' };
     case '犠打': return { text: hasRoute ? route() : (n === 3 ? '3' : `${num}-3`), kind: 'sac' };
     case '犠飛': return { text: `${num}`, kind: 'sacfly' };
     case '安+エラー': case '二塁打+エラー': case '三塁打+エラー': return { text: `${num}+E`, kind: 'hit' };

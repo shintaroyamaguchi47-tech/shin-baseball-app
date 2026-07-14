@@ -66,6 +66,15 @@ function destOf(ch) {
   return { a: 1, b: 2, c: 3, d: 4 }[ch] ?? null;
 }
 
+// Tb{n}(送球元)/Th{n}(送球先)を出現順の守備位置番号配列にする(盗塁死/牽制死の経路表記用)。
+// defaultThrower(Tbが無い場合の送球元。盗塁死=捕手2, 牽制死=投手1)を先頭に補う。
+function throwRoute(token, defaultThrower) {
+  const nums = [...token.matchAll(/T[bh](\d)/g)].map((m) => Number(m[1]) + 1).filter((n) => n >= 1 && n <= 9);
+  if (!nums.length) return null;
+  if (!/Tb\d/.test(token)) nums.unshift(defaultThrower);
+  return nums.filter((v, i, a) => i === 0 || v !== a[i - 1]).join('-');
+}
+
 // 結果トークンから J/O/T 成分を出現順に取り出す(Th2/Tb1は野手指定なのでマッチしない)
 function parseComps(token) {
   const comps = [];
@@ -307,9 +316,10 @@ export function convertScorerGame(text) {
     }
   };
 
-  // 走者アウトイベント。deferFlip=trueなら3アウト処理を呼び元へ委ねる
-  const emitRunnerOut = (base, reason, deferFlip = false) => {
-    emitEvent(`${base}塁走者が${reason}`);
+  // 走者アウトイベント。deferFlip=trueなら3アウト処理を呼び元へ委ねる。
+  // route(例: '2-6')があれば理由に併記し、スコアブックの守備経路表記に使う
+  const emitRunnerOut = (base, reason, deferFlip = false, route = null) => {
+    emitEvent(`${base}塁走者が${reason}${route ? `(${route})` : ''}`);
     bases[base] = null;
     outs++;
     if (!deferFlip) flipIfThreeOuts();
@@ -518,11 +528,12 @@ export function convertScorerGame(text) {
     }
     if (/^R[fr]/.test(t)) {
       const reason = t[1] === 'f' ? '盗塁死' : '牽制死';
+      const route = throwRoute(t, t[1] === 'f' ? 2 : 1);
       const comps = parseComps(t);
       comps.sort((a, b) => b.from - a.from);
       comps.forEach((c) => {
         if (c.from < 1 || !bases[c.from]) return;
-        if (c.kind === 'O' || c.kind === 'T') emitRunnerOut(c.from, reason);
+        if (c.kind === 'O' || c.kind === 'T') emitRunnerOut(c.from, reason, false, route);
         else if (c.kind === 'J' && c.to !== c.from) emitAdvance(c.from, c.to, '盗塁');
       });
       continue;

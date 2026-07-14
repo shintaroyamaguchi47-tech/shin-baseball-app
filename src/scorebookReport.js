@@ -58,7 +58,9 @@
       // ダイヤ外枠(薄グレー)
       svg += '<polygon points="' + [P[0], P[1], P[2], P[3]].map(function (p) { return p[0] + ',' + p[1]; }).join(' ') + '" fill="none" stroke="#9ca3af" stroke-width="1"/>';
 
-      var reached = cell.scored ? 4 : (cell.basesReachedFinal || 0);
+      // 辺のなぞりは「打者自身の打席結果」で到達した塁までに限る(単打=1辺, 二塁打=2辺 ...)。
+      // その後の盗塁/野手選択等での追加進塁は隅ラベルの数字で示すため、辺は追加でなぞらない。
+      var reached = cell.basesReachedInitial || 0;
       // 到達した辺を細くなぞる(控えめ)
       for (var b = 1; b <= reached && b <= 4; b++) {
         var e = legEnd[b];
@@ -82,6 +84,9 @@
         svg += '<line x1="' + (mx - 4) + '" y1="' + (my - 4) + '" x2="' + (mx + 4) + '" y2="' + (my + 4) + '" stroke="#dc2626" stroke-width="1.8"/>';
         var ov = P[ob === 4 ? 0 : ob];
         svg += '<text x="' + ov[0] + '" y="' + (ov[1] + 4) + '" text-anchor="middle" font-size="10" font-weight="bold" fill="#dc2626">' + (OUT_ROMAN[cell.outOnBasesOrderInInning] || cell.outOnBasesOrderInInning) + '</text>';
+        // 盗塁死/牽制死の守備経路(例: 2-6)。理由文字列の末尾「(2-6)」から抽出する
+        var routeM = /\(([\d-]+)\)/.exec(cell.outOnBasesReason || '');
+        if (routeM) svg += '<text x="' + ov[0] + '" y="' + (ov[1] + (ob === 4 ? -6 : 14)) + '" text-anchor="middle" font-size="8" fill="#dc2626">' + esc(routeM[1]) + '</text>';
       }
       svg += '</svg>';
       return svg;
