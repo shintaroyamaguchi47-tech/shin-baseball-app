@@ -37,6 +37,14 @@ function parseFieldResult(result) {
   return null;
 }
 
+// 中断打席の判定: 走者アウト等で打席の途中に3アウトが成立すると、最終球が
+// 素の投球結果(ボール/ストライク等)のまま打席が終わる。この打席は完了して
+// いないため、打者アウト・打席数・打数には数えない(公式規則と同じ)。
+const INCOMPLETE_PA_LABELS = new Set(['ボール', 'ストライク', '空振り', 'ファウル', 'バント空振り', 'バントファウル', 'ウエスト']);
+function isIncompletePA(finalLabel) {
+  return INCOMPLETE_PA_LABELS.has(finalLabel) || (finalLabel || '').startsWith('牽制');
+}
+
 // App.jsx の resultToEventType と同じ判定ルール(意図的に重複させて整合を保つ)
 function resultToEventType(result) {
   if (result.includes('本塁打')) return 'homerun';
@@ -50,6 +58,7 @@ function resultToEventType(result) {
 }
 
 function classifyEventType(finalLabel) {
+  if (isIncompletePA(finalLabel)) return 'none'; // 中断打席(走者進塁なし・アウトなし)
   if (['三振', 'スリーバント失敗', '振り逃げアウト'].includes(finalLabel)) return 'out';
   if (finalLabel === '振り逃げ') return 'error';
   if (finalLabel === '四球' || finalLabel === '死球') return 'walk';
@@ -169,6 +178,10 @@ function applyRunnerEventNarrative(bases, result, narrative) {
 
 function buildMainNarrative(batterTag, finalLabel, eventType, pf, scored, basesBefore) {
   const lines = [];
+  if (isIncompletePA(finalLabel)) {
+    lines.push(`${batterTag}、打席途中で3アウト(攻守交代)。`);
+    return lines;
+  }
   if (pf) {
     const label = SUFFIX_LABEL[pf.suffix] || pf.suffix;
     if (eventType === 'single' || eventType === 'double' || eventType === 'triple') {
@@ -330,4 +343,4 @@ export function buildPlayByPlayReport(pitches) {
   return innings;
 }
 
-export { circledPos, parseFieldResult };
+export { circledPos, parseFieldResult, isIncompletePA };

@@ -9,7 +9,7 @@
 // 実際のスコアブックの書き方に合わせるため)。
 // ============================================================
 
-import { buildPlayByPlayReport, parseFieldResult } from './playByPlay.js';
+import { buildPlayByPlayReport, parseFieldResult, isIncompletePA } from './playByPlay.js';
 
 const POS_NUM = {
   'ピッチャー': 1, 'キャッチャー': 2, 'ファースト': 3, 'セカンド': 4, 'サード': 5,
@@ -28,6 +28,8 @@ function fielderNum(fielderName) { return POS_NUM[fielderName] || null; }
 // 無い場合のみ一般的な想定(内野ゴロ→一塁送球)で近似する。
 function resultNotation(pf, finalLabel, lastStrikeType, throwTo) {
   if (!pf) {
+    // 中断打席(打席途中で3アウト): 結果は無い。投球マークだけを残す
+    if (isIncompletePA(finalLabel)) return { text: '', kind: 'incomplete' };
     if (['三振', 'スリーバント失敗'].includes(finalLabel)) {
       // 公式(bbscorer): K=見逃し三振, Ks=空振り三振
       return lastStrikeType === 'looking'
@@ -102,6 +104,7 @@ function newCell(play) {
     key: play.key,
     inning: play.inning,
     isTop: play.isTop,
+    incompletePA: isIncompletePA(play.finalLabel),
     battingSlot: play.batter,
     batterName: play.batterName,
     batterPos: play.batterPos,
@@ -236,6 +239,7 @@ function emptyPlayerTotal(name, pos, bats) {
 function accumulatePlayerTotal(totals, cell) {
   const key = cell.batterName;
   if (!totals.has(key)) totals.set(key, emptyPlayerTotal(cell.batterName, cell.batterPos, null));
+  if (cell.incompletePA) return; // 中断打席は打席数に数えない(選手行は作る)
   const t = totals.get(key);
   t.PA++;
   const { eventType, finalLabel } = cell;
@@ -363,7 +367,7 @@ export function buildScorebookData(pitches, lineups, gameInfo, gameState) {
       const name = c.pitcherName || '不明';
       if (!pitcherMap.has(name)) { pitcherMap.set(name, emptyPitcherStat(name, '右')); pitcherOrder.push(name); }
       const st = pitcherMap.get(name);
-      st.battersFaced++;
+      if (!c.incompletePA) st.battersFaced++;
       if (['single', 'double', 'triple', 'homerun'].includes(c.eventType)) st.hits++;
       if (c.eventType === 'homerun') st.hr++;
       if (c.finalLabel === '四球') st.bb++;

@@ -153,6 +153,49 @@ describe('buildScorebookData (Th送球経路・邪飛・ライナーの表記)',
   });
 });
 
+describe('buildScorebookData (打席途中の3アウトチェンジ=中断打席)', () => {
+  // 実データ(scorer_game.txt 2回裏)のパターン: 打席の途中で走者が盗塁死になり
+  // 3アウト成立、打席が完了しないままイニングが終わる。
+  // 表: 2アウト後、攻3が単打で出塁 → 攻4の打席中(2球目の後)に盗塁死で3アウト。
+  const cd = [
+    'It01', 'Na', 'Fo--74O00',
+    'Nb', 'Na', 'Go--54Th2O01',
+    'Nb', 'Na', 'H1--64J01',
+    'Nb', 'Na', 'Pb', 'Pl', 'RfTb1Th5T12', 'At01Lb0',
+    'Ib01', 'Na', 'Fo--84O00', 'Ab01', 'Ah',
+  ];
+  const { savedGame } = convertScorerGame(makeGdf(cd));
+  const { gameState, gameInfo, lineups, pitches } = savedGame.data;
+  const sb = buildScorebookData(pitches, lineups, gameInfo, gameState);
+
+  it('中断打席には結果表記もアウト採番も付けない(投球マークのみ)', () => {
+    const cell = sb.top.slots[3].cellsByInning[1][0];
+    expect(cell.incompletePA).toBe(true);
+    expect(cell.resultNotation).toBe('');
+    expect(cell.resultKind).toBe('incomplete');
+    expect(cell.isBatterOut).toBe(false);
+    expect(cell.outOrderInInning).toBeNull();
+    expect(cell.pitchMarks.length).toBe(2); // ボール+見逃しの2球は残す
+  });
+
+  it('中断打席は打席数・打数に数えない', () => {
+    const t = sb.top.playerTotals.find((p) => p.name === '攻4');
+    expect(t.PA).toBe(0);
+    expect(t.AB).toBe(0);
+  });
+
+  it('盗塁死した走者(攻3)が3アウト目として採番される', () => {
+    const cell = sb.top.slots[2].cellsByInning[1][0];
+    expect(cell.outOnBasesOrderInInning).toBe(3);
+  });
+
+  it('相手投手の対戦打者数に中断打席を含めない', () => {
+    // 表の打者(攻1〜攻4)と対戦したのは後攻チームの投手
+    const p = sb.bottom.pitcherStats[0];
+    expect(p.battersFaced).toBe(3); // 攻4の中断打席は含めない
+  });
+});
+
 describe('buildScorebookData (最終球より後のイベントが先行走者を進める場合の回帰テスト)', () => {
   // 攻1が四球で出塁 → 攻2の二塁打で1塁走者(攻1)が自動的に3塁まで進む →
   // その二塁打の"直後"(次打者の初球より前)に記録された暴投イベントで
