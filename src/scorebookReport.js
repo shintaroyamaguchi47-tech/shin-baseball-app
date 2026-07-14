@@ -111,9 +111,12 @@
       return h;
     }
 
-    // 守備結果テキスト(青字)。十字で区切られた4区画=各塁に対応するため、
-    // 打席結果は「打者自身が到達した塁」の区画に書く(実際のスコアブックと同じ):
-    //   アウト・単打・出塁=右下(一塁), 二塁打=右上(二塁), 三塁打=左上(三塁), 本塁打=左下(本塁)。
+    // 守備結果テキスト(青字)。十字で区切られた4区画=各塁に対応する(右下=一塁,
+    // 右上=二塁, 左上=三塁, 左下=本塁)。「どの塁まで進んだか」は各区画の隅ラベル
+    // (cornerLabelsHtml、何番打者の打席で進塁したか)で示す一方、打席結果そのもの
+    // (5-3, K, 二塁打/三塁打/本塁打の番号等)は二塁打・本塁打であっても常に
+    // 右下(本塁→一塁の区画)に書く。実際のスコアブック(bbscorer)の複数試合を
+    // 確認して検証済み: 本塁打も二塁打も守備結果の番号は右下に記載されている。
     // 公式凡例: 飛球=アーチ")", ライナー=直線"－", ファウルフライ=F+アーチ, 犠打/犠飛=四角枠。
     // 四球/死球/その他出塁は到達理由として隅ラベル(B/死/DIB)で表示済みなので、
     // 守備結果としては重複させない。
@@ -125,8 +128,7 @@
       if (cell.resultKind === 'fly' || cell.resultKind === 'sacfly' || cell.resultKind === 'foulfly') inner = '<span class="sb-arch">' + inner + '</span>';
       else if (cell.resultKind === 'liner') inner = '<span class="sb-line">' + inner + '</span>';
       if (cell.resultKind === 'sac' || cell.resultKind === 'sacfly') inner = '<span class="sb-sqr">' + inner + '</span>';
-      var pos = cell.basesReachedInitial === 2 ? 'sb-res-tr' : cell.basesReachedInitial === 3 ? 'sb-res-tl' : cell.basesReachedInitial === 4 ? 'sb-res-bl' : 'sb-res-br';
-      return '<div class="sb-res ' + pos + '">' + inner + '</div>';
+      return '<div class="sb-res sb-res-br">' + inner + '</div>';
     }
 
     function cellBoxHtml(cell) {
@@ -259,12 +261,9 @@
       + '.sb-dia{position:absolute;top:0;left:0;}'
       + '.sb-c{position:absolute;font-size:7px;font-weight:bold;color:#334155;line-height:1;z-index:2;}'
       + '.sb-c-tl{top:2px;left:1px;}.sb-c-tr{top:2px;right:1px;}.sb-c-bl{bottom:12px;left:1px;}.sb-c-br{bottom:12px;right:1px;}'
-      // 守備結果は十字の4区画=各塁のうち「打者が到達した塁」の区画に配置する
+      // 守備結果は常に十字の右下区画(本塁→一塁)に配置する(二塁打/三塁打/本塁打でも同じ)
       + '.sb-res{position:absolute;font-size:9px;font-weight:bold;color:#1d4ed8;line-height:1;z-index:2;white-space:nowrap;}'
-      + '.sb-res-br{right:1px;bottom:1px;text-align:right;}'   // 一塁(アウト・単打・出塁)
-      + '.sb-res-tr{right:1px;top:1px;text-align:right;}'      // 二塁(二塁打)
-      + '.sb-res-tl{left:1px;top:1px;text-align:left;}'        // 三塁(三塁打)
-      + '.sb-res-bl{left:1px;bottom:1px;text-align:left;}'     // 本塁(本塁打)
+      + '.sb-res-br{right:1px;bottom:1px;text-align:right;}'
       + '.sb-res-k{color:#1d4ed8;}'
       + '.sb-arch{border-top:1.4px solid #1d4ed8;border-radius:60% 60% 0 0/100% 100% 0 0;padding:0 2px;}'
       + '.sb-line{border-top:1.4px solid #1d4ed8;padding:0 1px;}'
