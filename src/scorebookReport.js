@@ -147,14 +147,25 @@
         + '</div>';
     }
 
+    // 打席結果欄用の配球文字列(投球順)。●=ボール ◎=見逃し ○=空振り ー=ファウル 死=死球
+    var SEQ_CHAR = { ball: '●', looking: '◎', swing: '○', foul: 'ー', hbp: '死' };
+    function pitchSeqText(cell) {
+      return (cell.pitchMarks || [])
+        .filter(function (m) { return m.type !== 'pickoff'; })
+        .map(function (m) { return SEQ_CHAR[m.type] || '○'; })
+        .join('');
+    }
+
     // 各打者行の右端「打席結果」欄。イニング順に 新聞様式の短縮表記(中安, 遊ゴ等)
-    // = 打席結果+打球方向 を並べる。安打は赤太字で強調。
+    // = 打席結果+打球方向 と、その打席の配球(投球マーク列)を並べる。安打は赤太字で強調。
     function paSummaryHtml(slot, n) {
       var items = [];
       for (var i = 1; i <= n; i++) {
         (slot.cellsByInning[i] || []).forEach(function (c) {
           if (!c.summaryText) return; // 中断打席は結果なし
-          items.push('<div class="sb-pa' + (c.isHit ? ' sb-pa-hit' : '') + '"><span class="sb-pa-inn">' + i + '</span>' + esc(c.summaryText) + '</div>');
+          items.push('<div class="sb-pa"><span class="sb-pa-inn">' + i + '</span>'
+            + '<span class="sb-pa-res' + (c.isHit ? ' sb-pa-hit' : '') + '">' + esc(c.summaryText) + '</span>'
+            + '<span class="sb-pa-seq">' + pitchSeqText(c) + '</span></div>');
         });
       }
       return items.join('');
@@ -254,7 +265,7 @@
       + '<span>投球(上→下): <b>●</b>ボール <b>◎</b>見逃し <b>○</b>空振り <b>－</b>ファウル</span>'
       + '<span>ダイヤ: 中央 ●=得点(自責) ○=得点(非自責) ℓ=残塁 / Ⅰ Ⅱ Ⅲ=イニング内アウト順 / 赤斜線=走塁死 / 隅の数字(n)=n番打者の打席で進塁 [n]=生還</span>'
       + '<span>結果: K見逃し三振 Ks空振り三振 5-3等=ゴロ守備経路 数字にアーチ=飛球 直線=ライナー F+数字=邪飛 四角枠=犠打/犠飛 Ef捕球失 Et送球失 Fc野選 B四球 S盗塁 WP暴投 PB捕逸 / 隅数字(n)=進塁 [n]=生還した打順</span>'
-      + '<span>打者一巡: 同一イニングに2打席以上ある場合はイニング列を左右に分割(左が1打席目、破線が区切り) / 右端「打席結果」欄: 小さい数字=イニング、赤太字=安打</span>'
+      + '<span>打者一巡: 同一イニングに2打席以上ある場合はイニング列を左右に分割(左が1打席目、破線が区切り) / 右端「打席結果」欄: 小さい数字=イニング、赤太字=安打、結果の右に配球(●ボール ◎見逃し ○空振り ーファウル)</span>'
       + '</div>';
 
     var body = '<div class="sb-page">' + header + legend
@@ -285,12 +296,14 @@
       + '.sb-td{width:66px;padding:0;background:#fff;}'
       // 打者一巡でイニング列を分割したときの2列目以降(同一イニングの続き)。境界を破線にして区別
       + '.sb-td-cont{border-left:1px dashed #cbd5e1 !important;}'
-      // 右端の「打席結果」欄(新聞様式の短縮表記)
-      + '.sb-hd-pa{width:52px;font-size:9px;}'
+      // 右端の「打席結果」欄(新聞様式の短縮表記+配球)
+      + '.sb-hd-pa{width:88px;font-size:9px;}'
       + '.sb-td-pa{background:#fff;text-align:left !important;vertical-align:top;padding:2px 3px !important;}'
-      + '.sb-pa{font-size:8.5px;line-height:1.4;white-space:nowrap;color:#334155;}'
-      + '.sb-pa-hit{color:#dc2626;font-weight:bold;}'
+      + '.sb-pa{font-size:8.5px;line-height:1.4;color:#334155;}'
+      + '.sb-pa-res{font-weight:bold;}'
+      + '.sb-pa-hit{color:#dc2626;}'
       + '.sb-pa-inn{display:inline-block;min-width:8px;margin-right:2px;font-size:7px;color:#94a3b8;font-weight:normal;}'
+      + '.sb-pa-seq{margin-left:3px;font-size:7px;letter-spacing:-0.5px;color:#64748b;word-break:break-all;}'
       + '.sb-box{position:relative;display:flex;align-items:stretch;border-bottom:1px dotted #e2e8f0;min-height:52px;}'
       + '.sb-box:last-child{border-bottom:none;}'
       + '.sb-pit{width:14px;display:flex;flex-direction:column;align-items:center;padding-top:1px;gap:0px;flex-shrink:0;}'
