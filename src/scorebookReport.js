@@ -7,6 +7,7 @@
     var w = window.open('', '_blank');
     if (!w) return false;
     var sb = data.scorebook, gi = data.gameInfo, gs = data.gameState;
+    var options = Object.assign({ includeCharts: true, includeStats: true }, data.options || {});
     function esc(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
     var OUT_ROMAN = { 1: 'Ⅰ', 2: 'Ⅱ', 3: 'Ⅲ' };
@@ -307,10 +308,12 @@
       }
       var cols = '<colgroup><col style="width:26px"><col style="width:66px"><col style="width:26px">';
       for (var i = 1; i <= n; i++) for (var k = 0; k < subCols[i]; k++) cols += '<col style="width:66px">';
-      cols += '<col></colgroup>'; // 右端パネルは残り幅を全て使う
+      if (options.includeCharts) cols += '<col>';
+      cols += '</colgroup>'; // 右端パネルは残り幅を全て使う
       var head = '<tr><th class="sb-hd-narrow">打順</th><th class="sb-hd-name">名前</th><th class="sb-hd-narrow">守備</th>';
       for (var i = 1; i <= n; i++) head += '<th' + (subCols[i] > 1 ? ' colspan="' + subCols[i] + '"' : '') + '>' + i + '</th>';
-      head += '<th class="sb-hd-pa">打席内容(コース・球種)・打球方向</th></tr>';
+      if (options.includeCharts) head += '<th class="sb-hd-pa">打席内容(コース・球種)・打球方向</th>';
+      head += '</tr>';
       var rows = team.slots.map(function (slot) {
         var names = slot.occupants.length ? slot.occupants.map(function (o) { return esc(o.name); }).join('<br>') : '<span class="sb-empty">-</span>';
         var poss = slot.occupants.map(function (o) { return esc(o.pos || ''); }).join('<br>');
@@ -322,13 +325,13 @@
             tds += '<td class="' + cls + '">' + (cellsArr[k] ? cellBoxHtml(cellsArr[k]) : '') + '</td>';
           }
         }
-        tds += '<td class="sb-td-pa">' + paPanelHtml(slot, n) + '</td>';
+        if (options.includeCharts) tds += '<td class="sb-td-pa">' + paPanelHtml(slot, n) + '</td>';
         return '<tr><td class="sb-hd-narrow">' + slot.order + '</td><td class="sb-hd-name">' + names + '</td><td class="sb-hd-narrow">' + poss + '</td>' + tds + '</tr>';
       }).join('');
       function multiRow(label, keys) {
         var cells = '';
         for (var i = 1; i <= n; i++) { var s = team.inningSummary[i - 1]; cells += '<td' + (subCols[i] > 1 ? ' colspan="' + subCols[i] + '"' : '') + '>' + (s ? keys.map(function (k) { return s[k]; }).join('|') : '') + '</td>'; }
-        return '<tr class="sb-sum-row"><td colspan="3" class="sb-sum-label">' + label + '</td>' + cells + '<td></td></tr>';
+        return '<tr class="sb-sum-row"><td colspan="3" class="sb-sum-label">' + label + '</td>' + cells + (options.includeCharts ? '<td></td>' : '') + '</tr>';
       }
       var foot = multiRow('安打|四球|三振', ['H', 'BB', 'K']) + multiRow('得点|残塁', ['R', 'LOB']) + multiRow('投球数|失策', ['pitchCount', 'E']);
       return '<table class="sb-grid">' + cols + '<thead style="background:' + headBg + ';">' + head + '</thead><tbody>' + rows + '</tbody><tfoot>' + foot + '</tfoot></table>';
@@ -360,9 +363,15 @@
       return parts.length ? '<div class="sb-footnote">' + parts.join(' 　 ') + '</div>' : '';
     }
 
-    function teamSection(team, teamName, accent, headBg) {
+    function teamScoreSection(team, teamName, accent, headBg) {
       return '<section class="sb-section"><h3 class="sb-team-heading" style="color:' + accent + ';">' + esc(teamName) + '</h3>'
-        + teamGrid(team, teamName, headBg) + extraBaseFootnote(team) + playerTotalsTable(team) + pitcherTable(team) + '</section>';
+        + teamGrid(team, teamName, headBg) + extraBaseFootnote(team) + '</section>';
+    }
+
+    function teamStatsSection(team, teamName, accent) {
+      return '<section class="sb-stats-section"><h3 class="sb-team-heading" style="color:' + accent + ';">' + esc(teamName) + ' 個人成績</h3>'
+        + '<h4 class="sb-subheading">打撃成績</h4>' + playerTotalsTable(team)
+        + '<h4 class="sb-subheading">投手成績</h4>' + pitcherTable(team) + '</section>';
     }
 
     var header = '<div class="sb-header"><div class="sb-header-main"><span class="sb-vs">' + esc(gi.teamTop) + ' 対 ' + esc(gi.teamBottom) + '</span>'
@@ -376,9 +385,19 @@
       + '<span>右端「打席内容」: コース図は 数字=投球順 ○=ボール ●=ストライク系 点線=最終球 色=球種(赤スト 青スラ 緑シュート 橙カーブ 紫落ちる球 水シンカー) / 結果 青=安打 赤=三振 / コース記録が無い打席は配球記号列(●ボール ◎見逃し ○空振り ーファウル) / 打球図: 青=安打 赤=アウト 橙=エラー</span>'
       + '</div>';
 
-    var body = '<div class="sb-page">' + header + legend
-      + teamSection(sb.top, gi.teamTop, '#1d4ed8', '#eff6ff')
-      + teamSection(sb.bottom, gi.teamBottom, '#e11d48', '#fef2f2') + '</div>';
+    function sheet(content, pageLabel, includeLegend) {
+      return '<article class="sb-sheet">' + header + (includeLegend ? legend : '') + content
+        + '<div class="sb-page-footer">' + esc(pageLabel) + '</div></article>';
+    }
+
+    var body = '<div class="sb-page">'
+      + sheet(teamScoreSection(sb.top, gi.teamTop, '#1d4ed8', '#eff6ff'), '先攻スコア', true)
+      + sheet(teamScoreSection(sb.bottom, gi.teamBottom, '#e11d48', '#fef2f2'), '後攻スコア', true);
+    if (options.includeStats) {
+      body += sheet(teamStatsSection(sb.top, gi.teamTop, '#1d4ed8')
+        + teamStatsSection(sb.bottom, gi.teamBottom, '#e11d48'), '個人成績', false);
+    }
+    body += '</div>';
 
     var reportFileName = [gi.date, gi.teamTop, 'vs', gi.teamBottom, 'scorebook'].join('_').replace(/[\\\/:*?"<>|]/g, '').replace(/\s+/g, '_');
     var closeBtn = '<div class="no-print" style="position:fixed;top:12px;right:16px;z-index:999;display:flex;gap:8px;">'
@@ -388,6 +407,9 @@
     var style = '@page{size:A4 landscape;margin:8mm;}'
       + 'body{margin:0;background:#f1f5f9;font-family:sans-serif;color:#1e293b;}'
       + '.sb-page{max-width:1500px;margin:0 auto;padding:16px 20px 40px;}'
+      + '.sb-sheet{position:relative;box-sizing:border-box;background:#fff;break-after:page;page-break-after:always;padding-bottom:20px;min-height:190mm;}'
+      + '.sb-sheet:last-child{break-after:auto;page-break-after:auto;}'
+      + '.sb-page-footer{position:absolute;right:0;bottom:0;font-size:8px;color:#94a3b8;}'
       + '.sb-header-main{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;}'
       + '.sb-vs{font-size:18px;font-weight:bold;}.sb-meta{font-size:11px;color:#64748b;}'
       + 'table.sb-linescore{border-collapse:collapse;font-size:11px;margin-bottom:8px;}'
@@ -436,8 +458,10 @@
       + 'table.sb-totals,table.sb-pitchers{border-collapse:collapse;font-size:9px;width:100%;margin:4px 0;}'
       + '.sb-totals th,.sb-totals td,.sb-pitchers th,.sb-pitchers td{border:1px solid #e2e8f0;padding:2px 3px;text-align:center;}'
       + '.sb-totals thead,.sb-pitchers thead{background:#f1f5f9;}.sb-tot-name{text-align:left !important;font-weight:bold;}'
+      + '.sb-stats-section{margin-bottom:14px;}.sb-subheading{font-size:10px;margin:6px 0 2px;color:#475569;}'
       + '.sb-footnote{font-size:9px;color:#64748b;margin:2px 0 4px;}'
-      + '@media print{body{background:#fff !important;}*{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;}.no-print{display:none !important;}}';
+      + '@media screen{.sb-sheet{margin:0 auto 18px;padding:12px;box-shadow:0 8px 30px rgba(15,23,42,.12);}}'
+      + '@media print{body{background:#fff!important;}.sb-page{margin:0;padding:0;max-width:none;}.sb-sheet{height:194mm;min-height:194mm;overflow:hidden;padding:0 0 4mm;}*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}.no-print{display:none!important;}}';
 
     w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>' + esc(reportFileName) + '<\/title><style>' + style + '<\/style><\/head><body>' + closeBtn + body + '<\/body><\/html>');
     w.document.close();

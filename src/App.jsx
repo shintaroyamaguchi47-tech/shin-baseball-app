@@ -147,6 +147,8 @@ import { buildScorebookData } from './scorebookData.js';
       const [scoreEdit, setScoreEdit] = useState(null); // スコア修正モーダル: {source:'current'|'saved', gameId, top:[], bottom:[]}
       const [showRecordEditor, setShowRecordEditor] = useState(false); // 全記録修正モーダル: 一球ごとの記録を一覧して修正
       const [showExport, setShowExport] = useState(false);
+      const [showScorebookPrintSettings, setShowScorebookPrintSettings] = useState(false);
+      const [scorebookPrintOptions, setScorebookPrintOptions] = useState({ includeCharts: true, includeStats: true });
       const [showInPlayResult, setShowInPlayResult] = useState(false);
       const [showErrorTypeSelect, setShowErrorTypeSelect] = useState(false);
       const [showAdvanceModal, setShowAdvanceModal] = useState(false);
@@ -834,7 +836,7 @@ import { buildScorebookData } from './scorebookData.js';
 
       const handleScorebookPrint = () => {
         const scorebook = buildScorebookData(pitches, lineups, gameInfo, gameState);
-        const ok = window.generateScorebookReport({ scorebook, gameInfo, gameState });
+        const ok = window.generateScorebookReport({ scorebook, gameInfo, gameState, options: scorebookPrintOptions });
         if (!ok) showToast('ポップアップをブロックしていると印刷できません', 'error');
       };
 
@@ -2466,7 +2468,7 @@ import { buildScorebookData } from './scorebookData.js';
                 <div className="p-6 space-y-3">
                   <button onClick={() => { copyShareText(); setShowExport(false); }} className="w-full bg-blue-600 text-white py-3.5 rounded-xl font-black shadow-md active:scale-95 flex items-center justify-center gap-2">📋 試合結果をコピー (LINE用)</button>
                   <button onClick={() => { copyForAI(); setShowExport(false); }} className="w-full bg-indigo-600 text-white py-3.5 rounded-xl font-black shadow-md active:scale-95 flex items-center justify-center gap-2">🤖 AI分析用データをコピー</button>
-                  <button onClick={() => { handleScorebookPrint(); setShowExport(false); }} className="w-full bg-amber-600 text-white py-3.5 rounded-xl font-black shadow-md active:scale-95 flex items-center justify-center gap-2">📖 スコアブックPDF</button>
+                  <button onClick={() => { setShowExport(false); setShowScorebookPrintSettings(true); }} className="w-full bg-amber-600 text-white py-3.5 rounded-xl font-black shadow-md active:scale-95 flex items-center justify-center gap-2">📖 スコアブックPDF</button>
                   <button onClick={() => { exportCSV(); setShowExport(false); }} className="w-full bg-emerald-600 text-white py-3 rounded-xl font-bold shadow-md active:scale-95 flex items-center justify-center gap-2">📊 CSV ダウンロード</button>
                   <button onClick={() => { exportData(); setShowExport(false); }} className="w-full bg-slate-700 text-white py-3 rounded-xl font-bold shadow-md active:scale-95 flex items-center justify-center gap-2">💾 JSON バックアップ</button>
                   <div className="pt-3 border-t border-slate-200">
@@ -2478,6 +2480,35 @@ import { buildScorebookData } from './scorebookData.js';
                 </div>
                 <div className="p-4 border-t border-slate-200 bg-slate-50">
                   <button onClick={() => setShowExport(false)} className="w-full bg-slate-200 text-slate-700 py-3 rounded-xl font-bold">閉じる</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {showScorebookPrintSettings && (
+            <div className="fixed inset-0 bg-slate-900/70 z-[220] flex items-center justify-center p-4 backdrop-blur-sm">
+              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-200">
+                <div className="p-4 border-b border-amber-200 bg-amber-50 flex justify-between items-center">
+                  <div>
+                    <h2 className="text-lg font-black text-amber-900">📖 スコアブックPDF設定</h2>
+                    <p className="text-[11px] text-amber-700 font-bold mt-0.5">A4横・先攻と後攻は別ページで出力</p>
+                  </div>
+                  <button onClick={() => setShowScorebookPrintSettings(false)} className="text-amber-500 hover:text-amber-900 font-bold text-xl px-2">✕</button>
+                </div>
+                <div className="p-6 space-y-4">
+                  <label className="flex items-start gap-3 p-4 rounded-2xl border border-slate-200 bg-slate-50 cursor-pointer">
+                    <input type="checkbox" checked={scorebookPrintOptions.includeCharts} onChange={e => setScorebookPrintOptions(o => ({ ...o, includeCharts: e.target.checked }))} className="mt-1 h-5 w-5 accent-amber-600" />
+                    <span><span className="block font-black text-slate-800">配球図・打球方向図を載せる</span><span className="block text-xs text-slate-500 mt-1">各打者行の右側に、打席ごとの配球と打球方向を表示します。</span></span>
+                  </label>
+                  <label className="flex items-start gap-3 p-4 rounded-2xl border border-slate-200 bg-slate-50 cursor-pointer">
+                    <input type="checkbox" checked={scorebookPrintOptions.includeStats} onChange={e => setScorebookPrintOptions(o => ({ ...o, includeStats: e.target.checked }))} className="mt-1 h-5 w-5 accent-amber-600" />
+                    <span><span className="block font-black text-slate-800">個人成績ページを付ける</span><span className="block text-xs text-slate-500 mt-1">両チームの打撃成績・投手成績を、スコアとは別ページにまとめます。</span></span>
+                  </label>
+                  <div className="rounded-xl bg-blue-50 border border-blue-100 p-3 text-xs text-blue-800 font-bold leading-relaxed">出力構成：1ページ目 先攻 ／ 2ページ目 後攻{scorebookPrintOptions.includeStats ? ' ／ 3ページ目 個人成績' : ''}</div>
+                </div>
+                <div className="p-4 border-t border-slate-200 bg-slate-50 flex gap-3">
+                  <button onClick={() => setShowScorebookPrintSettings(false)} className="flex-1 bg-white border border-slate-300 text-slate-700 py-3 rounded-xl font-bold">キャンセル</button>
+                  <button onClick={() => { handleScorebookPrint(); setShowScorebookPrintSettings(false); }} className="flex-[1.5] bg-amber-600 text-white py-3 rounded-xl font-black shadow-md active:scale-95">印刷画面を開く</button>
                 </div>
               </div>
             </div>
