@@ -469,7 +469,7 @@
       + '.sb-stats-section{margin-bottom:14px;}.sb-subheading{font-size:10px;margin:6px 0 2px;color:#475569;}'
       + '.sb-footnote{font-size:9px;color:#64748b;margin:2px 0 4px;}'
       + '@media screen{.sb-sheet{margin:0 auto 18px;padding:12px;box-shadow:0 8px 30px rgba(15,23,42,.12);}}'
-      + '@media print{@page{size:A4 landscape;margin:5mm;}body{background:#fff!important;}.sb-page{margin:0;padding:0;max-width:none;}.sb-sheet{height:197mm;min-height:0;overflow:hidden;padding:0;}.sb-score-sheet .sb-sheet-content{zoom:.78;width:128.2%;}.sb-stats-sheet .sb-sheet-content{zoom:.88;width:113.6%;}.sb-page-footer{bottom:1mm;}*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}.no-print{display:none!important;}}';
+      + '@media print{@page{size:A4 landscape;margin:5mm;}body{background:#fff!important;}.sb-page{margin:0;padding:0;max-width:none;}.sb-sheet{box-sizing:border-box;height:176mm;min-height:0;overflow:hidden;padding:0;}.sb-score-sheet .sb-sheet-content{transform:scale(.76);transform-origin:top left;width:131.58%;}.sb-stats-sheet .sb-sheet-content{transform:scale(.82);transform-origin:top left;width:121.95%;}.sb-page-footer{bottom:1mm;}*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}.no-print{display:none!important;}}';
 
     w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>' + esc(reportFileName) + '<\/title><style>' + style + '<\/style><\/head><body>' + closeBtn + body + '<\/body><\/html>');
     w.document.close();
