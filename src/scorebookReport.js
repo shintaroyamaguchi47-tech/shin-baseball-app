@@ -147,9 +147,17 @@
         + '</div>';
     }
 
-    function inningTd(cellsArr) {
-      if (!cellsArr || !cellsArr.length) return '<td class="sb-td"></td>';
-      return '<td class="sb-td">' + cellsArr.map(cellBoxHtml).join('') + '</td>';
+    // 各打者行の右端「打席結果」欄。イニング順に 新聞様式の短縮表記(中安, 遊ゴ等)
+    // = 打席結果+打球方向 を並べる。安打は赤太字で強調。
+    function paSummaryHtml(slot, n) {
+      var items = [];
+      for (var i = 1; i <= n; i++) {
+        (slot.cellsByInning[i] || []).forEach(function (c) {
+          if (!c.summaryText) return; // 中断打席は結果なし
+          items.push('<div class="sb-pa' + (c.isHit ? ' sb-pa-hit' : '') + '"><span class="sb-pa-inn">' + i + '</span>' + esc(c.summaryText) + '</div>');
+        });
+      }
+      return items.join('');
     }
 
     function linescoreTable() {
@@ -171,23 +179,41 @@
 
     function teamGrid(team, teamName, headBg) {
       var n = sb.maxInning;
+      // 打者一巡(同一イニングに同じ打順の打席が2つ以上)のイニングは列を左右に分割し、
+      // 左が先の打席になるよう横に並べる(上下に積まない)。ヘッダはcolspanで1つのイニング番号。
+      var subCols = {};
+      for (var i = 1; i <= n; i++) {
+        var mx = 1;
+        team.slots.forEach(function (slot) { var c = slot.cellsByInning[i]; if (c && c.length > mx) mx = c.length; });
+        subCols[i] = mx;
+      }
+      var cols = '<colgroup><col style="width:26px"><col style="width:66px"><col style="width:26px">';
+      for (var i = 1; i <= n; i++) for (var k = 0; k < subCols[i]; k++) cols += '<col>';
+      cols += '<col style="width:52px"></colgroup>';
       var head = '<tr><th class="sb-hd-narrow">打順</th><th class="sb-hd-name">名前</th><th class="sb-hd-narrow">守備</th>';
-      for (var i = 1; i <= n; i++) head += '<th>' + i + '</th>';
-      head += '</tr>';
+      for (var i = 1; i <= n; i++) head += '<th' + (subCols[i] > 1 ? ' colspan="' + subCols[i] + '"' : '') + '>' + i + '</th>';
+      head += '<th class="sb-hd-pa">打席結果</th></tr>';
       var rows = team.slots.map(function (slot) {
         var names = slot.occupants.length ? slot.occupants.map(function (o) { return esc(o.name); }).join('<br>') : '<span class="sb-empty">-</span>';
         var poss = slot.occupants.map(function (o) { return esc(o.pos || ''); }).join('<br>');
         var tds = '';
-        for (var i = 1; i <= n; i++) tds += inningTd(slot.cellsByInning[i]);
+        for (var i = 1; i <= n; i++) {
+          var cellsArr = slot.cellsByInning[i] || [];
+          for (var k = 0; k < subCols[i]; k++) {
+            var cls = 'sb-td' + (k > 0 ? ' sb-td-cont' : '');
+            tds += '<td class="' + cls + '">' + (cellsArr[k] ? cellBoxHtml(cellsArr[k]) : '') + '</td>';
+          }
+        }
+        tds += '<td class="sb-td-pa">' + paSummaryHtml(slot, n) + '</td>';
         return '<tr><td class="sb-hd-narrow">' + slot.order + '</td><td class="sb-hd-name">' + names + '</td><td class="sb-hd-narrow">' + poss + '</td>' + tds + '</tr>';
       }).join('');
       function multiRow(label, keys) {
         var cells = '';
-        for (var i = 1; i <= n; i++) { var s = team.inningSummary[i - 1]; cells += '<td>' + (s ? keys.map(function (k) { return s[k]; }).join('|') : '') + '</td>'; }
-        return '<tr class="sb-sum-row"><td colspan="3" class="sb-sum-label">' + label + '</td>' + cells + '</tr>';
+        for (var i = 1; i <= n; i++) { var s = team.inningSummary[i - 1]; cells += '<td' + (subCols[i] > 1 ? ' colspan="' + subCols[i] + '"' : '') + '>' + (s ? keys.map(function (k) { return s[k]; }).join('|') : '') + '</td>'; }
+        return '<tr class="sb-sum-row"><td colspan="3" class="sb-sum-label">' + label + '</td>' + cells + '<td></td></tr>';
       }
       var foot = multiRow('安打|四球|三振', ['H', 'BB', 'K']) + multiRow('得点|残塁', ['R', 'LOB']) + multiRow('投球数|失策', ['pitchCount', 'E']);
-      return '<table class="sb-grid"><thead style="background:' + headBg + ';">' + head + '</thead><tbody>' + rows + '</tbody><tfoot>' + foot + '</tfoot></table>';
+      return '<table class="sb-grid">' + cols + '<thead style="background:' + headBg + ';">' + head + '</thead><tbody>' + rows + '</tbody><tfoot>' + foot + '</tfoot></table>';
     }
 
     function playerTotalsTable(team) {
@@ -228,6 +254,7 @@
       + '<span>投球(上→下): <b>●</b>ボール <b>◎</b>見逃し <b>○</b>空振り <b>－</b>ファウル</span>'
       + '<span>ダイヤ: 中央 ●=得点(自責) ○=得点(非自責) ℓ=残塁 / Ⅰ Ⅱ Ⅲ=イニング内アウト順 / 赤斜線=走塁死 / 隅の数字(n)=n番打者の打席で進塁 [n]=生還</span>'
       + '<span>結果: K見逃し三振 Ks空振り三振 5-3等=ゴロ守備経路 数字にアーチ=飛球 直線=ライナー F+数字=邪飛 四角枠=犠打/犠飛 Ef捕球失 Et送球失 Fc野選 B四球 S盗塁 WP暴投 PB捕逸 / 隅数字(n)=進塁 [n]=生還した打順</span>'
+      + '<span>打者一巡: 同一イニングに2打席以上ある場合はイニング列を左右に分割(左が1打席目、破線が区切り) / 右端「打席結果」欄: 小さい数字=イニング、赤太字=安打</span>'
       + '</div>';
 
     var body = '<div class="sb-page">' + header + legend
@@ -256,6 +283,14 @@
       + '.sb-hd-narrow{width:26px;}.sb-hd-name{width:66px;font-weight:bold;font-size:9px;text-align:left !important;padding-left:3px !important;}'
       + '.sb-empty{color:#cbd5e1;}'
       + '.sb-td{width:66px;padding:0;background:#fff;}'
+      // 打者一巡でイニング列を分割したときの2列目以降(同一イニングの続き)。境界を破線にして区別
+      + '.sb-td-cont{border-left:1px dashed #cbd5e1 !important;}'
+      // 右端の「打席結果」欄(新聞様式の短縮表記)
+      + '.sb-hd-pa{width:52px;font-size:9px;}'
+      + '.sb-td-pa{background:#fff;text-align:left !important;vertical-align:top;padding:2px 3px !important;}'
+      + '.sb-pa{font-size:8.5px;line-height:1.4;white-space:nowrap;color:#334155;}'
+      + '.sb-pa-hit{color:#dc2626;font-weight:bold;}'
+      + '.sb-pa-inn{display:inline-block;min-width:8px;margin-right:2px;font-size:7px;color:#94a3b8;font-weight:normal;}'
       + '.sb-box{position:relative;display:flex;align-items:stretch;border-bottom:1px dotted #e2e8f0;min-height:52px;}'
       + '.sb-box:last-child{border-bottom:none;}'
       + '.sb-pit{width:14px;display:flex;flex-direction:column;align-items:center;padding-top:1px;gap:0px;flex-shrink:0;}'

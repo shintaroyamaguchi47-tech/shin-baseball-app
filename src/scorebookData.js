@@ -21,6 +21,45 @@ const RBI_ELIGIBLE = new Set(['single', 'double', 'triple', 'homerun', 'walk', '
 
 function fielderNum(fielderName) { return POS_NUM[fielderName] || null; }
 
+const POS_KANJI = {
+  'ピッチャー': '投', 'キャッチャー': '捕', 'ファースト': '一', 'セカンド': '二', 'サード': '三',
+  'ショート': '遊', 'レフト': '左', 'センター': '中', 'ライト': '右',
+};
+
+// 打席結果の新聞様式の短縮表記(中安, 遊ゴ, 左飛, 三振, 四球 等)。
+// スコアブック横の「打席結果」欄に使う。打球方向は守備位置の漢字1字で表す。
+function summaryNotation(pf, finalLabel) {
+  if (!pf) {
+    if (isIncompletePA(finalLabel)) return '';
+    if (['三振', 'スリーバント失敗', '振り逃げアウト'].includes(finalLabel)) return '三振';
+    if (finalLabel === '振り逃げ') return '振逃';
+    if (finalLabel === '四球') return '四球';
+    if (finalLabel === '死球') return '死球';
+    if (finalLabel === 'その他出塁') return '出塁';
+    return finalLabel || '';
+  }
+  const k = POS_KANJI[pf.fielder] || '';
+  switch (pf.suffix) {
+    case '安': return `${k}安`;
+    case '二塁打': return `${k}二`;
+    case '三塁打': return `${k}三`;
+    case '本塁打': return `${k}本`;
+    case 'ゴロ': return `${k}ゴ`;
+    case '飛': return `${k}飛`;
+    case '邪飛': return `${k}邪飛`;
+    case '直飛': return `${k}直`;
+    case '併殺打': return `${k}併`;
+    case '捕球エラー': case '落球エラー': case '送球エラー': return `${k}失`;
+    case '野手選択': return `${k}野選`;
+    case '犠打': return `${k}犠打`;
+    case '犠飛': return `${k}犠飛`;
+    case '安+エラー': return `${k}安`;
+    case '二塁打+エラー': return `${k}二`;
+    case '三塁打+エラー': return `${k}三`;
+    default: return `${k}${pf.suffix || ''}`;
+  }
+}
+
 // 最終結果の表記(守備位置番号ベース)＋描画用の種別(kind)を返す。
 // スコアラー様式に合わせ、三振は最終ストライクの空振り/見逃しでKs/Kcを分ける。
 // 飛球はkind='fly'として番号にアーチ、ライナーは直線、犠打/犠飛は四角枠(レンダラー側)。
@@ -113,6 +152,7 @@ function newCell(play) {
     eventType: play.eventType,
     resultNotation: res.text,
     resultKind: res.kind,
+    summaryText: summaryNotation(pf, play.finalLabel),
     flight: play.flight || ballFlight(play.finalLabel),
     fielder: pf ? pf.fielder : null,
     isBatterOut: play.isOut,
