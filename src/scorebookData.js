@@ -21,6 +21,13 @@ const RBI_ELIGIBLE = new Set(['single', 'double', 'triple', 'homerun', 'walk', '
 
 function fielderNum(fielderName) { return POS_NUM[fielderName] || null; }
 
+// 守備位置→打球方向チャート上の近似座標(App.jsxのsprayCoordMapと同じ値)
+const SPRAY_POS = {
+  'レフト': { x: 60, y: 70 }, 'センター': { x: 120, y: 50 }, 'ライト': { x: 180, y: 70 },
+  'ショート': { x: 95, y: 115 }, 'セカンド': { x: 145, y: 115 },
+  'サード': { x: 88, y: 138 }, 'ピッチャー': { x: 120, y: 135 }, 'ファースト': { x: 152, y: 138 }, 'キャッチャー': { x: 120, y: 178 },
+};
+
 const POS_KANJI = {
   'ピッチャー': '投', 'キャッチャー': '捕', 'ファースト': '一', 'セカンド': '二', 'サード': '三',
   'ショート': '遊', 'レフト': '左', 'センター': '中', 'ライト': '右',
@@ -135,7 +142,7 @@ function newCell(play) {
   const pf = parseFieldResult(play.finalLabel);
   const pitchMarks = play.pitchRows
     .filter((r) => !r.isEvent)
-    .map((r) => ({ type: pitchMarkType(r.label), label: r.label }));
+    .map((r) => ({ type: pitchMarkType(r.label), label: r.label, course: r.course ?? null, pitchType: r.pitchType || null }));
   // 三振のKs/Kc判定用に、最後のストライク種別(見逃し/空振り)を取る
   const lastStrike = [...pitchMarks].reverse().find((m) => m.type === 'looking' || m.type === 'swing');
   const res = resultNotation(pf, play.finalLabel, lastStrike ? lastStrike.type : null, play.throwTo);
@@ -181,6 +188,9 @@ function newCell(play) {
     hitX: play.hitX,
     hitY: play.hitY,
     hasHitLocation: play.hasHitLocation,
+    // 打球方向チャート用の近似座標(実座標が無い場合、捕球した守備位置から補う)。
+    // 座標系はApp.jsxのSprayChartと同じ240x200(本塁=120,185)。
+    sprayFallback: pf ? SPRAY_POS[pf.fielder] || null : null,
   };
 }
 

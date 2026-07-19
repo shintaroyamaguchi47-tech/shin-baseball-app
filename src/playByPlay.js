@@ -287,7 +287,7 @@ export function buildPlayByPlayReport(pitches) {
       else if (['ストライク', '空振り', 'バント空振り'].includes(p.result)) s++;
       else if (['ファウル', 'バントファウル'].includes(p.result) && s < 2) s++;
       const isLast = p === last;
-      pitchRows.push({ isEvent: false, seq, label: p.result, count: isLast ? null : `${b}-${s}` });
+      pitchRows.push({ isEvent: false, seq, label: p.result, count: isLast ? null : `${b}-${s}`, course: p.course ?? null, pitchType: p.type || null });
       if (isLast) {
         const basesBefore = bases;
         const moved = applyMovement(bases, eventType, batterId);

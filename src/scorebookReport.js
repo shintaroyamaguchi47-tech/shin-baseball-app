@@ -156,19 +156,126 @@
         .join('');
     }
 
-    // 各打者行の右端「打席結果」欄。イニング順に 新聞様式の短縮表記(中安, 遊ゴ等)
-    // = 打席結果+打球方向 と、その打席の配球(投球マーク列)を並べる。安打は赤太字で強調。
-    function paSummaryHtml(slot, n) {
+    // アプリ内「打席内容(コース・球種)」と同じ配色・様式のミニストライクゾーン図。
+    // 数字=投球順、○=ボール(白抜き)、●=ストライク系(塗り)、点線リング=最終球、色=球種。
+    var PT_COLORS = { 'ストレート': '#ef4444', 'スライダー': '#3b82f6', 'シュート': '#10b981', 'カーブ': '#f59e0b', '落ちる球': '#6366f1', 'シンカー': '#06b6d4' };
+    var ZONE_CS = 7; // 7x7グリッドのセルpx
+    function zoneChartSvg(cell) {
+      var marks = (cell.pitchMarks || []).filter(function (m) { return m.type !== 'pickoff'; });
+      var cs = ZONE_CS, sz = cs * 7;
+      var svg = '<svg width="' + sz + '" height="' + sz + '" viewBox="0 0 ' + sz + ' ' + sz + '" style="display:block;background:#fff;">';
+      for (var idx = 0; idx < 49; idx++) {
+        var row = Math.floor(idx / 7), col = idx % 7;
+        var isZone = row >= 2 && row <= 4 && col >= 2 && col <= 4;
+        svg += '<rect x="' + (col * cs) + '" y="' + (row * cs) + '" width="' + (cs - 0.4) + '" height="' + (cs - 0.4) + '" fill="' + (isZone ? '#f0f9ff' : '#f8fafc') + '" stroke="' + (isZone ? '#bae6fd' : '#e2e8f0') + '" stroke-width="0.3"/>';
+      }
+      svg += '<rect x="' + (2 * cs) + '" y="' + (2 * cs) + '" width="' + (3 * cs) + '" height="' + (3 * cs) + '" fill="none" stroke="#475569" stroke-width="1"/>';
+      var byPos = {};
+      marks.forEach(function (m, i) { if (m.course != null) { (byPos[m.course] = byPos[m.course] || []).push({ m: m, seq: i + 1 }); } });
+      var r = cs / 2 - 0.7;
+      Object.keys(byPos).forEach(function (courseKey) {
+        var ps = byPos[courseKey];
+        var cIdx = parseInt(courseKey, 10);
+        var row = Math.floor(cIdx / 7), col = cIdx % 7;
+        var baseCx = col * cs + cs / 2, baseCy = row * cs + cs / 2;
+        ps.forEach(function (e, pIdx) {
+          // 同一コースに複数球あれば円周上に散らす(App.jsxと同じ)
+          var angle = ps.length > 1 ? (pIdx / ps.length) * Math.PI * 2 - Math.PI / 2 : 0;
+          var dist = ps.length > 1 ? r * 0.6 : 0;
+          var cx = baseCx + Math.cos(angle) * dist, cy = baseCy + Math.sin(angle) * dist;
+          var color = PT_COLORS[e.m.pitchType] || '#94a3b8';
+          var isBall = e.m.type === 'ball';
+          if (e.seq === marks.length) svg += '<circle cx="' + cx + '" cy="' + cy + '" r="' + (r + 1.3) + '" fill="none" stroke="' + color + '" stroke-width="0.9" stroke-dasharray="1.5 1" opacity="0.75"/>';
+          svg += '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="' + (isBall ? '#fff' : color) + '" stroke="' + color + '" stroke-width="' + (isBall ? 0.9 : 0) + '" opacity="0.92"/>';
+          svg += '<text x="' + cx + '" y="' + (cy + 1.7) + '" text-anchor="middle" font-size="4.2" font-weight="900" fill="' + (isBall ? color : '#fff') + '">' + e.seq + '</text>';
+        });
+      });
+      svg += '</svg>';
+      return svg;
+    }
+
+    // 打者1人分の打球方向ミニチャート(App.jsxのSprayChartと同じ座標系240x200)。
+    // 青=安打, 赤=アウト, 橙=エラー/野選。ゴロ=ジグザグ, ライナー=直線, 飛球=点線弧, 本塁打=実線弧+二重丸。
+    function sprayChartSvg(cells) {
+      var HX = 120, HY = 185;
+      var pts = [];
+      cells.forEach(function (c) {
+        if (c.incompletePA) return;
+        var x = null, y = null;
+        if (c.hasHitLocation && c.hitX !== undefined && c.hitY !== undefined) { x = c.hitX; y = c.hitY; }
+        else if (c.sprayFallback) { x = c.sprayFallback.x; y = c.sprayFallback.y; }
+        if (x == null) return;
+        var isHit = ['single', 'double', 'triple', 'homerun'].indexOf(c.eventType) !== -1;
+        var color = isHit ? '#2563eb' : (c.eventType === 'error' || c.resultKind === 'fc') ? '#d97706' : '#dc2626';
+        pts.push({ x: x, y: y, color: color, flight: c.flight || 'fly' });
+      });
+      if (!pts.length) return '';
+      var svg = '<svg width="84" height="70" viewBox="0 0 240 200" style="display:block;background:#fff;">';
+      svg += '<path d="M 120 185 L 0 65 L 0 0 L 240 0 L 240 65 Z" fill="#f8fafc"/>';
+      svg += '<path d="M 120 185 L 8 70 Q 120 -25 232 70 Z" fill="#dcfce7"/>';
+      svg += '<path d="M 120 185 L 55 120 Q 120 70 185 120 Z" fill="#fef3c7" opacity="0.6"/>';
+      svg += '<path d="M 8 70 Q 120 -25 232 70" fill="none" stroke="#94a3b8" stroke-width="2"/>';
+      svg += '<line x1="120" y1="185" x2="8" y2="70" stroke="#fbbf24" stroke-width="1.5"/>';
+      svg += '<line x1="120" y1="185" x2="232" y2="70" stroke="#fbbf24" stroke-width="1.5"/>';
+      svg += '<polygon points="120,185 80,145 120,110 160,145" fill="none" stroke="#cbd5e1" stroke-width="1" stroke-dasharray="4,2"/>';
+      pts.forEach(function (p) {
+        var tx = p.x, ty = p.y;
+        if (p.flight === 'grounder') {
+          var dx = tx - HX, dy = ty - HY, dist = Math.sqrt(dx * dx + dy * dy) || 1;
+          var nx = -dy / dist, ny = dx / dist;
+          var steps = Math.max(4, Math.round(dist / 12));
+          var dd = 'M ' + HX + ' ' + HY;
+          for (var i = 1; i <= steps; i++) {
+            var t = i / steps, amp = (i % 2 === 0 ? 2 : -2) * (1 - t * 0.5);
+            dd += ' L ' + (HX + dx * t + nx * amp) + ' ' + (HY + dy * t + ny * amp);
+          }
+          svg += '<path d="' + dd + '" fill="none" stroke="' + p.color + '" stroke-width="2.5" opacity="0.85"/>';
+        } else if (p.flight === 'liner') {
+          svg += '<line x1="' + HX + '" y1="' + HY + '" x2="' + tx + '" y2="' + ty + '" stroke="' + p.color + '" stroke-width="3" opacity="0.85"/>';
+        } else if (p.flight === 'hr') {
+          var mx = (HX + tx) / 2, my = (HY + ty) / 2 - 20;
+          svg += '<path d="M ' + HX + ' ' + HY + ' Q ' + mx + ' ' + my + ' ' + tx + ' ' + ty + '" fill="none" stroke="' + p.color + '" stroke-width="3" opacity="0.85"/>';
+          svg += '<circle cx="' + tx + '" cy="' + ty + '" r="5" fill="' + p.color + '"/><circle cx="' + tx + '" cy="' + ty + '" r="9" fill="none" stroke="' + p.color + '" stroke-width="1.5"/>';
+        } else {
+          var mx2 = (HX + tx) / 2, my2 = (HY + ty) / 2 - 15;
+          svg += '<path d="M ' + HX + ' ' + HY + ' Q ' + mx2 + ' ' + my2 + ' ' + tx + ' ' + ty + '" fill="none" stroke="' + p.color + '" stroke-width="2.5" stroke-dasharray="5,3" opacity="0.85"/>';
+          svg += '<circle cx="' + tx + '" cy="' + ty + '" r="4.5" fill="' + p.color + '"/>';
+        }
+      });
+      svg += '</svg>';
+      return svg;
+    }
+
+    // 結果ラベルの配色(アプリ内「打席内容」と同じ: 安打=青, 三振=赤, 四死球=グレー)
+    function resultLabelColor(cell) {
+      if (cell.isHit) return '#1d4ed8';
+      if (['三振', 'スリーバント失敗', '振り逃げアウト'].indexOf(cell.finalLabel) !== -1) return '#ef4444';
+      if (['四球', '死球', 'その他出塁'].indexOf(cell.finalLabel) !== -1) return '#64748b';
+      return '#475569';
+    }
+
+    // 各打者行の右端「打席内容・打球方向」パネル。打席ごとに
+    // [イニング / コース・球種チャート / 結果] を並べ、末尾にその打者の打球方向図を置く。
+    // コース記録が無い打席(スコアラー取込等)はチャートの代わりに配球記号列を出す。
+    function paPanelHtml(slot, n) {
       var items = [];
+      var sprayCells = [];
       for (var i = 1; i <= n; i++) {
         (slot.cellsByInning[i] || []).forEach(function (c) {
           if (!c.summaryText) return; // 中断打席は結果なし
-          items.push('<div class="sb-pa"><span class="sb-pa-inn">' + i + '</span>'
-            + '<span class="sb-pa-res' + (c.isHit ? ' sb-pa-hit' : '') + '">' + esc(c.summaryText) + '</span>'
-            + '<span class="sb-pa-seq">' + pitchSeqText(c) + '</span></div>');
+          sprayCells.push(c);
+          var hasCourse = (c.pitchMarks || []).some(function (m) { return m.type !== 'pickoff' && m.course != null; });
+          var body = hasCourse
+            ? '<div class="sb-pn-zone">' + zoneChartSvg(c) + '</div>'
+            : '<div class="sb-pn-seq">' + pitchSeqText(c) + '</div>';
+          items.push('<div class="sb-pn-item"><div class="sb-pn-inn">' + i + '回</div>' + body
+            + '<div class="sb-pn-res" style="color:' + resultLabelColor(c) + ';">' + esc(c.summaryText) + '</div></div>');
         });
       }
-      return items.join('');
+      if (!items.length) return '';
+      var spray = sprayChartSvg(sprayCells);
+      if (spray) items.push('<div class="sb-pn-item"><div class="sb-pn-inn">打球</div><div class="sb-pn-zone">' + spray + '</div></div>');
+      return '<div class="sb-pn">' + items.join('') + '</div>';
     }
 
     function linescoreTable() {
@@ -199,11 +306,11 @@
         subCols[i] = mx;
       }
       var cols = '<colgroup><col style="width:26px"><col style="width:66px"><col style="width:26px">';
-      for (var i = 1; i <= n; i++) for (var k = 0; k < subCols[i]; k++) cols += '<col>';
-      cols += '<col style="width:52px"></colgroup>';
+      for (var i = 1; i <= n; i++) for (var k = 0; k < subCols[i]; k++) cols += '<col style="width:66px">';
+      cols += '<col></colgroup>'; // 右端パネルは残り幅を全て使う
       var head = '<tr><th class="sb-hd-narrow">打順</th><th class="sb-hd-name">名前</th><th class="sb-hd-narrow">守備</th>';
       for (var i = 1; i <= n; i++) head += '<th' + (subCols[i] > 1 ? ' colspan="' + subCols[i] + '"' : '') + '>' + i + '</th>';
-      head += '<th class="sb-hd-pa">打席結果</th></tr>';
+      head += '<th class="sb-hd-pa">打席内容(コース・球種)・打球方向</th></tr>';
       var rows = team.slots.map(function (slot) {
         var names = slot.occupants.length ? slot.occupants.map(function (o) { return esc(o.name); }).join('<br>') : '<span class="sb-empty">-</span>';
         var poss = slot.occupants.map(function (o) { return esc(o.pos || ''); }).join('<br>');
@@ -215,7 +322,7 @@
             tds += '<td class="' + cls + '">' + (cellsArr[k] ? cellBoxHtml(cellsArr[k]) : '') + '</td>';
           }
         }
-        tds += '<td class="sb-td-pa">' + paSummaryHtml(slot, n) + '</td>';
+        tds += '<td class="sb-td-pa">' + paPanelHtml(slot, n) + '</td>';
         return '<tr><td class="sb-hd-narrow">' + slot.order + '</td><td class="sb-hd-name">' + names + '</td><td class="sb-hd-narrow">' + poss + '</td>' + tds + '</tr>';
       }).join('');
       function multiRow(label, keys) {
@@ -265,7 +372,8 @@
       + '<span>投球(上→下): <b>●</b>ボール <b>◎</b>見逃し <b>○</b>空振り <b>－</b>ファウル</span>'
       + '<span>ダイヤ: 中央 ●=得点(自責) ○=得点(非自責) ℓ=残塁 / Ⅰ Ⅱ Ⅲ=イニング内アウト順 / 赤斜線=走塁死 / 隅の数字(n)=n番打者の打席で進塁 [n]=生還</span>'
       + '<span>結果: K見逃し三振 Ks空振り三振 5-3等=ゴロ守備経路 数字にアーチ=飛球 直線=ライナー F+数字=邪飛 四角枠=犠打/犠飛 Ef捕球失 Et送球失 Fc野選 B四球 S盗塁 WP暴投 PB捕逸 / 隅数字(n)=進塁 [n]=生還した打順</span>'
-      + '<span>打者一巡: 同一イニングに2打席以上ある場合はイニング列を左右に分割(左が1打席目、破線が区切り) / 右端「打席結果」欄: 小さい数字=イニング、赤太字=安打、結果の右に配球(●ボール ◎見逃し ○空振り ーファウル)</span>'
+      + '<span>打者一巡: 同一イニングに2打席以上ある場合はイニング列を左右に分割(左が1打席目、破線が区切り)</span>'
+      + '<span>右端「打席内容」: コース図は 数字=投球順 ○=ボール ●=ストライク系 点線=最終球 色=球種(赤スト 青スラ 緑シュート 橙カーブ 紫落ちる球 水シンカー) / 結果 青=安打 赤=三振 / コース記録が無い打席は配球記号列(●ボール ◎見逃し ○空振り ーファウル) / 打球図: 青=安打 赤=アウト 橙=エラー</span>'
       + '</div>';
 
     var body = '<div class="sb-page">' + header + legend
@@ -277,7 +385,7 @@
       + '<button onclick="window.print()" style="background:#1e293b;color:#fff;border:none;padding:8px 18px;border-radius:8px;font-size:13px;font-weight:bold;cursor:pointer;">🖨️ 印刷 / PDF</button>'
       + '<button onclick="window.close()" style="background:#e2e8f0;color:#334155;border:none;padding:8px 18px;border-radius:8px;font-size:13px;font-weight:bold;cursor:pointer;">✕ 閉じる</button></div>';
 
-    var style = '@page{size:landscape;margin:8mm;}'
+    var style = '@page{size:A4 landscape;margin:8mm;}'
       + 'body{margin:0;background:#f1f5f9;font-family:sans-serif;color:#1e293b;}'
       + '.sb-page{max-width:1500px;margin:0 auto;padding:16px 20px 40px;}'
       + '.sb-header-main{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;}'
@@ -286,8 +394,10 @@
       + '.sb-linescore th,.sb-linescore td{border:1px solid #cbd5e1;padding:3px 8px;text-align:center;}'
       + '.sb-ls-team{text-align:left !important;font-weight:bold;background:#f8fafc;}.sb-ls-total{font-weight:bold;background:#f8fafc;}'
       + '.sb-legend{display:flex;flex-direction:column;gap:1px;font-size:9px;color:#64748b;margin-bottom:10px;}'
-      + '.sb-team-heading{font-size:14px;font-weight:bold;margin:14px 0 4px;border-bottom:2px solid currentColor;padding-bottom:2px;}'
-      + '.sb-section{break-inside:avoid;page-break-inside:avoid;}'
+      + '.sb-team-heading{font-size:14px;font-weight:bold;margin:14px 0 4px;border-bottom:2px solid currentColor;padding-bottom:2px;break-after:avoid;page-break-after:avoid;}'
+      // 右端パネルで行が高くなりチーム表が1ページに収まらないことがあるため、
+      // セクション単位ではなく打者行単位で改ページする
+      + '.sb-grid tbody tr,.sb-grid tfoot tr{break-inside:avoid;page-break-inside:avoid;}'
       + 'table.sb-grid{border-collapse:collapse;font-size:9px;width:100%;margin-bottom:4px;table-layout:fixed;}'
       + '.sb-grid th,.sb-grid td{border:1px solid #cbd5e1;text-align:center;vertical-align:top;}'
       + '.sb-grid thead th{padding:3px 2px;font-size:10px;}'
@@ -296,14 +406,15 @@
       + '.sb-td{width:66px;padding:0;background:#fff;}'
       // 打者一巡でイニング列を分割したときの2列目以降(同一イニングの続き)。境界を破線にして区別
       + '.sb-td-cont{border-left:1px dashed #cbd5e1 !important;}'
-      // 右端の「打席結果」欄(新聞様式の短縮表記+配球)
-      + '.sb-hd-pa{width:88px;font-size:9px;}'
-      + '.sb-td-pa{background:#fff;text-align:left !important;vertical-align:top;padding:2px 3px !important;}'
-      + '.sb-pa{font-size:8.5px;line-height:1.4;color:#334155;}'
-      + '.sb-pa-res{font-weight:bold;}'
-      + '.sb-pa-hit{color:#dc2626;}'
-      + '.sb-pa-inn{display:inline-block;min-width:8px;margin-right:2px;font-size:7px;color:#94a3b8;font-weight:normal;}'
-      + '.sb-pa-seq{margin-left:3px;font-size:7px;letter-spacing:-0.5px;color:#64748b;word-break:break-all;}'
+      // 右端の「打席内容・打球方向」パネル(コース図+結果+打球方向図)
+      + '.sb-hd-pa{font-size:9px;}'
+      + '.sb-td-pa{background:#fff;text-align:left !important;vertical-align:top;padding:1px 2px !important;}'
+      + '.sb-pn{display:flex;flex-wrap:wrap;align-items:flex-start;gap:3px;}'
+      + '.sb-pn-item{display:flex;flex-direction:column;align-items:center;gap:1px;min-width:51px;}'
+      + '.sb-pn-inn{font-size:6.5px;font-weight:bold;color:#94a3b8;line-height:1;}'
+      + '.sb-pn-zone{border:1px solid #e2e8f0;border-radius:2px;overflow:hidden;}'
+      + '.sb-pn-res{font-size:8px;font-weight:bold;line-height:1.1;text-align:center;max-width:60px;}'
+      + '.sb-pn-seq{font-size:8px;letter-spacing:-0.5px;color:#475569;max-width:51px;word-break:break-all;text-align:center;line-height:1.3;padding-top:14px;min-height:35px;}'
       + '.sb-box{position:relative;display:flex;align-items:stretch;border-bottom:1px dotted #e2e8f0;min-height:52px;}'
       + '.sb-box:last-child{border-bottom:none;}'
       + '.sb-pit{width:14px;display:flex;flex-direction:column;align-items:center;padding-top:1px;gap:0px;flex-shrink:0;}'
@@ -326,7 +437,7 @@
       + '.sb-totals th,.sb-totals td,.sb-pitchers th,.sb-pitchers td{border:1px solid #e2e8f0;padding:2px 3px;text-align:center;}'
       + '.sb-totals thead,.sb-pitchers thead{background:#f1f5f9;}.sb-tot-name{text-align:left !important;font-weight:bold;}'
       + '.sb-footnote{font-size:9px;color:#64748b;margin:2px 0 4px;}'
-      + '@media print{body{background:#fff !important;}*{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;}.no-print{display:none !important;}.sb-section{break-inside:avoid;page-break-inside:avoid;}}';
+      + '@media print{body{background:#fff !important;}*{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;}.no-print{display:none !important;}}';
 
     w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>' + esc(reportFileName) + '<\/title><style>' + style + '<\/style><\/head><body>' + closeBtn + body + '<\/body><\/html>');
     w.document.close();
