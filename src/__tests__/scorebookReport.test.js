@@ -29,7 +29,7 @@ describe('スコアブックPDFのページ構成', () => {
 
   it('先攻・後攻・個人成績を独立した3シートにする', () => {
     const html = render({ includeCharts: true, includeStats: true });
-    expect((html.match(/class="sb-sheet"/g) || []).length).toBe(3);
+    expect((html.match(/<article class="sb-sheet /g) || []).length).toBe(3);
     expect(html).toContain('先攻スコア');
     expect(html).toContain('後攻スコア');
     expect(html).toContain('個人成績');
@@ -37,7 +37,7 @@ describe('スコアブックPDFのページ構成', () => {
 
   it('設定で図と個人成績ページを省略できる', () => {
     const html = render({ includeCharts: false, includeStats: false });
-    expect((html.match(/class="sb-sheet"/g) || []).length).toBe(2);
+    expect((html.match(/<article class="sb-sheet /g) || []).length).toBe(2);
     expect(html).not.toContain('<th class="sb-hd-pa">');
     expect(html).not.toContain('個人成績</div>');
   });

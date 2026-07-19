@@ -385,17 +385,24 @@
       + '<span>右端「打席内容」: コース図は 数字=投球順 ○=ボール ●=ストライク系 点線=最終球 色=球種(赤スト 青スラ 緑シュート 橙カーブ 紫落ちる球 水シンカー) / 結果 青=安打 赤=三振 / コース記録が無い打席は配球記号列(●ボール ◎見逃し ○空振り ーファウル) / 打球図: 青=安打 赤=アウト 橙=エラー</span>'
       + '</div>';
 
-    function sheet(content, pageLabel, includeLegend) {
-      return '<article class="sb-sheet">' + header + (includeLegend ? legend : '') + content
+    var compactLegend = '<div class="sb-legend-compact">'
+      + '<span>投球: ●ボール ◎見逃し ○空振り －ファウル</span>'
+      + '<span>ダイヤ: ●得点 ○非自責点 ℓ残塁 ⅠⅡⅢアウト順</span>'
+      + '<span>右図: 数字=投球順 点線=最終球／青=安打 赤=アウト 橙=失策</span>'
+      + '</div>';
+
+    function sheet(content, pageLabel, legendMode, kind) {
+      var legendHtml = legendMode === 'full' ? legend : legendMode === 'compact' ? compactLegend : '';
+      return '<article class="sb-sheet sb-' + kind + '-sheet"><div class="sb-sheet-content">' + header + legendHtml + content + '</div>'
         + '<div class="sb-page-footer">' + esc(pageLabel) + '</div></article>';
     }
 
     var body = '<div class="sb-page">'
-      + sheet(teamScoreSection(sb.top, gi.teamTop, '#1d4ed8', '#eff6ff'), '先攻スコア', true)
-      + sheet(teamScoreSection(sb.bottom, gi.teamBottom, '#e11d48', '#fef2f2'), '後攻スコア', true);
+      + sheet(teamScoreSection(sb.top, gi.teamTop, '#1d4ed8', '#eff6ff'), '先攻スコア', 'compact', 'score')
+      + sheet(teamScoreSection(sb.bottom, gi.teamBottom, '#e11d48', '#fef2f2'), '後攻スコア', 'compact', 'score');
     if (options.includeStats) {
       body += sheet(teamStatsSection(sb.top, gi.teamTop, '#1d4ed8')
-        + teamStatsSection(sb.bottom, gi.teamBottom, '#e11d48'), '個人成績', false);
+        + teamStatsSection(sb.bottom, gi.teamBottom, '#e11d48'), '個人成績', '', 'stats');
     }
     body += '</div>';
 
@@ -416,6 +423,7 @@
       + '.sb-linescore th,.sb-linescore td{border:1px solid #cbd5e1;padding:3px 8px;text-align:center;}'
       + '.sb-ls-team{text-align:left !important;font-weight:bold;background:#f8fafc;}.sb-ls-total{font-weight:bold;background:#f8fafc;}'
       + '.sb-legend{display:flex;flex-direction:column;gap:1px;font-size:9px;color:#64748b;margin-bottom:10px;}'
+      + '.sb-legend-compact{display:flex;flex-wrap:wrap;gap:2px 14px;font-size:7px;color:#64748b;margin:2px 0 4px;}'
       + '.sb-team-heading{font-size:14px;font-weight:bold;margin:14px 0 4px;border-bottom:2px solid currentColor;padding-bottom:2px;break-after:avoid;page-break-after:avoid;}'
       // 右端パネルで行が高くなりチーム表が1ページに収まらないことがあるため、
       // セクション単位ではなく打者行単位で改ページする
@@ -461,7 +469,7 @@
       + '.sb-stats-section{margin-bottom:14px;}.sb-subheading{font-size:10px;margin:6px 0 2px;color:#475569;}'
       + '.sb-footnote{font-size:9px;color:#64748b;margin:2px 0 4px;}'
       + '@media screen{.sb-sheet{margin:0 auto 18px;padding:12px;box-shadow:0 8px 30px rgba(15,23,42,.12);}}'
-      + '@media print{body{background:#fff!important;}.sb-page{margin:0;padding:0;max-width:none;}.sb-sheet{height:194mm;min-height:194mm;overflow:hidden;padding:0 0 4mm;}*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}.no-print{display:none!important;}}';
+      + '@media print{@page{size:A4 landscape;margin:5mm;}body{background:#fff!important;}.sb-page{margin:0;padding:0;max-width:none;}.sb-sheet{height:197mm;min-height:0;overflow:hidden;padding:0;}.sb-score-sheet .sb-sheet-content{zoom:.78;width:128.2%;}.sb-stats-sheet .sb-sheet-content{zoom:.88;width:113.6%;}.sb-page-footer{bottom:1mm;}*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}.no-print{display:none!important;}}';
 
     w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>' + esc(reportFileName) + '<\/title><style>' + style + '<\/style><\/head><body>' + closeBtn + body + '<\/body><\/html>');
     w.document.close();
