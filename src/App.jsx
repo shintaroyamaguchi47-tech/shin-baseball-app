@@ -7,11 +7,13 @@ import { buildPlayByPlayReport } from './playByPlay.js';
 import * as storage from './storage.js';
 import { asPlayerObj, findDuplicateNameIndices, mergeRosterPlayers, renamePlayersInGame, detectLineupRenames } from './teamUtils.js';
 import { renumberPitchNumbers, reassignPitchBatter } from './gameUtils.js';
+import AnalyticsHub from './components/AnalyticsHub.jsx';
+import { normalizeArchive } from './analyticsData.js';
 import { isScorerGdf, convertScorerGame } from './scorerImport.js';
 import { buildScorebookData } from './scorebookData.js';
 
     function App() {
-      const makeInitialGameState = () => ({ inning: 1, isTop: true, outs: 0, balls: 0, strikes: 0, batterTop: 1, batterBottom: 1, runners: { first: false, second: false, third: false }, runs: { top: [0,0,0,0,0,0,0,0,0], bottom: [0,0,0,0,0,0,0,0,0] } });
+      const makeInitialGameState = () => ({ inning: 1, isTop: true, outs: 0, balls: 0, strikes: 0, batterTop: 1, batterBottom: 1, runners: { first: false, second: false, third: false }, runs: { top: [0,0,0,0,0,0,0,0,0], bottom: [0,0,0,0,0,0,0,0,0] }, earnedRuns: { top: [0,0,0,0,0,0,0,0,0], bottom: [0,0,0,0,0,0,0,0,0] } });
       const makeInitialLineups = () => ({
         top: Array.from({length: 10}, (_,i)=>({ order: i<9 ? i+1 : '投', name: i<9 ? `先攻${i+1}番` : `先発投手`, pos: i===9?'投':'未', throws: '右', bats: '右' })),
         bottom: Array.from({length: 10}, (_,i)=>({ order: i<9 ? i+1 : '投', name: i<9 ? `後攻${i+1}番` : `先発投手`, pos: i===9?'投':'未', throws: '右', bats: '右' }))
@@ -36,6 +38,11 @@ import { buildScorebookData } from './scorebookData.js';
           runs: {
             top: ensureRunArray(merged.runs?.top, inning),
             bottom: ensureRunArray(merged.runs?.bottom, inning)
+          },
+          earnedRuns: {
+            // 旧データには自責点がないため得点を初期値として移行し、スコア修正画面で訂正できる
+            top: ensureRunArray(merged.earnedRuns?.top || merged.runs?.top, inning),
+            bottom: ensureRunArray(merged.earnedRuns?.bottom || merged.runs?.bottom, inning)
           },
           runners: { ...base.runners, ...(merged.runners || {}) }
         };
@@ -64,10 +71,13 @@ import { buildScorebookData } from './scorebookData.js';
         if (runScored > 0) newRunsArray[newInning - 1] = (newRunsArray[newInning - 1] || 0) + runScored;
         if (state.isTop) newBatterTop = newBatterTop === 9 ? 1 : newBatterTop + 1; else newBatterBottom = newBatterBottom === 9 ? 1 : newBatterBottom + 1;
         if (newOuts >= 3) { newOuts = 0; newRunners = { first: false, second: false, third: false }; if (state.isTop) newIsTop = false; else { newIsTop = true; newInning++; } }
-        const nextRuns = { ...state.runs, [state.isTop ? 'top' : 'bottom']: newRunsArray };
+        const scoringTeam = state.isTop ? 'top' : 'bottom';
+        const nextRuns = { ...state.runs, [scoringTeam]: newRunsArray };
+        const nextEarnedRuns = { ...state.earnedRuns, top: ensureRunArray(state.earnedRuns?.top, newInning), bottom: ensureRunArray(state.earnedRuns?.bottom, newInning) };
+        if (runScored > 0) nextEarnedRuns[scoringTeam][state.inning - 1] = (nextEarnedRuns[scoringTeam][state.inning - 1] || 0) + runScored;
         nextRuns.top = ensureRunArray(nextRuns.top, newInning);
         nextRuns.bottom = ensureRunArray(nextRuns.bottom, newInning);
-        return { ...state, outs: newOuts, balls: 0, strikes: 0, batterTop: newBatterTop, batterBottom: newBatterBottom, inning: newInning, isTop: newIsTop, runners: newRunners, runs: nextRuns };
+        return { ...state, outs: newOuts, balls: 0, strikes: 0, batterTop: newBatterTop, batterBottom: newBatterBottom, inning: newInning, isTop: newIsTop, runners: newRunners, runs: nextRuns, earnedRuns: nextEarnedRuns };
       };
       const resultToEventType = (result) => {
         if (result.includes('本塁打')) return 'homerun';
@@ -121,7 +131,7 @@ import { buildScorebookData } from './scorebookData.js';
         return normalizeGameState(loadStored('baseball_gameState_v2', makeInitialGameState()));
       });
       const [gameInfo, setGameInfo] = useState(() => {
-        return loadStored('baseball_gameInfo_v2', { date: new Date().toLocaleDateString('ja-JP').replace(/\//g, '-'), teamTop: '先攻チーム', teamBottom: '後攻チーム' });
+        return loadStored('baseball_gameInfo_v2', { date: new Date().toLocaleDateString('ja-JP').replace(/\//g, '-'), gameType: '練習試合', teamTop: '先攻チーム', teamBottom: '後攻チーム' });
       });
       const [lineups, setLineups] = useState(() => {
         return loadStored('baseball_lineups_v2', makeInitialLineups());
@@ -192,8 +202,13 @@ import { buildScorebookData } from './scorebookData.js';
       const [cumulativeDateTo, setCumulativeDateTo] = useState('');
       const [cumulativeTab, setCumulativeTab] = useState('batter');
       const [expandedCumKey, setExpandedCumKey] = useState(null);
+      const [showAnalyticsHub, setShowAnalyticsHub] = useState(false);
+      const [homeTeamName, setHomeTeamName] = useState(() => loadStored('baseball_homeTeam_v3', ''));
+      const [playerNotes, setPlayerNotes] = useState(() => loadStored('baseball_playerNotes_v3', {}));
 
       useEffect(() => { storage.setItem('baseball_gameState_v2', JSON.stringify(gameState)); }, [gameState]);
+      useEffect(() => { storage.setItem('baseball_homeTeam_v3', JSON.stringify(homeTeamName)); }, [homeTeamName]);
+      useEffect(() => { storage.setItem('baseball_playerNotes_v3', JSON.stringify(playerNotes)); }, [playerNotes]);
       useEffect(() => { storage.setItem('baseball_gameInfo_v2', JSON.stringify(gameInfo)); }, [gameInfo]);
       useEffect(() => { storage.setItem('baseball_lineups_v2', JSON.stringify(lineups)); }, [lineups]);
       useEffect(() => { storage.setItem('baseball_pitches_v2', JSON.stringify(pitches)); }, [pitches]);
@@ -246,7 +261,7 @@ import { buildScorebookData } from './scorebookData.js';
           title: '🔄 新試合の開始', message: '現在の試合データをすべて消去して、新しい試合を開始しますか？', subMessage: '※この操作は取り消せません', isDanger: true,
           onConfirm: () => {
             setGameState(makeInitialGameState());
-            setGameInfo({ date: new Date().toLocaleDateString('ja-JP').replace(/\//g, '-'), teamTop: '先攻チーム', teamBottom: '後攻チーム' });
+            setGameInfo({ date: new Date().toLocaleDateString('ja-JP').replace(/\//g, '-'), gameType: '練習試合', teamTop: '先攻チーム', teamBottom: '後攻チーム' });
             setLineups(makeInitialLineups());
             setPitches([]); setUndoStack([]); setRedoStack([]); setConfirmDialog(null); showToast('新しい試合を開始しました');
           }
@@ -501,38 +516,40 @@ import { buildScorebookData } from './scorebookData.js';
       const toggleRunner = (base) => { recordAction(); setGameState(prev => ({ ...prev, runners: { ...prev.runners, [base]: !prev.runners[base] } })); };
       const changeScore = (team, delta) => {
         recordAction();
-        setGameState(prev => { const newRuns = ensureRunArray(prev.runs[team], prev.inning); newRuns[prev.inning - 1] = Math.max(0, (newRuns[prev.inning - 1] || 0) + delta); return { ...prev, runs: { ...prev.runs, [team]: newRuns } }; });
+        setGameState(prev => { const newRuns = ensureRunArray(prev.runs[team], prev.inning); const newEarned = ensureRunArray(prev.earnedRuns?.[team] || prev.runs[team], prev.inning); newRuns[prev.inning - 1] = Math.max(0, (newRuns[prev.inning - 1] || 0) + delta); newEarned[prev.inning - 1] = Math.min(newRuns[prev.inning - 1], Math.max(0, (newEarned[prev.inning - 1] || 0) + delta)); return { ...prev, runs: { ...prev.runs, [team]: newRuns }, earnedRuns: { ...prev.earnedRuns, [team]: newEarned } }; });
       };
 
       // スコア修正モーダル: 試合中(現在の試合)・試合後(保存済み試合)どちらでも回別スコアを直接修正できる
       const openScoreEdit = (source, gameId = null) => {
-        let runs = gameState.runs;
+        let runs = gameState.runs, earnedRuns = gameState.earnedRuns || gameState.runs;
         if (source === 'saved') {
           const g = savedGames.find(x => x.id === gameId);
           if (!g) return;
           runs = g.data?.gameState?.runs || { top: [], bottom: [] };
+          earnedRuns = g.data?.gameState?.earnedRuns || runs;
         }
         const len = Math.max(9, runs.top?.length || 0, runs.bottom?.length || 0);
         const toArr = (a) => Array.from({ length: len }, (_, i) => Math.max(0, Number(a?.[i]) || 0));
-        setScoreEdit({ source, gameId, top: toArr(runs.top), bottom: toArr(runs.bottom) });
+        setScoreEdit({ source, gameId, top: toArr(runs.top), bottom: toArr(runs.bottom), earnedTop: toArr(earnedRuns.top).map((v,i)=>Math.min(v,toArr(runs.top)[i])), earnedBottom: toArr(earnedRuns.bottom).map((v,i)=>Math.min(v,toArr(runs.bottom)[i])) });
       };
       const setScoreEditCell = (team, idx, val) => {
         const n = Math.max(0, Math.min(99, Math.floor(Number(val) || 0)));
-        setScoreEdit(prev => ({ ...prev, [team]: prev[team].map((v, i) => i === idx ? n : v) }));
+        setScoreEdit(prev => { const next={ ...prev, [team]: prev[team].map((v, i) => i === idx ? n : v) }; const erKey=team==='top'?'earnedTop':'earnedBottom'; next[erKey]=prev[erKey].map((v,i)=>i===idx?Math.min(v,n):v); return next; });
       };
-      const addScoreEditInning = () => setScoreEdit(prev => ({ ...prev, top: [...prev.top, 0], bottom: [...prev.bottom, 0] }));
+      const setEarnedRunCell = (team, idx, val) => { const key=team==='top'?'earnedTop':'earnedBottom', runKey=team; const n=Math.max(0,Math.floor(Number(val)||0)); setScoreEdit(prev=>({...prev,[key]:prev[key].map((v,i)=>i===idx?Math.min(n,prev[runKey][i]):v)})); };
+      const addScoreEditInning = () => setScoreEdit(prev => ({ ...prev, top: [...prev.top, 0], bottom: [...prev.bottom, 0], earnedTop:[...prev.earnedTop,0], earnedBottom:[...prev.earnedBottom,0] }));
       const saveScoreEdit = () => {
-        const { source, gameId, top, bottom } = scoreEdit;
+        const { source, gameId, top, bottom, earnedTop, earnedBottom } = scoreEdit;
         if (source === 'saved') {
           setSavedGames(prev => prev.map(g => {
             if (g.id !== gameId) return g;
-            const gs = { ...(g.data?.gameState || {}), runs: { top: [...top], bottom: [...bottom] } };
+            const gs = { ...(g.data?.gameState || {}), runs: { top: [...top], bottom: [...bottom] }, earnedRuns:{top:[...earnedTop],bottom:[...earnedBottom]} };
             return { ...g, scoreTop: top.reduce((a, b) => a + b, 0), scoreBottom: bottom.reduce((a, b) => a + b, 0), data: { ...g.data, gameState: gs } };
           }));
           showToast('保存済み試合のスコアを修正しました');
         } else {
           recordAction();
-          setGameState(prev => ({ ...prev, runs: { top: ensureRunArray(top, prev.inning), bottom: ensureRunArray(bottom, prev.inning) } }));
+          setGameState(prev => ({ ...prev, runs: { top: ensureRunArray(top, prev.inning), bottom: ensureRunArray(bottom, prev.inning) }, earnedRuns:{top:ensureRunArray(earnedTop,prev.inning),bottom:ensureRunArray(earnedBottom,prev.inning)} }));
           showToast('スコアを修正しました');
         }
         setScoreEdit(null);
@@ -1193,6 +1210,9 @@ import { buildScorebookData } from './scorebookData.js';
         return { games, batters: battersArr, pitchers: pitchersArr };
       }, [showCumulativeStats, cumulativeTeam, cumulativeDateFrom, cumulativeDateTo, savedGames]);
 
+      // v2の試合スナップショットは変更せず、分析時に正規化テーブルへ再構築する。
+      const analyticsDb = useMemo(() => normalizeArchive(savedGames, registeredTeams, homeTeamName), [savedGames, registeredTeams, homeTeamName]);
+
       const playByPlayData = useMemo(() => {
         const innings = {}; let currentAbKey = null, currentAb = [];
         const flushAb = () => {
@@ -1304,6 +1324,7 @@ import { buildScorebookData } from './scorebookData.js';
                 <button onClick={()=>setShowRecordEditor(true)} className="whitespace-nowrap shrink-0 bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-indigo-200 shadow-sm">📝 記録修正</button>
                 <button onClick={()=>openScoreEdit('current')} className="whitespace-nowrap shrink-0 bg-white text-slate-700 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-slate-300 shadow-sm">✏️ スコア修正</button>
                 <button onClick={()=>{ setEditingTeamIndex(null); setShowTeamManager(true); }} className="whitespace-nowrap shrink-0 bg-white text-slate-700 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-slate-300 shadow-sm">👥 チーム</button>
+                <button onClick={()=>setShowAnalyticsHub(true)} className="whitespace-nowrap shrink-0 bg-cyan-600 text-white px-3 py-1.5 rounded-lg text-[11px] font-bold shadow-sm">📊 分析ハブ</button>
                 <button onClick={()=>setShowArchiveModal(true)} className="whitespace-nowrap shrink-0 bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-[11px] font-bold shadow-sm">📂 保存/読込</button>
                 <button onClick={()=>setShowExport(true)} className="whitespace-nowrap shrink-0 bg-slate-800 text-white px-3 py-1.5 rounded-lg text-[11px] font-bold shadow-sm">📤 出力</button>
                 <button onClick={handleTieBreak} className="whitespace-nowrap shrink-0 bg-purple-50 text-purple-700 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-purple-200 shadow-sm">⚡ 特延</button>
@@ -1366,6 +1387,7 @@ import { buildScorebookData } from './scorebookData.js';
                   <button onClick={()=>setShowRecordEditor(true)} className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-2 py-1.5 rounded-lg text-[11px] font-bold border border-indigo-200 shadow-sm">📝 記録修正</button>
                   <button onClick={()=>{ setEditingTeamIndex(null); setShowTeamManager(true); }} className="bg-white hover:bg-slate-50 text-slate-700 px-2 py-1.5 rounded-lg text-[11px] font-bold border border-slate-300 shadow-sm">👥 チーム</button>
                   <button onClick={()=>setShowArchiveModal(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-1.5 rounded-lg text-[11px] font-bold shadow-sm">📂 保存/読込</button>
+                  <button onClick={()=>setShowAnalyticsHub(true)} className="bg-cyan-600 hover:bg-cyan-700 text-white px-2 py-1.5 rounded-lg text-[11px] font-bold shadow-sm">📊 分析ハブ</button>
                   <button onClick={()=>setShowExport(true)} className="bg-slate-800 hover:bg-black text-white px-2 py-1.5 rounded-lg text-[11px] font-bold shadow-sm">📤 出力</button>
                 </div>
                 <div className="flex gap-1.5 flex-wrap justify-end">
@@ -1819,6 +1841,11 @@ import { buildScorebookData } from './scorebookData.js';
           </main>
 
           {/* ============================================================ */}
+          {showAnalyticsHub && (
+            <AnalyticsHub db={analyticsDb} notes={playerNotes} onNotesChange={setPlayerNotes} onClose={() => setShowAnalyticsHub(false)} />
+          )}
+
+          {/* ============================================================ */}
           {/* ============= MODAL 1: PITCH EDIT ========================= */}
           {/* ============================================================ */}
           {editingPitchIndex !== null && editPitchData && (
@@ -2072,6 +2099,8 @@ import { buildScorebookData } from './scorebookData.js';
                 <div className="flex-1 overflow-y-auto p-4 modal-scroll">
                   <div className="mb-4 flex gap-3 flex-wrap items-end">
                     <div className="flex-1 min-w-[120px]"><label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">日付</label><input type="text" value={gameInfo.date} onChange={e=>setGameInfo({...gameInfo, date: e.target.value})} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-bold bg-white" /></div>
+                    <div className="min-w-[140px]"><label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">試合種別</label><select value={gameInfo.gameType||'練習試合'} onChange={e=>setGameInfo({...gameInfo,gameType:e.target.value})} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-bold bg-white"><option>公式戦</option><option>練習試合</option><option>紅白戦</option><option>大会</option><option>その他</option></select></div>
+                    <div className="min-w-[160px]"><label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">自チーム</label><select value={homeTeamName} onChange={e=>setHomeTeamName(e.target.value)} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-bold bg-white"><option value="">未設定</option>{registeredTeams.map(t=><option key={t.name} value={t.name}>{t.name}</option>)}</select></div>
                     <button onClick={swapTopAndBottom} className="bg-blue-50 text-blue-700 py-2.5 px-4 rounded-xl font-bold text-xs border border-blue-200 whitespace-nowrap">⇅ 先攻/後攻入替</button>
                     <button onClick={applyLineupToPast} className="bg-amber-50 text-amber-700 py-2.5 px-4 rounded-xl font-bold text-xs border border-amber-200 whitespace-nowrap">💡 過去記録に反映</button>
                   </div>
@@ -2414,6 +2443,7 @@ import { buildScorebookData } from './scorebookData.js';
             const nameTop = g ? g.teamTop : gameInfo.teamTop;
             const nameBottom = g ? g.teamBottom : gameInfo.teamBottom;
             const totals = { top: scoreEdit.top.reduce((a, b) => a + b, 0), bottom: scoreEdit.bottom.reduce((a, b) => a + b, 0) };
+            const earnedTotals = { top: scoreEdit.earnedTop.reduce((a,b)=>a+b,0), bottom: scoreEdit.earnedBottom.reduce((a,b)=>a+b,0) };
             return (
               <div className="fixed inset-0 bg-slate-900/70 z-[450] flex items-center justify-center p-4 backdrop-blur-sm">
                 <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh] border border-slate-200">
@@ -2432,19 +2462,11 @@ import { buildScorebookData } from './scorebookData.js';
                           {scoreEdit.top.map((_, i) => <div key={i} className="w-11 shrink-0 text-center text-[10px] font-bold text-slate-400">{i + 1}</div>)}
                           <div className="w-11 shrink-0 text-center text-[10px] font-black text-slate-500">R</div>
                         </div>
-                        {['top', 'bottom'].map(team => (
-                          <div key={team} className="flex gap-1 items-center">
-                            <div className={`w-24 shrink-0 text-xs font-black truncate ${team === 'top' ? 'text-blue-800' : 'text-rose-800'}`}>{team === 'top' ? nameTop : nameBottom}</div>
-                            {scoreEdit[team].map((v, i) => (
-                              <input key={i} type="number" min="0" max="99" inputMode="numeric" value={v} onFocus={e => e.target.select()} onChange={e => setScoreEditCell(team, i, e.target.value)} className="w-11 shrink-0 border border-slate-300 rounded-lg py-2 text-center text-sm font-bold bg-white outline-none focus:ring-2 focus:ring-blue-400" />
-                            ))}
-                            <div className="w-11 shrink-0 text-center font-black text-blue-700 text-lg">{totals[team]}</div>
-                          </div>
-                        ))}
+                        {['top', 'bottom'].map(team => <React.Fragment key={team}><div className="flex gap-1 items-center"><div className={`w-24 shrink-0 text-xs font-black truncate ${team === 'top' ? 'text-blue-800' : 'text-rose-800'}`}>{team === 'top' ? nameTop : nameBottom}<span className="block text-[9px] text-slate-400">得点</span></div>{scoreEdit[team].map((v,i)=><input key={i} aria-label={`${team}-${i+1}回得点`} type="number" min="0" max="99" inputMode="numeric" value={v} onFocus={e=>e.target.select()} onChange={e=>setScoreEditCell(team,i,e.target.value)} className="w-11 shrink-0 border border-slate-300 rounded-lg py-2 text-center text-sm font-bold bg-white outline-none focus:ring-2 focus:ring-blue-400"/>)}<div className="w-11 shrink-0 text-center font-black text-blue-700 text-lg">{totals[team]}</div></div><div className="flex gap-1 items-center bg-amber-50/70 rounded-lg py-1"><div className="w-24 shrink-0 text-[10px] font-black text-amber-700 pl-2">↳ 自責点</div>{scoreEdit[team==='top'?'earnedTop':'earnedBottom'].map((v,i)=><input key={i} aria-label={`${team}-${i+1}回自責点`} type="number" min="0" max={scoreEdit[team][i]} inputMode="numeric" value={v} onFocus={e=>e.target.select()} onChange={e=>setEarnedRunCell(team,i,e.target.value)} className="w-11 shrink-0 border border-amber-300 rounded-lg py-1.5 text-center text-xs font-black bg-white outline-none focus:ring-2 focus:ring-amber-400"/>)}<div className="w-11 shrink-0 text-center font-black text-amber-700">{earnedTotals[team]}</div></div></React.Fragment>)}
                       </div>
                     </div>
                     <button onClick={addScoreEditInning} className="mt-2 text-[11px] bg-slate-50 text-slate-600 px-3 py-2 rounded-lg font-bold border border-slate-200 hover:bg-slate-100">＋ 延長回を追加</button>
-                    <p className="text-[10px] text-slate-400 font-bold mt-3">※各回のマスをタップして得点を入力してください。合計(R)は自動計算されます。{scoreEdit.source !== 'saved' && '打席記録を修正・削除した場合はスコアが記録から再計算されるため、必要ならその後に再度修正してください。'}</p>
+                    <p className="text-[10px] text-slate-500 font-bold mt-3 bg-amber-50 border border-amber-100 rounded-lg p-3">得点の下に、その回の自責点を入力します。失策・捕逸・タイブレーク走者などによる非自責点は除いてください。自責点は得点を超えて入力できません。</p>
                   </div>
                   <div className="p-4 border-t border-slate-200 flex gap-3 bg-slate-50 shrink-0">
                     <button onClick={() => setScoreEdit(null)} className="flex-1 bg-white border border-slate-300 text-slate-700 py-3 rounded-xl font-bold">キャンセル</button>
