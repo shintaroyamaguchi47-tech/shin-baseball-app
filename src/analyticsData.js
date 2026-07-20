@@ -21,11 +21,11 @@ export function normalizeArchive(savedGames = [], registeredTeams = [], homeTeam
 
   registeredTeams.forEach((team, ti) => {
     const teamId = id('team', team.name || ti);
-    teams.set(team.name, { id: teamId, name: team.name, role: team.name === homeTeamName ? 'own' : 'opponent' });
+    teams.set(team.name, { id: teamId, name: team.name, role: team.name === homeTeamName ? 'own' : 'opponent', shortName: team.shortName || '', organization: team.organization || '', category: team.category || '', season: team.season || '', coach: team.coach || '', teamColor: team.teamColor || '', memo: team.memo || '' });
     (team.players || []).forEach((raw, pi) => {
       const player = typeof raw === 'string' ? { name: raw } : raw;
       const playerId = id('player', team.name, player.name || pi);
-      players.set(`${team.name}|${player.name}`, { id: playerId, teamId, name: player.name, throws: player.throws || '右', bats: player.bats || '右' });
+      players.set(`${team.name}|${player.name}`, { id: playerId, teamId, name: player.name, number: player.number || '', grade: player.grade || '', primaryPosition: player.primaryPosition || '', throws: player.throws || '右', bats: player.bats || '右' });
     });
   });
 
