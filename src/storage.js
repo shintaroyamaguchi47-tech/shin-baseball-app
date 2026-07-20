@@ -12,6 +12,8 @@ export const STORAGE_KEYS = [
   'baseball_pitchView_v2',
   'baseball_savedGames_v2',
   'baseball_registeredTeams_v2',
+  'baseball_homeTeam_v3',
+  'baseball_playerNotes_v3',
 ];
 
 // iOSのWKWebViewはストレージ逼迫時にlocalStorageを破棄することがあるため、

@@ -7,6 +7,8 @@ import { buildPlayByPlayReport } from './playByPlay.js';
 import * as storage from './storage.js';
 import { asPlayerObj, findDuplicateNameIndices, mergeRosterPlayers, renamePlayersInGame, detectLineupRenames } from './teamUtils.js';
 import { renumberPitchNumbers, reassignPitchBatter } from './gameUtils.js';
+import AnalyticsHub from './components/AnalyticsHub.jsx';
+import { normalizeArchive } from './analyticsData.js';
 import { isScorerGdf, convertScorerGame } from './scorerImport.js';
 import { buildScorebookData } from './scorebookData.js';
 
@@ -192,8 +194,13 @@ import { buildScorebookData } from './scorebookData.js';
       const [cumulativeDateTo, setCumulativeDateTo] = useState('');
       const [cumulativeTab, setCumulativeTab] = useState('batter');
       const [expandedCumKey, setExpandedCumKey] = useState(null);
+      const [showAnalyticsHub, setShowAnalyticsHub] = useState(false);
+      const [homeTeamName, setHomeTeamName] = useState(() => loadStored('baseball_homeTeam_v3', ''));
+      const [playerNotes, setPlayerNotes] = useState(() => loadStored('baseball_playerNotes_v3', {}));
 
       useEffect(() => { storage.setItem('baseball_gameState_v2', JSON.stringify(gameState)); }, [gameState]);
+      useEffect(() => { storage.setItem('baseball_homeTeam_v3', JSON.stringify(homeTeamName)); }, [homeTeamName]);
+      useEffect(() => { storage.setItem('baseball_playerNotes_v3', JSON.stringify(playerNotes)); }, [playerNotes]);
       useEffect(() => { storage.setItem('baseball_gameInfo_v2', JSON.stringify(gameInfo)); }, [gameInfo]);
       useEffect(() => { storage.setItem('baseball_lineups_v2', JSON.stringify(lineups)); }, [lineups]);
       useEffect(() => { storage.setItem('baseball_pitches_v2', JSON.stringify(pitches)); }, [pitches]);
@@ -1193,6 +1200,9 @@ import { buildScorebookData } from './scorebookData.js';
         return { games, batters: battersArr, pitchers: pitchersArr };
       }, [showCumulativeStats, cumulativeTeam, cumulativeDateFrom, cumulativeDateTo, savedGames]);
 
+      // v2の試合スナップショットは変更せず、分析時に正規化テーブルへ再構築する。
+      const analyticsDb = useMemo(() => normalizeArchive(savedGames, registeredTeams, homeTeamName), [savedGames, registeredTeams, homeTeamName]);
+
       const playByPlayData = useMemo(() => {
         const innings = {}; let currentAbKey = null, currentAb = [];
         const flushAb = () => {
@@ -1304,6 +1314,7 @@ import { buildScorebookData } from './scorebookData.js';
                 <button onClick={()=>setShowRecordEditor(true)} className="whitespace-nowrap shrink-0 bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-indigo-200 shadow-sm">📝 記録修正</button>
                 <button onClick={()=>openScoreEdit('current')} className="whitespace-nowrap shrink-0 bg-white text-slate-700 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-slate-300 shadow-sm">✏️ スコア修正</button>
                 <button onClick={()=>{ setEditingTeamIndex(null); setShowTeamManager(true); }} className="whitespace-nowrap shrink-0 bg-white text-slate-700 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-slate-300 shadow-sm">👥 チーム</button>
+                <button onClick={()=>setShowAnalyticsHub(true)} className="whitespace-nowrap shrink-0 bg-cyan-600 text-white px-3 py-1.5 rounded-lg text-[11px] font-bold shadow-sm">📊 分析ハブ</button>
                 <button onClick={()=>setShowArchiveModal(true)} className="whitespace-nowrap shrink-0 bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-[11px] font-bold shadow-sm">📂 保存/読込</button>
                 <button onClick={()=>setShowExport(true)} className="whitespace-nowrap shrink-0 bg-slate-800 text-white px-3 py-1.5 rounded-lg text-[11px] font-bold shadow-sm">📤 出力</button>
                 <button onClick={handleTieBreak} className="whitespace-nowrap shrink-0 bg-purple-50 text-purple-700 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-purple-200 shadow-sm">⚡ 特延</button>
@@ -1366,6 +1377,7 @@ import { buildScorebookData } from './scorebookData.js';
                   <button onClick={()=>setShowRecordEditor(true)} className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-2 py-1.5 rounded-lg text-[11px] font-bold border border-indigo-200 shadow-sm">📝 記録修正</button>
                   <button onClick={()=>{ setEditingTeamIndex(null); setShowTeamManager(true); }} className="bg-white hover:bg-slate-50 text-slate-700 px-2 py-1.5 rounded-lg text-[11px] font-bold border border-slate-300 shadow-sm">👥 チーム</button>
                   <button onClick={()=>setShowArchiveModal(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-1.5 rounded-lg text-[11px] font-bold shadow-sm">📂 保存/読込</button>
+                  <button onClick={()=>setShowAnalyticsHub(true)} className="bg-cyan-600 hover:bg-cyan-700 text-white px-2 py-1.5 rounded-lg text-[11px] font-bold shadow-sm">📊 分析ハブ</button>
                   <button onClick={()=>setShowExport(true)} className="bg-slate-800 hover:bg-black text-white px-2 py-1.5 rounded-lg text-[11px] font-bold shadow-sm">📤 出力</button>
                 </div>
                 <div className="flex gap-1.5 flex-wrap justify-end">
@@ -1817,6 +1829,11 @@ import { buildScorebookData } from './scorebookData.js';
               )}
             </div>
           </main>
+
+          {/* ============================================================ */}
+          {showAnalyticsHub && (
+            <AnalyticsHub db={analyticsDb} notes={playerNotes} onNotesChange={setPlayerNotes} onClose={() => setShowAnalyticsHub(false)} />
+          )}
 
           {/* ============================================================ */}
           {/* ============= MODAL 1: PITCH EDIT ========================= */}
