@@ -1305,7 +1305,7 @@ import { buildScorebookData } from './scorebookData.js';
           )}
 
           {/* ===== HEADER ===== */}
-          <header className="bg-white shadow-sm border-b border-slate-200 p-2 md:p-4 flex flex-col md:grid md:grid-cols-[auto_minmax(0,1fr)] xl:flex xl:flex-row md:items-center md:justify-between shrink-0 gap-3 z-10 relative">
+          <header className="bg-white shadow-sm border-b border-slate-200 p-2 md:p-3 xl:p-4 flex flex-col md:grid md:grid-cols-[auto_minmax(0,1fr)_auto] xl:flex xl:flex-row md:items-center md:justify-between shrink-0 gap-3 z-10 relative">
             <div className="flex flex-col gap-2 md:w-auto w-full">
               <div className="flex items-center justify-between md:justify-start gap-4">
                 <div className="flex items-center gap-2 text-xl md:text-2xl font-black text-blue-700 tracking-tighter whitespace-nowrap"><span className="text-2xl">⚾</span>配球スコア <span className="text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full uppercase tracking-widest ml-1 font-bold border border-blue-200">Pro</span></div>
@@ -1335,7 +1335,7 @@ import { buildScorebookData } from './scorebookData.js';
             </div>
 
             {/* Desktop scoreboard */}
-            <div className="hidden md:flex md:justify-self-end xl:justify-self-auto flex-col bg-white border border-slate-300 rounded-xl overflow-hidden text-sm shadow-sm">
+            <div className="hidden md:flex md:justify-self-center xl:justify-self-auto flex-col bg-white border border-slate-300 rounded-xl overflow-hidden text-sm shadow-sm">
               <div className="flex bg-slate-100 border-b border-slate-300 font-bold text-[10px] text-slate-500">
                 <div className="w-28 shrink-0 border-r border-slate-300 flex items-center justify-between py-1 px-1.5"><span>TEAM</span><button onClick={()=>openScoreEdit('current')} title="回別スコアを修正" className="text-[9px] text-blue-500 hover:text-blue-700 font-bold bg-blue-50 border border-blue-200 rounded px-1 py-0.5">✏️ 修正</button></div>
                 {[1,2,3,4,5,6,7,8,9].map(i => <div key={i} className={`w-8 shrink-0 border-r border-slate-300 flex items-center justify-center py-1 ${gameState.inning === i ? 'bg-blue-200 text-blue-800' : ''}`}>{i}</div>)}
@@ -1371,13 +1371,15 @@ import { buildScorebookData } from './scorebookData.js';
               </div>
             </div>
 
-            <div className="hidden md:flex gap-3 items-center min-w-0 md:col-span-2 md:w-full md:border-t md:border-slate-100 md:pt-3 xl:col-span-1 xl:w-auto xl:border-t-0 xl:pt-0">
+            <div className="hidden md:flex gap-2 items-center min-w-0 md:justify-self-end xl:justify-self-auto">
               <div className="flex flex-col gap-1 items-start px-2 border-l border-r border-slate-200 font-mono w-auto shrink-0">
                 <div className="flex items-center gap-2 w-full"><span className="text-[13px] font-black text-emerald-600 w-3">B</span><div className="flex gap-1">{[0,1,2].map(i=><div key={i} className={`w-4 h-4 rounded-full border-2 border-emerald-600 ${i<gameState.balls?'bg-emerald-500':'bg-slate-100'}`}></div>)}</div></div>
                 <div className="flex items-center gap-2 w-full"><span className="text-[13px] font-black text-amber-500 w-3">S</span><div className="flex gap-1">{[0,1].map(i=><div key={i} className={`w-4 h-4 rounded-full border-2 border-amber-500 ${i<gameState.strikes?'bg-amber-400':'bg-slate-100'}`}></div>)}</div></div>
                 <div className="flex items-center gap-2 w-full"><span className="text-[13px] font-black text-rose-600 w-3">O</span><div className="flex gap-1">{[0,1].map(i=><div key={i} className={`w-4 h-4 rounded-full border-2 border-rose-600 ${i<gameState.outs?'bg-rose-500':'bg-slate-100'}`}></div>)}</div></div>
               </div>
-              <div className="grid grid-cols-6 gap-1.5 font-sans min-w-0 flex-1 xl:flex xl:flex-col xl:gap-2">
+              <details className="relative group xl:contents">
+                <summary className="xl:hidden list-none cursor-pointer whitespace-nowrap bg-slate-800 text-white px-3 py-2 rounded-lg text-[11px] font-black shadow-sm active:bg-slate-950">☰ 操作</summary>
+                <div className="absolute right-0 top-[calc(100%+0.5rem)] z-50 w-[34rem] max-w-[calc(100vw-2rem)] grid grid-cols-4 gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-2xl font-sans xl:static xl:w-auto xl:max-w-none xl:flex xl:flex-col xl:gap-2 xl:border-0 xl:bg-transparent xl:p-0 xl:shadow-none">
                 <div className="contents xl:flex xl:gap-1.5 xl:flex-wrap xl:justify-end">
                   <button onClick={openOrderSettings} className="bg-white hover:bg-slate-50 text-slate-700 px-2 py-1.5 rounded-lg text-[11px] font-bold border border-slate-300 shadow-sm">⚙️ オーダー</button>
                   <button onClick={()=>{
@@ -1396,7 +1398,8 @@ import { buildScorebookData } from './scorebookData.js';
                   <button onClick={() => setShowPostGameAnalysis(true)} className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-[11px] font-bold shadow-md">🏁 試合分析へ</button>
                   <button onClick={() => setShowAnalystReport(true)} className="bg-indigo-600 text-white px-3 py-1.5 rounded-lg text-[11px] font-bold shadow-md">📈 アナリスト分析</button>
                 </div>
-              </div>
+                </div>
+              </details>
             </div>
           </header>
 
