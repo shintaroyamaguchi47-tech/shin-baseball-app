@@ -123,7 +123,7 @@ import { buildScorebookData } from './scorebookData.js';
         return normalizeGameState(loadStored('baseball_gameState_v2', makeInitialGameState()));
       });
       const [gameInfo, setGameInfo] = useState(() => {
-        return loadStored('baseball_gameInfo_v2', { date: new Date().toLocaleDateString('ja-JP').replace(/\//g, '-'), teamTop: '先攻チーム', teamBottom: '後攻チーム' });
+        return loadStored('baseball_gameInfo_v2', { date: new Date().toLocaleDateString('ja-JP').replace(/\//g, '-'), gameType: '練習試合', teamTop: '先攻チーム', teamBottom: '後攻チーム' });
       });
       const [lineups, setLineups] = useState(() => {
         return loadStored('baseball_lineups_v2', makeInitialLineups());
@@ -253,7 +253,7 @@ import { buildScorebookData } from './scorebookData.js';
           title: '🔄 新試合の開始', message: '現在の試合データをすべて消去して、新しい試合を開始しますか？', subMessage: '※この操作は取り消せません', isDanger: true,
           onConfirm: () => {
             setGameState(makeInitialGameState());
-            setGameInfo({ date: new Date().toLocaleDateString('ja-JP').replace(/\//g, '-'), teamTop: '先攻チーム', teamBottom: '後攻チーム' });
+            setGameInfo({ date: new Date().toLocaleDateString('ja-JP').replace(/\//g, '-'), gameType: '練習試合', teamTop: '先攻チーム', teamBottom: '後攻チーム' });
             setLineups(makeInitialLineups());
             setPitches([]); setUndoStack([]); setRedoStack([]); setConfirmDialog(null); showToast('新しい試合を開始しました');
           }
@@ -2089,6 +2089,8 @@ import { buildScorebookData } from './scorebookData.js';
                 <div className="flex-1 overflow-y-auto p-4 modal-scroll">
                   <div className="mb-4 flex gap-3 flex-wrap items-end">
                     <div className="flex-1 min-w-[120px]"><label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">日付</label><input type="text" value={gameInfo.date} onChange={e=>setGameInfo({...gameInfo, date: e.target.value})} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-bold bg-white" /></div>
+                    <div className="min-w-[140px]"><label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">試合種別</label><select value={gameInfo.gameType||'練習試合'} onChange={e=>setGameInfo({...gameInfo,gameType:e.target.value})} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-bold bg-white"><option>公式戦</option><option>練習試合</option><option>紅白戦</option><option>大会</option><option>その他</option></select></div>
+                    <div className="min-w-[160px]"><label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">自チーム</label><select value={homeTeamName} onChange={e=>setHomeTeamName(e.target.value)} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-bold bg-white"><option value="">未設定</option>{registeredTeams.map(t=><option key={t.name} value={t.name}>{t.name}</option>)}</select></div>
                     <button onClick={swapTopAndBottom} className="bg-blue-50 text-blue-700 py-2.5 px-4 rounded-xl font-bold text-xs border border-blue-200 whitespace-nowrap">⇅ 先攻/後攻入替</button>
                     <button onClick={applyLineupToPast} className="bg-amber-50 text-amber-700 py-2.5 px-4 rounded-xl font-bold text-xs border border-amber-200 whitespace-nowrap">💡 過去記録に反映</button>
                   </div>
