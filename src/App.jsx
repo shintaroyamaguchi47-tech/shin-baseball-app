@@ -2857,7 +2857,7 @@ import { buildScorebookData } from './scorebookData.js';
                         const getResultLabel = (result) => {
                           if (['ボール','ウエスト'].includes(result)) return { text: 'BB/HBP', color: '#64748b' };
                           if (result === '三振' || result === '振り逃げ') return { text: '三振', color: '#ef4444' };
-                          if (['安打','二塁打','三塁打','本塁打'].some(w => result.includes(w))) return { text: result, color: '#1d4ed8' };
+                          if (['安','塁打','本塁打'].some(w => result.includes(w))) return { text: result, color: '#1d4ed8' };
                           return { text: result, color: '#475569' };
                         };
                         const playersWithABs = data.players.filter(bp => bp.PA > 0 && bp.atBats && bp.atBats.length > 0);

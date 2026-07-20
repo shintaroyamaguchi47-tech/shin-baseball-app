@@ -135,7 +135,7 @@
     function atBatResultLabel(result) {
       if (['ボール','ウエスト'].includes(result)) return { text:'BB/HBP', color:'#64748b' };
       if (result === '三振' || result === '振り逃げ') return { text:'三振', color:'#ef4444' };
-      if (['安打','二塁打','三塁打','本塁打'].some(function(w){return String(result).indexOf(w)>=0;})) return { text:result, color:'#1d4ed8' };
+      if (['安','塁打','本塁打'].some(function(w){return String(result).indexOf(w)>=0;})) return { text:result, color:'#1d4ed8' };
       return { text:result || '-', color:'#475569' };
     }
     function countDistHtml(counts, title) {
