@@ -23,4 +23,12 @@ describe('analytics normalized view',()=>{
     expect(buildPlayerCard(db,stats,player.id).logs).toHaveLength(1);
     expect(buildScoutingReport(db,stats).byOrder).toHaveLength(9);
   });
+  it('filters non-zero-padded saved dates with date input values',()=>{
+    const july={...game,id:'july',date:'2026-7-2'};
+    const october={...game,id:'october',date:'2026-10-2'};
+    const db=normalizeArchive([july,october],[{name:'自軍',players:[{name:'山田'}]}],'自軍');
+    const own=db.teams.find(t=>t.name==='自軍');
+    const stats=buildAnalytics(db,{teamId:own.id,from:'2026-07-01',to:'2026-07-31'});
+    expect(stats.games.map(g=>g.id)).toEqual(['july']);
+  });
 });

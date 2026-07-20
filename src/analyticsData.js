@@ -6,6 +6,11 @@ const pct = (a, b) => b ? Math.round(a / b * 100) : 0;
 const isHit = result => ['安打', '二塁打', '三塁打', '本塁打'].some(v => result?.includes(v));
 const bases = result => result?.includes('本塁打') ? 4 : result?.includes('三塁打') ? 3 : result?.includes('二塁打') ? 2 : isHit(result) ? 1 : 0;
 const isStrike = result => !['ボール', 'ウエスト', '死球'].includes(result);
+const dateKey = value => {
+  const raw = String(value || '');
+  const match = raw.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+  return match ? `${match[1]}-${match[2].padStart(2, '0')}-${match[3].padStart(2, '0')}` : raw;
+};
 
 export function normalizeArchive(savedGames = [], registeredTeams = [], homeTeamName = '') {
   const teams = new Map();
@@ -21,11 +26,11 @@ export function normalizeArchive(savedGames = [], registeredTeams = [], homeTeam
 
   registeredTeams.forEach((team, ti) => {
     const teamId = id('team', team.name || ti);
-    teams.set(team.name, { id: teamId, name: team.name, role: team.name === homeTeamName ? 'own' : 'opponent' });
+    teams.set(team.name, { id: teamId, name: team.name, role: team.name === homeTeamName ? 'own' : 'opponent', shortName: team.shortName || '', organization: team.organization || '', category: team.category || '', season: team.season || '', coach: team.coach || '', teamColor: team.teamColor || '', memo: team.memo || '' });
     (team.players || []).forEach((raw, pi) => {
       const player = typeof raw === 'string' ? { name: raw } : raw;
       const playerId = id('player', team.name, player.name || pi);
-      players.set(`${team.name}|${player.name}`, { id: playerId, teamId, name: player.name, throws: player.throws || '右', bats: player.bats || '右' });
+      players.set(`${team.name}|${player.name}`, { id: playerId, teamId, name: player.name, number: player.number || '', grade: player.grade || '', primaryPosition: player.primaryPosition || '', throws: player.throws || '右', bats: player.bats || '右' });
     });
   });
 
@@ -44,7 +49,7 @@ export function normalizeArchive(savedGames = [], registeredTeams = [], homeTeam
     const bottom = game.data?.gameState?.runs?.bottom || [];
     const earnedTop=game.data?.gameState?.earnedRuns?.top || top;
     const earnedBottom=game.data?.gameState?.earnedRuns?.bottom || bottom;
-    games.push({ id: gameId, date: game.date, gameType: game.gameType || game.data?.gameInfo?.gameType || '未設定', topTeamId: teams.get(game.teamTop)?.id, bottomTeamId: teams.get(game.teamBottom)?.id, teamTop: game.teamTop, teamBottom: game.teamBottom, scoreTop: top.reduce((a,b)=>a+(b||0),0), scoreBottom: bottom.reduce((a,b)=>a+(b||0),0), earnedTop:earnedTop.reduce((a,b)=>a+(b||0),0), earnedBottom:earnedBottom.reduce((a,b)=>a+(b||0),0), runsTop: top, runsBottom: bottom, earnedRunsTop:earnedTop, earnedRunsBottom:earnedBottom });
+    games.push({ id: gameId, date: game.date, dateKey: dateKey(game.date), gameType: game.gameType || game.data?.gameInfo?.gameType || '未設定', topTeamId: teams.get(game.teamTop)?.id, bottomTeamId: teams.get(game.teamBottom)?.id, teamTop: game.teamTop, teamBottom: game.teamBottom, scoreTop: top.reduce((a,b)=>a+(b||0),0), scoreBottom: bottom.reduce((a,b)=>a+(b||0),0), earnedTop:earnedTop.reduce((a,b)=>a+(b||0),0), earnedBottom:earnedBottom.reduce((a,b)=>a+(b||0),0), runsTop: top, runsBottom: bottom, earnedRunsTop:earnedTop, earnedRunsBottom:earnedBottom });
 
     const rawPitches = game.data?.pitches || [];
     let current = [], paIndex = 0;
@@ -85,7 +90,7 @@ export function normalizeArchive(savedGames = [], registeredTeams = [], homeTeam
 export function buildAnalytics(db, filters = {}) {
   const team = db.teams.find(t => t.id === filters.teamId) || db.teams[0];
   if (!team) return { team: null, games: [], wins: 0, losses: 0, runsFor: 0, runsAgainst: 0, batting: { OBP:'0.000', SLG:'0.000', OPS:'0.000', KPct:0, BBPct:0 }, pitching: { AVG:'0.000', WHIP:'0.000', firstStrikePct:0 }, innings: [], players: [], patterns: [] };
-  const games = db.games.filter(g => (g.topTeamId === team.id || g.bottomTeamId === team.id) && (!filters.from || g.date >= filters.from) && (!filters.to || g.date <= filters.to) && (!filters.opponentId || [g.topTeamId,g.bottomTeamId].includes(filters.opponentId)) && (!filters.gameType || filters.gameType === 'ALL' || g.gameType === filters.gameType));
+  const games = db.games.filter(g => (g.topTeamId === team.id || g.bottomTeamId === team.id) && (!filters.from || (g.dateKey || dateKey(g.date)) >= dateKey(filters.from)) && (!filters.to || (g.dateKey || dateKey(g.date)) <= dateKey(filters.to)) && (!filters.opponentId || [g.topTeamId,g.bottomTeamId].includes(filters.opponentId)) && (!filters.gameType || filters.gameType === 'ALL' || g.gameType === filters.gameType));
   const gids = new Set(games.map(g => g.id));
   const pas = db.plateAppearances.filter(pa => gids.has(pa.gameId));
   const battingPa = pas.filter(pa => pa.battingTeamId === team.id && (!filters.playerId || pa.batterId === filters.playerId));
