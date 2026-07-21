@@ -26,8 +26,9 @@
         return '<span style="display:inline-block;margin:1px 3px 1px 0;padding:1px 5px;border-radius:999px;background:#eef2ff;color:#334155;font-size:9px;line-height:1.3;">'+esc(r)+'</span>';
       }).join('');
     }
-    function sprayChartSvg(hits, label, size) {
+    function sprayChartSvg(hits, label, size, emptyLabel) {
       size = size || 240;
+      emptyLabel = emptyLabel || 'No Data';
       var svgH = Math.round(200 * size / 240);
       var HX=120,HY=185;
       var h='<div style="display:inline-block;text-align:center;">';
@@ -54,7 +55,7 @@
         else{var mx2=(HX+tx)/2,my2=(HY+ty)/2-15;h+='<path d="M '+HX+' '+HY+' Q '+mx2+' '+my2+' '+tx+' '+ty+'" fill="none" stroke="'+c+'" stroke-width="1.5" stroke-dasharray="3,2" opacity="0.8"/>';}
         if(fl!=='hr')h+='<circle cx="'+tx+'" cy="'+ty+'" r="3" fill="'+c+'"/>';
       });
-      if(!hits||hits.length===0)h+='<text x="120" y="100" text-anchor="middle" fill="#94a3b8" font-size="12" font-weight="bold">No Data</text>';
+      if(!hits||hits.length===0)h+='<text x="120" y="100" text-anchor="middle" fill="#94a3b8" font-size="12" font-weight="bold">'+esc(emptyLabel)+'</text>';
       h+='</svg></div>';return h;
     }
     function batterTable(batting, teamName) {
@@ -79,12 +80,14 @@
           +' <span style="font-size:9px;color:#0ea5e9;">AVG:'+p.AVG+' OPS:'+p.OPS+'</span>'
           +' <span style="font-size:8px;color:#64748b;font-weight:normal;">'+p.AB+'打数'+p.H+'安打 四死'+p.BB_HBP+' K'+p.K+'</span></div>';
         c+='<div style="display:flex;flex-wrap:wrap;gap:3px;align-items:flex-start;">';
-        c+=sprayChartSvg(p.sprayHits,'',92);
         (p.atBats || []).forEach(function(ab){
           var rl=atBatResultLabel(ab.result);
-          c+='<div style="width:58px;text-align:center;">';
+          c+='<div style="width:120px;text-align:center;">';
           c+='<div style="font-size:7px;color:#64748b;font-weight:bold;">'+ab.inning+'回'+(ab.isTop?'表':'裏')+'</div>';
-          c+='<div style="border:1px solid #e2e8f0;border-radius:4px;overflow:hidden;background:#fff;display:inline-block;">'+atBatZoneSvg(ab.pitches, 8)+'</div>';
+          c+='<div style="display:flex;gap:3px;justify-content:center;align-items:flex-start;">';
+          c+='<div><div style="font-size:6px;color:#94a3b8;font-weight:bold;">配球</div><div style="border:1px solid #e2e8f0;border-radius:4px;overflow:hidden;background:#fff;display:inline-block;">'+atBatZoneSvg(ab.pitches, 8)+'</div></div>';
+          c+='<div><div style="font-size:6px;color:#94a3b8;font-weight:bold;">打球方向</div>'+sprayChartSvg(ab.sprayHit?[ab.sprayHit]:[],'',56,'打球なし')+'</div>';
+          c+='</div>';
           c+='<div style="font-size:7px;font-weight:bold;line-height:1.2;color:'+rl.color+';word-break:break-all;">'+esc(rl.text)+'</div>';
           c+='</div>';
         });

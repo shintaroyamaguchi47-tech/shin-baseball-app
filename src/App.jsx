@@ -973,15 +973,17 @@ import { buildScorebookData } from './scorebookData.js';
             else if (['犠打','犠飛'].some(w=>res.includes(w))) { isAB = false; }
             else if (res==='三振'||res==='スリーバント失敗'||res==='振り逃げ'||res==='振り逃げアウト'||s>=3) { teamStats.K++; pStat.K++; }
             if (isAB) { teamStats.AB++; pStat.AB++; }
+            let sprayHit = null;
             if (isHitPlay || ['ゴロ','飛','直','エラー','バント'].some(w=>res.includes(w))) {
               let sp = { x: 120, y: 100 };
               if (lastPitch.hitX !== undefined && lastPitch.hitY !== undefined) { sp = { x: lastPitch.hitX, y: lastPitch.hitY }; } else { sp = getSprayPosition(res) || { x: 120, y: 100 }; }
               const sEnt = { x: sp.x, y: sp.y, type: getSprayResultType(res), flight: getBallFlight(res), result: res, isManual: lastPitch.hitX !== undefined };
+              sprayHit = sEnt;
               teamStats.sprayHits.push(sEnt); pStat.sprayHits.push(sEnt);
             }
             if (!(res?.startsWith('牽制') || ['盗塁死','その他出塁'].includes(res))) pStat.results.push(res);
             if (!pStat.atBats) pStat.atBats = [];
-            pStat.atBats.push({ pitches: ab, result: res, inning: lastPitch.inning, isTop: lastPitch.isTop });
+            pStat.atBats.push({ pitches: ab, result: res, inning: lastPitch.inning, isTop: lastPitch.isTop, sprayHit });
           });
           const calcRates = (st) => ({ AVG: st.AB>0?(st.H/st.AB).toFixed(3).replace(/^0/, ''):'.000', OPS: ((st.AB>0?st.TB/st.AB:0) + (st.PA>0?(st.H+st.BB_HBP)/st.PA:0)).toFixed(3).replace(/^0/, ''), KPct: st.PA>0?Math.round((st.K/st.PA)*100):0, BBPct: st.PA>0?Math.round((st.BB_HBP/st.PA)*100):0 });
           Object.assign(teamStats, calcRates(teamStats));
@@ -2864,7 +2866,7 @@ import { buildScorebookData } from './scorebookData.js';
                         if (!playersWithABs.length) return null;
                         return (
                           <div className="mt-6 border-t border-slate-200 pt-5">
-                            <h4 className="text-sm font-black text-slate-700 mb-2">📋 打席内容 <span className="text-xs font-normal text-slate-400">(コース・球種)</span></h4>
+                            <h4 className="text-sm font-black text-slate-700 mb-2">📋 打席内容 <span className="text-xs font-normal text-slate-400">(配球・打球方向)</span></h4>
                             <div className="flex flex-wrap gap-x-4 gap-y-1 mb-3 text-[10px] text-slate-500 items-center">
                               {Object.entries(ptColors).map(([n,c]) => (
                                 <span key={n} className="flex items-center gap-1">
@@ -2885,12 +2887,21 @@ import { buildScorebookData } from './scorebookData.js';
                                     {batter.atBats.map((ab, abIdx) => {
                                       const rl = getResultLabel(ab.result);
                                       return (
-                                        <div key={abIdx} className="flex flex-col items-center gap-1" style={{minWidth: svgSz, maxWidth: svgSz + 12}}>
+                                        <div key={abIdx} className="flex flex-col items-center gap-1" style={{minWidth: svgSz * 2 + 6, maxWidth: svgSz * 2 + 14}}>
                                           <div className="text-[10px] text-slate-500 font-bold">{ab.inning}回{ab.isTop?'表':'裏'}</div>
-                                          <div style={{border:'1px solid #e2e8f0',borderRadius:6,overflow:'hidden',background:'white'}}>
-                                            {renderAbZone(ab.pitches)}
+                                          <div className="flex items-start gap-1.5">
+                                            <div className="flex flex-col items-center gap-0.5">
+                                              <span className="text-[8px] font-bold text-slate-400">配球</span>
+                                              <div style={{border:'1px solid #e2e8f0',borderRadius:6,overflow:'hidden',background:'white'}}>
+                                                {renderAbZone(ab.pitches)}
+                                              </div>
+                                            </div>
+                                            <div className="flex flex-col items-center gap-0.5">
+                                              <span className="text-[8px] font-bold text-slate-400">打球方向</span>
+                                              <SprayChart hits={ab.sprayHit ? [ab.sprayHit] : []} size={svgSz} compact emptyLabel="打球なし" />
+                                            </div>
                                           </div>
-                                          <div className="text-[10px] font-black text-center leading-snug px-1" style={{color: rl.color, maxWidth: svgSz + 8, overflowWrap: 'anywhere'}}>{rl.text}</div>
+                                          <div className="text-[10px] font-black text-center leading-snug px-1" style={{color: rl.color, maxWidth: svgSz * 2 + 8, overflowWrap: 'anywhere'}}>{rl.text}</div>
                                         </div>
                                       );
                                     })}

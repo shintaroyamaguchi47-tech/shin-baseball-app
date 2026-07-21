@@ -1,14 +1,13 @@
 import React from 'react';
 
-    function SprayChart({ hits, title, size = 200 }) {
+    function SprayChart({ hits, title, size = 200, compact = false, emptyLabel = 'No Data' }) {
       const HX = 120, HY = 185;
       const scale = size / 240;
       const h = size, w = size;
       const svgH = Math.round(200 * scale);
       return (
-        <div style={{display:'inline-block', textAlign:'center', margin:'8px'}}>
-          <div style={{fontSize:'11px', fontWeight:'bold', color:'#475569', marginBottom:'4px', background:'#f1f5f9', padding:'2px 8px', borderRadius:'12px', display:'inline-block'}}>{title}</div>
-          <br/>
+        <div style={{display:'inline-block', textAlign:'center', margin: compact ? 0 : '8px'}}>
+          {title ? <><div style={{fontSize:'11px', fontWeight:'bold', color:'#475569', marginBottom:'4px', background:'#f1f5f9', padding:'2px 8px', borderRadius:'12px', display:'inline-block'}}>{title}</div><br/></> : null}
           <svg width={w} height={svgH} viewBox="0 0 240 200" style={{background:'#ffffff', border:'1px solid #cbd5e1', borderRadius:'8px', boxShadow:'0 1px 3px rgba(0,0,0,0.1)'}}>
             <path d="M 120 185 L 0 65 L 0 0 L 240 0 L 240 65 Z" fill="#f8fafc"/>
             <path d="M 120 185 L 8 70 Q 120 -25 232 70 Z" fill="#dcfce7"/>
@@ -18,7 +17,7 @@ import React from 'react';
             <line x1="120" y1="185" x2="232" y2="70" stroke="#fbbf24" strokeWidth="1.5"/>
             <polygon points="120,185 80,145 120,110 160,145" fill="none" stroke="#cbd5e1" strokeWidth="1" strokeDasharray="4,2"/>
             {(!hits || hits.length === 0) && (
-              <text x="120" y="100" textAnchor="middle" fill="#94a3b8" fontSize="12" fontWeight="bold">No Data</text>
+              <text x="120" y="100" textAnchor="middle" fill="#94a3b8" fontSize="12" fontWeight="bold">{emptyLabel}</text>
             )}
             {(hits || []).map((pt, idx) => {
               const tx = pt.x + (pt.isManual ? 0 : (Math.random() - 0.5) * 4);
