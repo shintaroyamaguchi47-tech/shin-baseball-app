@@ -2292,7 +2292,9 @@ import { buildScorebookData } from './scorebookData.js';
                         {(() => {
                           const dupSet = findDuplicateNameIndices((registeredTeams[editingTeamIndex]||{}).players||[]);
                           return ((registeredTeams[editingTeamIndex]||{}).players||[]).map((p, i) => (
-                          <div key={`player-${i}-${typeof p === 'string' ? p : p.name}`} className={`flex items-center gap-1.5 ${dupSet.has(i) ? 'bg-amber-50 border border-amber-200 rounded-lg px-1 py-0.5' : ''}`}>
+                          // keyは行番号のみで固定する。選手名をkeyに含めると1文字入力するたびに
+                          // keyが変わって行が作り直され、入力欄のフォーカスと日本語の変換途中が失われる。
+                          <div key={`player-${i}`} className={`flex items-center gap-1.5 ${dupSet.has(i) ? 'bg-amber-50 border border-amber-200 rounded-lg px-1 py-0.5' : ''}`}>
                             {mergeMode && <input type="checkbox" checked={mergeSelection.includes(i)} onChange={() => { setMergeSelection(prev => prev.includes(i) ? prev.filter(x => x !== i) : [...prev, i]); setMergeKeepIdx(null); }} className="w-4 h-4 accent-indigo-600 shrink-0" />}
                             <span className="text-[10px] font-bold text-slate-400 w-5 text-right">{i+1}</span>
                             {(registeredTeams[editingTeamIndex]||{}).name === homeTeamName && <input aria-label="背番号" placeholder="#" value={typeof p === 'string' ? '' : (p.number||'')} onChange={e => { const t=[...registeredTeams]; const pl=[...(t[editingTeamIndex].players||[])]; pl[i]={...asPlayerObj(pl[i]),number:e.target.value}; t[editingTeamIndex]={...t[editingTeamIndex],players:pl}; setRegisteredTeams(t); }} className="w-10 rounded border border-blue-100 px-1 py-1.5 text-center text-[10px] font-bold" />}
