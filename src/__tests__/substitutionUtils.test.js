@@ -249,3 +249,48 @@ describe('applySubstitutionToLineup', () => {
     expect(lineup[3].pos).toBe('三');
   });
 });
+
+describe('守備位置のみの変更(positionOnly)', () => {
+  // 5番A5(左) が遊撃へ回り、遊撃にいた6番A6が左翼へ。選手の入れ替えはない
+  const records = [
+    pitch({ inning: 2, batter: 5, batterName: 'A5', batterPos: '左' }),
+    pitch({ inning: 2, batter: 6, batterName: 'A6', batterPos: '遊' }),
+    pitch({ inning: 5, batter: 5, batterName: 'A5', batterPos: '左' }),
+    pitch({ inning: 5, batter: 6, batterName: 'A6', batterPos: '遊' }),
+  ];
+  const params = {
+    side: 'top', type: '位置変更', order: 5, positionOnly: true,
+    oldPlayer: { name: 'A5', pos: '左' },
+    newPlayer: { name: 'A5', pos: '遊', bats: '右', throws: '右' },
+    shift: { order: 6, name: 'A6', toPos: '左' },
+  };
+
+  it('[退]/[入]ではなく[移]の表記になる', () => {
+    const r = insertSubstitution(records, 2, params);
+    expect(r.records[2].result).toBe('選手交代: [移]5番 A5 左→遊 (位置変更) / [移]A6 遊→左');
+  });
+
+  it('挿入位置以降の守備位置だけが書き換わり、選手名は変わらない', () => {
+    const r = insertSubstitution(records, 2, params);
+    const plays = r.records.filter((p) => !p.isEvent);
+    expect(plays.map((p) => `${p.batterName}:${p.batterPos}`)).toEqual(['A5:左', 'A6:遊', 'A5:遊', 'A6:左']);
+  });
+
+  it('玉突きで別の選手がマウンドへ入る場合は投手名も付け替える', () => {
+    // 投手P1が右翼へ、右翼手R1が登板
+    const recs = [
+      pitch({ isTop: true, inning: 3, batter: 1, batterName: 'H1', pitcherName: 'P1', pitcherThrows: '右' }),
+      pitch({ isTop: true, inning: 6, batter: 1, batterName: 'H1', pitcherName: 'P1', pitcherThrows: '右' }),
+    ];
+    const r = insertSubstitution(recs, 1, {
+      side: 'bottom', type: '位置変更', order: 9, positionOnly: true,
+      oldPlayer: { name: 'P1', pos: '投' },
+      newPlayer: { name: 'P1', pos: '右', bats: '右', throws: '右' },
+      shift: { order: 7, name: 'R1', toPos: '投', throws: '左' },
+      oldPitcherName: 'P1',
+    });
+    expect(r.records.map((p) => p.pitcherName)).toEqual(['P1', 'R1', 'R1']);
+    expect(r.records[2].pitcherThrows).toBe('左');
+    expect(r.pitchingUpdated).toBe(1);
+  });
+});

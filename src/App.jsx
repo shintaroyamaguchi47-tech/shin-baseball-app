@@ -194,6 +194,8 @@ import { autoPositions, buildAdvanceChoices, buildAdvanceEvents, previewAdvanceR
       
       // 選手交代モーダル用ステート
       const [showSubstitutionModal, setShowSubstitutionModal] = useState(false);
+      // 選手を入れ替えず守備位置だけ動かす交代タイプ
+      const POSITION_CHANGE_TYPE = '位置変更';
       // insertIndex: null なら現在時点の交代、数値なら記録のその位置へさかのぼって挿入する
       const [subData, setSubData] = useState({ team: 'top', type: '代打', order: 1, newName: '', newPos: '打', newThrows: '右', newBats: '右', shiftOrder: null, shiftNewPos: '', insertIndex: null });
 
@@ -782,14 +784,22 @@ import { autoPositions, buildAdvanceChoices, buildAdvanceEvents, previewAdvanceR
       // 選手交代実行
       const handleSubstitution = () => {
         const { team, type, order, newName, newPos, newThrows, newBats, shiftOrder, shiftNewPos, insertIndex } = subData;
-        if (!newName.trim()) { showToast('新しい選手名を入力してください', 'error'); return; }
-        recordAction();
-
+        // 位置変更は選手が入れ替わらず守備位置だけを動かす(入る選手の入力は不要)
+        const positionOnly = type === POSITION_CHANGE_TYPE;
         const targetIndex = order - 1;
         const baseLineup = subLineup;
         const oldPlayer = baseLineup[targetIndex] || { name: '不明' };
-        const shift = shiftOrder ? { order: shiftOrder, name: baseLineup[shiftOrder - 1]?.name || '?', toPos: shiftNewPos } : null;
-        const newPlayer = { name: newName.trim(), pos: newPos, throws: newThrows, bats: newBats };
+        if (positionOnly) {
+          if (!oldPlayer.name || isPlaceholderName(oldPlayer.name)) { showToast('動かす選手を選んでください', 'error'); return; }
+          if (oldPlayer.pos === newPos && !shiftOrder) { showToast('今と違う守備位置を選んでください', 'error'); return; }
+        } else if (!newName.trim()) { showToast('新しい選手名を入力してください', 'error'); return; }
+        recordAction();
+
+        const shiftPlayer = shiftOrder ? baseLineup[shiftOrder - 1] : null;
+        const shift = shiftOrder ? { order: shiftOrder, name: shiftPlayer?.name || '?', toPos: shiftNewPos, throws: shiftPlayer?.throws } : null;
+        const newPlayer = positionOnly
+          ? { name: oldPlayer.name, pos: newPos, throws: oldPlayer.throws || newThrows, bats: oldPlayer.bats || newBats }
+          : { name: newName.trim(), pos: newPos, throws: newThrows, bats: newBats };
 
         if (insertIndex !== null && insertIndex !== undefined) {
           // さかのぼって挿入: 交代イベントを差し込み、それ以降の記録の選手名も書き換える
@@ -797,7 +807,7 @@ import { autoPositions, buildAdvanceChoices, buildAdvanceEvents, previewAdvanceR
           const res = insertSubstitution(pitches, insertIndex, {
             side: team, type, order,
             oldPlayer: { name: oldPlayer.name, pos: oldPlayer.pos },
-            newPlayer, shift, oldPitcherName: oldPitcher?.name || null
+            newPlayer, shift, oldPitcherName: oldPitcher?.name || null, positionOnly
           });
           setPitches(renumberPitchNumbers(res.records));
           // 現在のオーダーにまだ退いた選手が残っていれば(=以降に別の交代が無ければ)ここも差し替える
@@ -805,7 +815,8 @@ import { autoPositions, buildAdvanceChoices, buildAdvanceEvents, previewAdvanceR
           if (applied.applied) setLineups(prev => ({ ...prev, [team]: dropBenchEntry(applied.lineup, newPlayer.name) }));
           setShowSubstitutionModal(false);
           const changed = res.battingUpdated + res.pitchingUpdated;
-          showToast(changed > 0 ? `${type}: ${newName} を挿入し、以降の記録${changed}件を書き換えました` : `${type}: ${newName} を挿入しました`);
+          const label = positionOnly ? `${oldPlayer.name} ${oldPlayer.pos || '?'}→${newPos}` : newPlayer.name;
+          showToast(changed > 0 ? `${type}: ${label} を挿入し、以降の記録${changed}件を書き換えました` : `${type}: ${label} を挿入しました`);
           return;
         }
 
@@ -818,7 +829,7 @@ import { autoPositions, buildAdvanceChoices, buildAdvanceEvents, previewAdvanceR
         setLineups(prev => ({ ...prev, [team]: dropBenchEntry(currentLineup, newPlayer.name) }));
 
         // イベントとして履歴に記録
-        const eventText = buildSubstitutionEventText({ order, oldPos: oldPlayer.pos, oldName: oldPlayer.name, newPos, newName, type, shift });
+        const eventText = buildSubstitutionEventText({ order, oldPos: oldPlayer.pos, oldName: oldPlayer.name, newPos, newName: newPlayer.name, type, shift, positionOnly });
 
         const dummyPitcher = lineups[gameState.isTop ? 'bottom' : 'top'].find(p => p.pos === '投' || p.pos === '1' || p.pos === '①') || { name: '投手未設定', throws: '右' };
         const dummyBatterIndex = (gameState.isTop ? gameState.batterTop : gameState.batterBottom) - 1;
@@ -832,7 +843,7 @@ import { autoPositions, buildAdvanceChoices, buildAdvanceEvents, previewAdvanceR
         }]);
 
         setShowSubstitutionModal(false);
-        showToast(`${type}: ${newName} を登録しました`);
+        showToast(positionOnly ? `${type}: ${oldPlayer.name} ${oldPlayer.pos || '?'}→${newPos}` : `${type}: ${newPlayer.name} を登録しました`);
       };
 
       const handleEditPitchClick = (pitch) => { const globalIndex = pitches.indexOf(pitch); if (globalIndex !== -1) { setEditingPitchIndex(globalIndex); setEditPitchData({ ...pitch, runners: pitch.runners || { first: false, second: false, third: false } }); } };
@@ -2118,6 +2129,7 @@ import { autoPositions, buildAdvanceChoices, buildAdvanceEvents, previewAdvanceR
             const retroIndex = subData.insertIndex;
             const isRetro = retroIndex !== null && retroIndex !== undefined;
             const retroTarget = isRetro ? pitches[retroIndex] : null;
+            const isPosChange = subData.type === POSITION_CHANGE_TYPE;
             return (
             <div className="fixed inset-0 bg-slate-900/80 z-[300] flex items-center justify-center p-4 backdrop-blur-sm">
               <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col max-h-[92vh] border border-slate-200">
@@ -2142,9 +2154,15 @@ import { autoPositions, buildAdvanceChoices, buildAdvanceEvents, previewAdvanceR
                     <button onClick={()=>setSubData({...subData, team: 'bottom', order: isRetro ? 1 : (!gameState.isTop?gameState.batterBottom:1)})} className={`flex-1 py-2 text-xs font-bold rounded-md ${subData.team === 'bottom' ? 'bg-white shadow-sm text-rose-700' : 'text-slate-500'}`}>{gameInfo.teamBottom}</button>
                   </div>
                   {/* 交代タイプ */}
-                  <div className="grid grid-cols-4 gap-2">
-                    {['代打', '代走', '守備', '投手'].map(t => (
+                  <div className="grid grid-cols-5 gap-1.5">
+                    {['代打', '代走', '守備', '投手', POSITION_CHANGE_TYPE].map(t => (
                       <button key={t} onClick={() => {
+                        // 位置変更はその打順の選手をそのまま動かすので、今のポジションを初期値にする
+                        if(t === POSITION_CHANGE_TYPE) {
+                          const cur = subLineup[subData.order-1] || {};
+                          setSubData({...subData, type: t, newPos: cur.pos || '未', newName: cur.name || '', newThrows: cur.throws || '右', newBats: cur.bats || '右', shiftOrder: null, shiftNewPos: ''});
+                          return;
+                        }
                         let p = '未'; if(t==='代打') p='打'; if(t==='代走') p='走'; if(t==='投手') p='投';
                         let targetOrder = subData.order;
                         if(t==='投手') {
@@ -2152,20 +2170,20 @@ import { autoPositions, buildAdvanceChoices, buildAdvanceEvents, previewAdvanceR
                            const pIdx = subLineup.findIndex(pl => pl.pos === '投' || pl.pos === '1' || pl.pos === '①');
                            if(pIdx !== -1) targetOrder = pIdx + 1;
                         }
-                        setSubData({...subData, type: t, newPos: p, order: targetOrder});
-                      }} className={`py-2 rounded-xl text-xs font-bold border-2 ${subData.type === t ? 'border-slate-800 bg-slate-800 text-white' : 'border-slate-200 bg-white text-slate-600'}`}>{t}</button>
+                        setSubData({...subData, type: t, newPos: p, order: targetOrder, shiftOrder: null, shiftNewPos: ''});
+                      }} className={`py-2 rounded-xl text-[11px] font-bold border-2 ${subData.type === t ? 'border-slate-800 bg-slate-800 text-white' : 'border-slate-200 bg-white text-slate-600'}`}>{t}</button>
                     ))}
                   </div>
                   {/* 打順選択と退く選手 */}
                   <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
-                    <label className="text-[10px] font-bold text-slate-500 mb-2 block">対象の選手（退く選手）</label>
+                    <label className="text-[10px] font-bold text-slate-500 mb-2 block">対象の選手（{isPosChange ? '動かす選手' : '退く選手'}）</label>
                     {/* 守備位置ショートカット */}
                     <div className="flex flex-wrap gap-1 mb-2">
                       {['投','捕','一','二','三','遊','左','中','右'].map(pos => {
                         const idx = subLineup.findIndex(p => p.pos === pos);
                         const active = idx !== -1 && (idx + 1) === subData.order;
                         return (
-                          <button key={pos} disabled={idx === -1} onClick={() => { if(idx === -1) return; const updates = {order: idx+1, shiftOrder: null, shiftNewPos: ''}; if(subData.type === '守備') updates.newPos = pos; setSubData({...subData, ...updates}); }}
+                          <button key={pos} disabled={idx === -1} onClick={() => { if(idx === -1) return; const updates = {order: idx+1, shiftOrder: null, shiftNewPos: ''}; if(subData.type === '守備' || isPosChange) updates.newPos = pos; setSubData({...subData, ...updates}); }}
                             className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-colors ${active ? 'bg-slate-700 text-white border-slate-700' : idx !== -1 ? 'bg-white border-slate-300 text-slate-600 hover:border-slate-500 hover:bg-slate-50' : 'bg-slate-100 border-slate-200 text-slate-300 cursor-not-allowed'}`}>
                             {pos}
                           </button>
@@ -2173,7 +2191,7 @@ import { autoPositions, buildAdvanceChoices, buildAdvanceEvents, previewAdvanceR
                       })}
                     </div>
                     <div className="flex items-center gap-2">
-                      <select value={subData.order} onChange={e=>setSubData({...subData, order: Number(e.target.value)})} className="bg-white border border-slate-300 rounded-lg px-2 py-2 text-sm font-bold">
+                      <select value={subData.order} onChange={e=>{ const n = Number(e.target.value); const cur = subLineup[n-1] || {}; setSubData({...subData, order: n, shiftOrder: null, shiftNewPos: '', ...(isPosChange ? { newPos: cur.pos || '未', newName: cur.name || '', newThrows: cur.throws || '右', newBats: cur.bats || '右' } : {})}); }} className="bg-white border border-slate-300 rounded-lg px-2 py-2 text-sm font-bold">
                         {[1,2,3,4,5,6,7,8,9,10].map(n => <option key={n} value={n}>{n === 10 ? '控/投' : `${n}番`}</option>)}
                       </select>
                       <div className="flex-1 bg-slate-200/50 border border-slate-200 rounded-lg px-3 py-2 text-sm font-bold text-slate-600 flex items-center gap-2 min-w-0">
@@ -2182,14 +2200,23 @@ import { autoPositions, buildAdvanceChoices, buildAdvanceEvents, previewAdvanceR
                       </div>
                     </div>
                   </div>
-                  {/* 新しい選手 */}
+                  {/* 新しい選手(位置変更のときは選手を入れ替えないので入力しない) */}
                   <div className="flex flex-col gap-2">
-                    <label className="text-[10px] font-bold text-slate-500 block">入る選手</label>
+                    <label className="text-[10px] font-bold text-slate-500 block">{isPosChange ? '新しい守備位置' : '入る選手'}</label>
+                    {isPosChange && (
+                      <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex items-center gap-2 text-sm">
+                        <span className="text-[10px] font-black text-slate-400 shrink-0">動かす</span>
+                        <span className="shrink-0 bg-slate-500 text-white text-[10px] font-black rounded px-1.5 py-0.5">{subLineup[subData.order-1]?.pos || '?'}</span>
+                        <span className="font-bold truncate">{subLineup[subData.order-1]?.name || '未設定'}</span>
+                        <span className="text-slate-400 shrink-0">→</span>
+                        <span className="shrink-0 bg-blue-600 text-white text-[10px] font-black rounded px-1.5 py-0.5">{subData.newPos}</span>
+                      </div>
+                    )}
                     <datalist id="sub-roster-list">
                       {getRosterPlayers(subData.team === 'top' ? gameInfo.teamTop : gameInfo.teamBottom).map((pl, idx) => <option key={idx} value={pl.name} />)}
                     </datalist>
                     {/* 控え選手・登録選手からワンタップで選ぶ(出場中の選手も選択できる) */}
-                    {subCandidates.length > 0 && (
+                    {!isPosChange && subCandidates.length > 0 && (
                       <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200">
                         <div className="text-[10px] font-bold text-slate-400 mb-1.5">控え・登録選手から選ぶ</div>
                         <div className="flex flex-wrap gap-1">
@@ -2207,18 +2234,18 @@ import { autoPositions, buildAdvanceChoices, buildAdvanceEvents, previewAdvanceR
                         </div>
                       </div>
                     )}
-                    <div className="flex gap-1.5">
+                    <div className={`flex gap-1.5 ${isPosChange ? 'hidden' : ''}`}>
                       <input type="text" list="sub-roster-list" autoComplete="off" value={subData.newName} onChange={e => { const pl = getRosterPlayers(subData.team === 'top' ? gameInfo.teamTop : gameInfo.teamBottom).find(r => r.name === e.target.value); setSubData({...subData, newName: e.target.value, ...(pl ? {newThrows: pl.throws||'右', newBats: pl.bats||'右'} : {})}); }} placeholder="新しい選手名" className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm font-bold" />
                       {subData.newName && <button type="button" onClick={() => setSubData({...subData, newName: ''})} className="text-slate-300 hover:text-slate-500 font-bold text-sm px-2 border border-slate-300 rounded-lg bg-white">×</button>}
                     </div>
-                    {subData.newName && findRegisteredTeam(subData.team === 'top' ? gameInfo.teamTop : gameInfo.teamBottom) && !getRosterPlayers(subData.team === 'top' ? gameInfo.teamTop : gameInfo.teamBottom).some(pl => pl.name === subData.newName) && (
+                    {!isPosChange && subData.newName && findRegisteredTeam(subData.team === 'top' ? gameInfo.teamTop : gameInfo.teamBottom) && !getRosterPlayers(subData.team === 'top' ? gameInfo.teamTop : gameInfo.teamBottom).some(pl => pl.name === subData.newName) && (
                       <button type="button" onClick={() => addPlayerToTeam(subData.team === 'top' ? gameInfo.teamTop : gameInfo.teamBottom, subData.newName, subData.newThrows||'右', subData.newBats||'右')} className="text-[11px] bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg px-3 py-1.5 font-bold self-start">＋ チームに追加登録</button>
                     )}
-                    {subData.type === '守備' ? (
+                    {(subData.type === '守備' || isPosChange) ? (
                       <>
-                        {/* 入るポジション選択（守備タイプ専用） */}
+                        {/* ポジション選択（守備交代・位置変更で使う） */}
                         <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200">
-                          <div className="text-[10px] font-bold text-slate-400 mb-1.5">入るポジション</div>
+                          <div className="text-[10px] font-bold text-slate-400 mb-1.5">{isPosChange ? '移動先のポジション' : '入るポジション'}</div>
                           <div className="flex flex-wrap gap-1">
                             {['投','捕','一','二','三','遊','左','中','右'].map(ePos => {
                               const vacatedPos = subLineup[subData.order-1]?.pos;

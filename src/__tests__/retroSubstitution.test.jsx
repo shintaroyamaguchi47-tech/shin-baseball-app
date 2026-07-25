@@ -139,3 +139,70 @@ describe('試合後にさかのぼって選手交代を挿入する', () => {
     expect(storedLineups().bottom[9]).toMatchObject({ name: '新投手', pos: '投' });
   });
 });
+
+describe('さかのぼって守備位置だけを変更する', () => {
+  let container;
+  // 5番(左翼)と6番(遊撃)が2回・5回に打っている記録
+  const posPitches = [
+    pitch({ inning: 2, batter: 5, batterName: '左翼手', batterPos: '左' }),
+    pitch({ inning: 2, batter: 6, batterName: '遊撃手', batterPos: '遊' }),
+    pitch({ inning: 5, batter: 5, batterName: '左翼手', batterPos: '左' }),
+    pitch({ inning: 5, batter: 6, batterName: '遊撃手', batterPos: '遊' }),
+  ];
+  const posLineups = {
+    top: Array.from({ length: 10 }, (_, i) => ({
+      order: i < 9 ? i + 1 : '投',
+      name: i === 4 ? '左翼手' : i === 5 ? '遊撃手' : `先攻${i + 1}番`,
+      pos: i === 4 ? '左' : i === 5 ? '遊' : '未', throws: '右', bats: '右',
+    })),
+    bottom: seedLineups.bottom,
+  };
+
+  beforeEach(async () => {
+    localStorage.clear();
+    localStorage.setItem('baseball_pitches_v2', JSON.stringify(posPitches));
+    localStorage.setItem('baseball_lineups_v2', JSON.stringify(posLineups));
+    localStorage.setItem('baseball_gameInfo_v2', JSON.stringify({ date: '2026-07-25', gameType: '練習試合', teamTop: '自チーム', teamBottom: '相手チーム' }));
+    document.body.innerHTML = '';
+    container = document.createElement('div');
+    container.id = 'root';
+    document.body.appendChild(container);
+    await act(async () => { createRoot(container).render(<App />); });
+    // 5回の5番の記録(index 2)の直前へ「位置変更」を挿入する
+    await act(async () => { findButton(container, '📝 記録修正').click(); });
+    const insertButtons = [...container.querySelectorAll('button')].filter((b) => b.textContent.includes('交代挿入'));
+    await act(async () => { insertButtons[2].click(); });
+  });
+
+  const modalOf = () => [...container.querySelectorAll('div')].find((d) => d.querySelector(':scope > div > h2')?.textContent.includes('選手交代'));
+
+  it('位置変更では入る選手の入力を求めず、選手名はそのまま守備位置だけ変わる', async () => {
+    const modal = modalOf();
+    await act(async () => { findButton(modal, '位置変更').click(); });
+    // 対象は5番(左翼手)。入る選手の入力欄は表示しない
+    expect(modalOf().textContent).toContain('新しい守備位置');
+    expect(modalOf().textContent).not.toContain('控え・登録選手から選ぶ');
+    // 移動先に「遊」を選ぶ → 遊撃手は左翼へ玉突きで移動
+    const posButtons = [...modalOf().querySelectorAll('button')].filter((b) => b.textContent === '遊');
+    await act(async () => { posButtons[posButtons.length - 1].click(); });
+    await act(async () => { findButton(container, 'この場面に挿入').click(); });
+
+    const after = storedPitches();
+    expect(after).toHaveLength(5);
+    expect(after[2].result).toBe('選手交代: [移]5番 左翼手 左→遊 (位置変更) / [移]遊撃手 遊→左');
+    // 選手名は変わらず、5回以降の守備位置だけ入れ替わる
+    const plays = after.filter((p) => !p.isEvent);
+    expect(plays.map((p) => `${p.batterName}:${p.batterPos}`)).toEqual(['左翼手:左', '遊撃手:遊', '左翼手:遊', '遊撃手:左']);
+    // 現在のオーダーにも反映される
+    const top = storedLineups().top;
+    expect(top[4]).toMatchObject({ name: '左翼手', pos: '遊' });
+    expect(top[5]).toMatchObject({ name: '遊撃手', pos: '左' });
+  });
+
+  it('同じ守備位置のままでは挿入できない', async () => {
+    await act(async () => { findButton(modalOf(), '位置変更').click(); });
+    await act(async () => { findButton(container, 'この場面に挿入').click(); });
+    expect(container.textContent).toContain('今と違う守備位置を選んでください');
+    expect(storedPitches()).toHaveLength(4);
+  });
+});

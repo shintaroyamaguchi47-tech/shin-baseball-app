@@ -27,18 +27,21 @@ describe('スコアブックPDFのページ構成', () => {
     return html;
   };
 
-  it('先攻・後攻・個人成績を独立した3シートにする', () => {
+  // 個人成績は独立したページをやめ、各チームのスコアページ右側へ統合した
+  it('先攻・後攻の2シートにまとめ、個人成績はスコアページに同居させる', () => {
     const html = render({ includeCharts: true, includeStats: true });
-    expect((html.match(/<article class="sb-sheet /g) || []).length).toBe(3);
+    expect((html.match(/<article class="sb-sheet /g) || []).length).toBe(2);
     expect(html).toContain('先攻スコア');
     expect(html).toContain('後攻スコア');
-    expect(html).toContain('個人成績');
+    // 個人成績はスコア表の右側(aside)に入る
+    expect(html).toContain('<aside class="sb-score-side">');
+    expect(html).toContain('打撃成績');
   });
 
   it('設定で図と個人成績ページを省略できる', () => {
     const html = render({ includeCharts: false, includeStats: false });
     expect((html.match(/<article class="sb-sheet /g) || []).length).toBe(2);
     expect(html).not.toContain('<th class="sb-hd-pa">');
-    expect(html).not.toContain('個人成績</div>');
+    expect(html).not.toContain('<aside class="sb-score-side">');
   });
 });
