@@ -7,6 +7,7 @@ import { buildPlayByPlayReport } from './playByPlay.js';
 import * as storage from './storage.js';
 import { asPlayerObj, findDuplicateNameIndices, mergeRosterPlayers, renamePlayersInGame, detectLineupRenames } from './teamUtils.js';
 import { renumberPitchNumbers, reassignPitchBatter } from './gameUtils.js';
+import { insertSubstitution, applySubstitutionToLineup, lineupSnapshotAt, findPitcherAt, buildSubstitutionEventText } from './substitutionUtils.js';
 import AnalyticsHub from './components/AnalyticsHub.jsx';
 import { normalizeArchive } from './analyticsData.js';
 import { isScorerGdf, convertScorerGame } from './scorerImport.js';
@@ -170,7 +171,8 @@ import { buildScorebookData } from './scorebookData.js';
       
       // 選手交代モーダル用ステート
       const [showSubstitutionModal, setShowSubstitutionModal] = useState(false);
-      const [subData, setSubData] = useState({ team: 'top', type: '代打', order: 1, newName: '', newPos: '打', newThrows: '右', newBats: '右', shiftOrder: null, shiftNewPos: '' });
+      // insertIndex: null なら現在時点の交代、数値なら記録のその位置へさかのぼって挿入する
+      const [subData, setSubData] = useState({ team: 'top', type: '代打', order: 1, newName: '', newPos: '打', newThrows: '右', newBats: '右', shiftOrder: null, shiftNewPos: '', insertIndex: null });
 
       const [showPostGameAnalysis, setShowPostGameAnalysis] = useState(false);
       const [showAnalystReport, setShowAnalystReport] = useState(false);
@@ -362,12 +364,17 @@ import { buildScorebookData } from './scorebookData.js';
         });
       };
 
-      const loadGame = (gameId) => {
+      // openRecordEditor: 試合後の記録修正(選手交代のさかのぼり挿入など)へそのまま進む
+      const loadGame = (gameId, { openRecordEditor = false } = {}) => {
         setConfirmDialog({
           title: '📂 データの読み込み', message: '現在の作業中データは上書きされます。本当に読み込みますか？', isDanger: true,
           onConfirm: () => {
             const target = savedGames.find(g => g.id === gameId);
-            if (target) { setGameState(normalizeGameState(target.data.gameState)); setGameInfo({ ...target.data.gameInfo, sourceGameId: target.id }); setLineups(target.data.lineups || makeInitialLineups()); setPitches(target.data.pitches || []); setUndoStack([]); setRedoStack([]); setShowArchiveModal(false); setConfirmDialog(null); showToast('試合データを読み込みました。修正後は「読み込み元へ上書き保存」で反映できます'); }
+            if (target) {
+              setGameState(normalizeGameState(target.data.gameState)); setGameInfo({ ...target.data.gameInfo, sourceGameId: target.id }); setLineups(target.data.lineups || makeInitialLineups()); setPitches(target.data.pitches || []); setUndoStack([]); setRedoStack([]); setShowArchiveModal(false); setConfirmDialog(null);
+              if (openRecordEditor) { setShowRecordEditor(true); showToast('記録を読み込みました。交代を入れる場面の🔄をタップしてください'); }
+              else showToast('試合データを読み込みました。修正後は「読み込み元へ上書き保存」で反映できます');
+            }
           }
         });
       };
@@ -661,35 +668,72 @@ import { buildScorebookData } from './scorebookData.js';
         }
       };
 
+      // 交代モーダルを開く(insertIndex を渡すと、その記録の直前へさかのぼって挿入するモードになる)
+      const openSubstitutionModal = (insertIndex = null, overrides = {}) => {
+        const team = overrides.team || (gameState.isTop ? 'top' : 'bottom');
+        setSubData({
+          team, type: '代打', order: gameState.isTop ? gameState.batterTop : gameState.batterBottom,
+          newName: '', newPos: '打', newThrows: '右', newBats: '右', shiftOrder: null, shiftNewPos: '',
+          insertIndex, ...overrides
+        });
+        setShowSubstitutionModal(true);
+      };
+
+      // 記録修正画面から「この記録の直前」に交代を挿入する
+      const openRetroSubstitution = (index) => {
+        const target = pitches[index];
+        const team = target ? (target.isTop ? 'top' : 'bottom') : (gameState.isTop ? 'top' : 'bottom');
+        setShowRecordEditor(false);
+        openSubstitutionModal(index, { team, order: target?.batter || 1 });
+      };
+
+      // 交代モーダルが対象とするオーダー(さかのぼり時はその場面のオーダーを記録から復元)
+      const subLineup = useMemo(() => {
+        const base = lineups[subData.team] || [];
+        if (subData.insertIndex === null || subData.insertIndex === undefined) return base;
+        return lineupSnapshotAt(pitches, subData.insertIndex, base, subData.team);
+      }, [lineups, pitches, subData.team, subData.insertIndex]);
+
       // 選手交代実行
       const handleSubstitution = () => {
-        recordAction();
-        const { team, type, order, newName, newPos, newThrows, newBats } = subData;
+        const { team, type, order, newName, newPos, newThrows, newBats, shiftOrder, shiftNewPos, insertIndex } = subData;
         if (!newName.trim()) { showToast('新しい選手名を入力してください', 'error'); return; }
+        recordAction();
 
-        const { shiftOrder, shiftNewPos } = subData;
         const targetIndex = order - 1;
-        const currentLineup = [...lineups[team]];
-        const oldPlayer = currentLineup[targetIndex] || { name: '不明' };
+        const baseLineup = subLineup;
+        const oldPlayer = baseLineup[targetIndex] || { name: '不明' };
+        const shift = shiftOrder ? { order: shiftOrder, name: baseLineup[shiftOrder - 1]?.name || '?', toPos: shiftNewPos } : null;
+        const newPlayer = { name: newName.trim(), pos: newPos, throws: newThrows, bats: newBats };
 
-        // ラインナップの更新（退く選手 → 新選手）
-        currentLineup[targetIndex] = { ...oldPlayer, name: newName, pos: newPos, throws: newThrows, bats: newBats };
-
-        // ポジション移動がある場合（例: ショートがサードへ）
-        let shiftText = '';
-        if (shiftOrder) {
-          const shiftIdx = shiftOrder - 1;
-          const shiftPlayer = currentLineup[shiftIdx];
-          shiftText = ` / [移]${shiftPlayer?.name || '?'} ${newPos}→${shiftNewPos}`;
-          currentLineup[shiftIdx] = { ...shiftPlayer, pos: shiftNewPos };
+        if (insertIndex !== null && insertIndex !== undefined) {
+          // さかのぼって挿入: 交代イベントを差し込み、それ以降の記録の選手名も書き換える
+          const oldPitcher = findPitcherAt(pitches, insertIndex, team, lineups[team].find(p => p.pos === '投' || p.pos === '1' || p.pos === '①'));
+          const res = insertSubstitution(pitches, insertIndex, {
+            side: team, type, order,
+            oldPlayer: { name: oldPlayer.name, pos: oldPlayer.pos },
+            newPlayer, shift, oldPitcherName: oldPitcher?.name || null
+          });
+          setPitches(renumberPitchNumbers(res.records));
+          // 現在のオーダーにまだ退いた選手が残っていれば(=以降に別の交代が無ければ)ここも差し替える
+          const applied = applySubstitutionToLineup(lineups[team], { order, oldPlayer, newPlayer, shift });
+          if (applied.applied) setLineups(prev => ({ ...prev, [team]: applied.lineup }));
+          setShowSubstitutionModal(false);
+          const changed = res.battingUpdated + res.pitchingUpdated;
+          showToast(changed > 0 ? `${type}: ${newName} を挿入し、以降の記録${changed}件を書き換えました` : `${type}: ${newName} を挿入しました`);
+          return;
         }
 
+        // ラインナップの更新（退く選手 → 新選手）
+        const currentLineup = [...lineups[team]];
+        currentLineup[targetIndex] = { ...oldPlayer, ...newPlayer };
+        // ポジション移動がある場合（例: ショートがサードへ）
+        if (shift) currentLineup[shift.order - 1] = { ...currentLineup[shift.order - 1], pos: shiftNewPos };
         setLineups(prev => ({ ...prev, [team]: currentLineup }));
 
         // イベントとして履歴に記録
-        const orderLabel = order === 10 ? '控/投' : `${order}番`;
-        const eventText = `選手交代: [退]${orderLabel}/${oldPlayer.pos || '?'} ${oldPlayer.name} ➡️ [入]${newPos} ${newName} (${type})${shiftText}`;
-        
+        const eventText = buildSubstitutionEventText({ order, oldPos: oldPlayer.pos, oldName: oldPlayer.name, newPos, newName, type, shift });
+
         const dummyPitcher = lineups[gameState.isTop ? 'bottom' : 'top'].find(p => p.pos === '投' || p.pos === '1' || p.pos === '①') || { name: '投手未設定', throws: '右' };
         const dummyBatterIndex = (gameState.isTop ? gameState.batterTop : gameState.batterBottom) - 1;
         const dummyBatter = lineups[gameState.isTop ? 'top' : 'bottom'][dummyBatterIndex] || { name: '打者未設定', bats: '右' };
@@ -1319,10 +1363,7 @@ import { buildScorebookData } from './scorebookData.js';
               </div>
               <div className="md:hidden horizontal-scroll custom-scrollbar flex gap-2 w-full pt-1 pb-1">
                 <button onClick={openOrderSettings} className="whitespace-nowrap shrink-0 bg-white text-slate-700 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-slate-300 shadow-sm">⚙️ オーダー</button>
-                <button onClick={()=>{
-                  setSubData({ team: gameState.isTop ? 'top' : 'bottom', type: '代打', order: gameState.isTop ? gameState.batterTop : gameState.batterBottom, newName: '', newPos: '打', newThrows: '右', newBats: '右' });
-                  setShowSubstitutionModal(true);
-                }} className="whitespace-nowrap shrink-0 bg-blue-50 text-blue-700 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-blue-200 shadow-sm">🔄 交代</button>
+                <button onClick={()=>openSubstitutionModal()} className="whitespace-nowrap shrink-0 bg-blue-50 text-blue-700 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-blue-200 shadow-sm">🔄 交代</button>
                 <button onClick={()=>setShowRecordEditor(true)} className="whitespace-nowrap shrink-0 bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-indigo-200 shadow-sm">📝 記録修正</button>
                 <button onClick={()=>openScoreEdit('current')} className="whitespace-nowrap shrink-0 bg-white text-slate-700 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-slate-300 shadow-sm">✏️ スコア修正</button>
                 <button onClick={()=>{ setEditingTeamIndex(null); setShowTeamManager(true); }} className="whitespace-nowrap shrink-0 bg-white text-slate-700 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-slate-300 shadow-sm">👥 チーム</button>
@@ -1384,10 +1425,7 @@ import { buildScorebookData } from './scorebookData.js';
                 <div className="absolute right-0 top-[calc(100%+0.5rem)] z-50 w-[34rem] max-w-[calc(100vw-2rem)] grid grid-cols-4 gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-2xl font-sans xl:static xl:w-auto xl:max-w-none xl:flex xl:flex-col xl:gap-2 xl:border-0 xl:bg-transparent xl:p-0 xl:shadow-none">
                 <div className="contents xl:flex xl:gap-1.5 xl:flex-wrap xl:justify-end">
                   <button onClick={openOrderSettings} className="bg-white hover:bg-slate-50 text-slate-700 px-2 py-1.5 rounded-lg text-[11px] font-bold border border-slate-300 shadow-sm">⚙️ オーダー</button>
-                  <button onClick={()=>{
-                    setSubData({ team: gameState.isTop ? 'top' : 'bottom', type: '代打', order: gameState.isTop ? gameState.batterTop : gameState.batterBottom, newName: '', newPos: '打', newThrows: '右', newBats: '右' });
-                    setShowSubstitutionModal(true);
-                  }} className="bg-blue-50 hover:bg-blue-100 text-blue-700 px-2 py-1.5 rounded-lg text-[11px] font-bold border border-blue-200 shadow-sm">🔄 交代</button>
+                  <button onClick={()=>openSubstitutionModal()} className="bg-blue-50 hover:bg-blue-100 text-blue-700 px-2 py-1.5 rounded-lg text-[11px] font-bold border border-blue-200 shadow-sm">🔄 交代</button>
                   <button onClick={()=>setShowRecordEditor(true)} className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-2 py-1.5 rounded-lg text-[11px] font-bold border border-indigo-200 shadow-sm">📝 記録修正</button>
                   <button onClick={()=>{ setEditingTeamIndex(null); setShowTeamManager(true); }} className="bg-white hover:bg-slate-50 text-slate-700 px-2 py-1.5 rounded-lg text-[11px] font-bold border border-slate-300 shadow-sm">👥 チーム</button>
                   <button onClick={()=>setShowArchiveModal(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-1.5 rounded-lg text-[11px] font-bold shadow-sm">📂 保存/読込</button>
@@ -1971,18 +2009,32 @@ import { buildScorebookData } from './scorebookData.js';
           {/* ============================================================ */}
           {/* ============= MODAL: SUBSTITUTION (選手交代) =============== */}
           {/* ============================================================ */}
-          {showSubstitutionModal && (
+          {showSubstitutionModal && (() => {
+            const retroIndex = subData.insertIndex;
+            const isRetro = retroIndex !== null && retroIndex !== undefined;
+            const retroTarget = isRetro ? pitches[retroIndex] : null;
+            return (
             <div className="fixed inset-0 bg-slate-900/80 z-[300] flex items-center justify-center p-4 backdrop-blur-sm">
-              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col border border-slate-200">
-                <div className="p-4 border-b border-slate-200 bg-slate-800 flex justify-between items-center">
-                  <h2 className="text-lg font-black text-white">🔄 選手交代</h2>
-                  <button onClick={() => setShowSubstitutionModal(false)} className="text-slate-400 hover:text-white font-bold text-xl px-2">✕</button>
+              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col max-h-[92vh] border border-slate-200">
+                <div className={`p-4 border-b border-slate-200 flex justify-between items-center ${isRetro ? 'bg-amber-600' : 'bg-slate-800'}`}>
+                  <h2 className="text-lg font-black text-white">🔄 選手交代{isRetro ? '（さかのぼり）' : ''}</h2>
+                  <button onClick={() => setShowSubstitutionModal(false)} className="text-white/60 hover:text-white font-bold text-xl px-2">✕</button>
                 </div>
-                <div className="p-5 flex flex-col gap-4">
+                <div className="p-5 flex flex-col gap-4 overflow-y-auto modal-scroll">
+                  {/* さかのぼり挿入の位置表示 */}
+                  {isRetro && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+                      <div className="text-[10px] font-black text-amber-700 mb-1">⏪ この場面の直前に交代を挿入します</div>
+                      <div className="text-xs font-bold text-slate-700">
+                        {retroTarget ? `${retroTarget.inning}回${retroTarget.isTop ? '表' : '裏'} ${retroTarget.batter}番 ${retroTarget.batterName}${retroTarget.isEvent ? '' : ` / ${retroTarget.result}`}` : '記録の最後'}
+                      </div>
+                      <div className="text-[10px] font-bold text-amber-600 mt-1">※これ以降の打席・投球記録は、交代後の選手の記録として書き換えられます</div>
+                    </div>
+                  )}
                   {/* チーム選択 */}
                   <div className="flex bg-slate-100 rounded-lg p-1">
-                    <button onClick={()=>setSubData({...subData, team: 'top', order: gameState.isTop?gameState.batterTop:1})} className={`flex-1 py-2 text-xs font-bold rounded-md ${subData.team === 'top' ? 'bg-white shadow-sm text-blue-700' : 'text-slate-500'}`}>{gameInfo.teamTop}</button>
-                    <button onClick={()=>setSubData({...subData, team: 'bottom', order: !gameState.isTop?gameState.batterBottom:1})} className={`flex-1 py-2 text-xs font-bold rounded-md ${subData.team === 'bottom' ? 'bg-white shadow-sm text-rose-700' : 'text-slate-500'}`}>{gameInfo.teamBottom}</button>
+                    <button onClick={()=>setSubData({...subData, team: 'top', order: isRetro ? 1 : (gameState.isTop?gameState.batterTop:1)})} className={`flex-1 py-2 text-xs font-bold rounded-md ${subData.team === 'top' ? 'bg-white shadow-sm text-blue-700' : 'text-slate-500'}`}>{gameInfo.teamTop}</button>
+                    <button onClick={()=>setSubData({...subData, team: 'bottom', order: isRetro ? 1 : (!gameState.isTop?gameState.batterBottom:1)})} className={`flex-1 py-2 text-xs font-bold rounded-md ${subData.team === 'bottom' ? 'bg-white shadow-sm text-rose-700' : 'text-slate-500'}`}>{gameInfo.teamBottom}</button>
                   </div>
                   {/* 交代タイプ */}
                   <div className="grid grid-cols-4 gap-2">
@@ -1992,7 +2044,7 @@ import { buildScorebookData } from './scorebookData.js';
                         let targetOrder = subData.order;
                         if(t==='投手') {
                            // 投手の打順を自動検索
-                           const pIdx = lineups[subData.team].findIndex(pl => pl.pos === '投' || pl.pos === '1' || pl.pos === '①');
+                           const pIdx = subLineup.findIndex(pl => pl.pos === '投' || pl.pos === '1' || pl.pos === '①');
                            if(pIdx !== -1) targetOrder = pIdx + 1;
                         }
                         setSubData({...subData, type: t, newPos: p, order: targetOrder});
@@ -2005,7 +2057,7 @@ import { buildScorebookData } from './scorebookData.js';
                     {/* 守備位置ショートカット */}
                     <div className="flex flex-wrap gap-1 mb-2">
                       {['投','捕','一','二','三','遊','左','中','右'].map(pos => {
-                        const idx = lineups[subData.team].findIndex(p => p.pos === pos);
+                        const idx = subLineup.findIndex(p => p.pos === pos);
                         const active = idx !== -1 && (idx + 1) === subData.order;
                         return (
                           <button key={pos} disabled={idx === -1} onClick={() => { if(idx === -1) return; const updates = {order: idx+1, shiftOrder: null, shiftNewPos: ''}; if(subData.type === '守備') updates.newPos = pos; setSubData({...subData, ...updates}); }}
@@ -2020,8 +2072,8 @@ import { buildScorebookData } from './scorebookData.js';
                         {[1,2,3,4,5,6,7,8,9,10].map(n => <option key={n} value={n}>{n === 10 ? '控/投' : `${n}番`}</option>)}
                       </select>
                       <div className="flex-1 bg-slate-200/50 border border-slate-200 rounded-lg px-3 py-2 text-sm font-bold text-slate-600 flex items-center gap-2 min-w-0">
-                        <span className="shrink-0 bg-slate-500 text-white text-[10px] font-black rounded px-1.5 py-0.5">{lineups[subData.team][subData.order-1]?.pos || '?'}</span>
-                        <span className="truncate">{lineups[subData.team][subData.order-1]?.name || '未設定'}</span>
+                        <span className="shrink-0 bg-slate-500 text-white text-[10px] font-black rounded px-1.5 py-0.5">{subLineup[subData.order-1]?.pos || '?'}</span>
+                        <span className="truncate">{subLineup[subData.order-1]?.name || '未設定'}</span>
                       </div>
                     </div>
                   </div>
@@ -2045,8 +2097,8 @@ import { buildScorebookData } from './scorebookData.js';
                           <div className="text-[10px] font-bold text-slate-400 mb-1.5">入るポジション</div>
                           <div className="flex flex-wrap gap-1">
                             {['投','捕','一','二','三','遊','左','中','右'].map(ePos => {
-                              const vacatedPos = lineups[subData.team][subData.order-1]?.pos;
-                              const occupiedIdx = lineups[subData.team].findIndex(p => p.pos === ePos);
+                              const vacatedPos = subLineup[subData.order-1]?.pos;
+                              const occupiedIdx = subLineup.findIndex(p => p.pos === ePos);
                               const isActive = subData.newPos === ePos;
                               return (
                                 <button key={ePos} onClick={() => {
@@ -2065,7 +2117,7 @@ import { buildScorebookData } from './scorebookData.js';
                           <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-center gap-2 text-sm">
                             <span className="text-[10px] font-black text-amber-600 shrink-0">移動</span>
                             <span className="shrink-0 bg-amber-500 text-white text-[10px] font-black rounded px-1.5 py-0.5">{subData.newPos}</span>
-                            <span className="font-bold truncate">{lineups[subData.team][subData.shiftOrder-1]?.name || '?'}</span>
+                            <span className="font-bold truncate">{subLineup[subData.shiftOrder-1]?.name || '?'}</span>
                             <span className="text-slate-400 shrink-0">→</span>
                             <span className="shrink-0 bg-slate-600 text-white text-[10px] font-black rounded px-1.5 py-0.5">{subData.shiftNewPos}</span>
                           </div>
@@ -2083,13 +2135,14 @@ import { buildScorebookData } from './scorebookData.js';
                     )}
                   </div>
                 </div>
-                <div className="p-4 border-t border-slate-200 flex gap-3 bg-slate-50">
-                  <button onClick={() => setShowSubstitutionModal(false)} className="flex-1 bg-white border border-slate-300 text-slate-700 py-3 rounded-xl font-bold">キャンセル</button>
-                  <button onClick={handleSubstitution} className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-black shadow-md active:scale-95">交代を実行</button>
+                <div className="p-4 border-t border-slate-200 flex gap-3 bg-slate-50 shrink-0">
+                  <button onClick={() => { setShowSubstitutionModal(false); if (isRetro) setShowRecordEditor(true); }} className="flex-1 bg-white border border-slate-300 text-slate-700 py-3 rounded-xl font-bold">キャンセル</button>
+                  <button onClick={handleSubstitution} className={`flex-1 text-white py-3 rounded-xl font-black shadow-md active:scale-95 ${isRetro ? 'bg-amber-600' : 'bg-blue-600'}`}>{isRetro ? 'この場面に挿入' : '交代を実行'}</button>
                 </div>
               </div>
             </div>
-          )}
+            );
+          })()}
 
           {/* ============================================================ */}
           {/* ============= MODAL 2: SETTINGS (オーダー設定) ============= */}
@@ -2385,6 +2438,7 @@ import { buildScorebookData } from './scorebookData.js';
                           </div>
                           <div className="flex gap-1.5">
                             <button onClick={() => loadGame(g.id)} className="text-[10px] bg-blue-600 text-white px-3 py-1.5 rounded-lg font-bold shadow-sm active:scale-95">読込</button>
+                            <button onClick={() => loadGame(g.id, { openRecordEditor: true })} title="読み込んで記録・選手交代を修正する" className="text-[10px] bg-indigo-50 text-indigo-700 px-2.5 py-1.5 rounded-lg font-bold border border-indigo-200">🔄 記録/交代</button>
                             <button onClick={() => openScoreEdit('saved', g.id)} className="text-[10px] bg-amber-50 text-amber-700 px-2.5 py-1.5 rounded-lg font-bold border border-amber-200">✏️ スコア</button>
                             <button onClick={() => handleShareData(`game:${g.id}`)} className="text-[10px] bg-blue-50 text-blue-700 px-2.5 py-1.5 rounded-lg font-bold border border-blue-200">共有</button>
                             <button onClick={() => deleteGame(g.id)} className="text-[10px] bg-rose-50 text-rose-600 px-2.5 py-1.5 rounded-lg font-bold border border-rose-200">削除</button>
@@ -2419,7 +2473,7 @@ import { buildScorebookData } from './scorebookData.js';
                   <div className="p-4 border-b border-slate-200 bg-indigo-50 flex justify-between items-center shrink-0">
                     <div>
                       <h2 className="text-lg font-black text-indigo-800">📝 記録の修正（一球ごと）</h2>
-                      <div className="text-[10px] font-bold text-slate-500">全イニングの投球・イベント記録をタップして修正・削除できます</div>
+                      <div className="text-[10px] font-bold text-slate-500">記録をタップして修正・削除、🔄でその場面へさかのぼって交代を挿入できます</div>
                     </div>
                     <button onClick={() => setShowRecordEditor(false)} className="text-indigo-400 hover:text-indigo-800 font-bold text-xl px-2">✕</button>
                   </div>
@@ -2432,22 +2486,25 @@ import { buildScorebookData } from './scorebookData.js';
                           <div className={`text-xs font-black px-3 py-2 rounded-t-xl ${g.isTop ? 'bg-blue-100 text-blue-800' : 'bg-rose-100 text-rose-800'}`}>{g.inning}回{g.isTop ? '表' : '裏'}　{g.isTop ? gameInfo.teamTop : gameInfo.teamBottom}の攻撃</div>
                           <div className="bg-white rounded-b-xl border border-slate-200 border-t-0 divide-y divide-slate-100 overflow-hidden">
                             {g.items.map(({ p, idx }) => (
-                              <button key={idx} onClick={() => handleEditPitchClick(p)} className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-blue-50 active:bg-blue-100">
-                                {p.isEvent ? (
-                                  <>
-                                    <span className="w-8 shrink-0 text-center text-[10px] font-black text-indigo-400">🏃</span>
-                                    <span className="flex-1 text-[11px] font-bold text-indigo-700 truncate">{p.result}</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <span className="w-8 shrink-0 text-center font-black text-sm text-slate-300 font-mono">{p.pitchNumber}</span>
-                                    <span className="w-24 shrink-0 text-[11px] font-bold text-slate-600 truncate">{p.batter}番 {p.batterName}</span>
-                                    <span className="w-16 shrink-0 text-[10px] font-bold text-slate-400 truncate hidden sm:inline">{p.type && p.type !== '-' ? p.type : ''}</span>
-                                    <span className={`flex-1 text-[11px] font-black truncate ${['安','塁打','本塁打'].some(w=>p.result.includes(w)) ? 'text-blue-600' : ['三振','アウト','失敗','ゴロ','飛','直','邪飛'].some(w=>p.result.includes(w)) ? 'text-rose-600' : 'text-slate-700'}`}>{p.result}</span>
-                                  </>
-                                )}
-                                <span className="shrink-0 text-[10px] text-slate-300 font-bold">✏️</span>
-                              </button>
+                              <div key={idx} className="flex items-stretch">
+                                <button onClick={() => handleEditPitchClick(p)} className="flex-1 min-w-0 flex items-center gap-2 px-3 py-2.5 text-left hover:bg-blue-50 active:bg-blue-100">
+                                  {p.isEvent ? (
+                                    <>
+                                      <span className="w-8 shrink-0 text-center text-[10px] font-black text-indigo-400">{p.result?.startsWith('選手交代') ? '🔄' : '🏃'}</span>
+                                      <span className="flex-1 text-[11px] font-bold text-indigo-700 truncate">{p.result}</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <span className="w-8 shrink-0 text-center font-black text-sm text-slate-300 font-mono">{p.pitchNumber}</span>
+                                      <span className="w-24 shrink-0 text-[11px] font-bold text-slate-600 truncate">{p.batter}番 {p.batterName}</span>
+                                      <span className="w-16 shrink-0 text-[10px] font-bold text-slate-400 truncate hidden sm:inline">{p.type && p.type !== '-' ? p.type : ''}</span>
+                                      <span className={`flex-1 text-[11px] font-black truncate ${['安','塁打','本塁打'].some(w=>p.result.includes(w)) ? 'text-blue-600' : ['三振','アウト','失敗','ゴロ','飛','直','邪飛'].some(w=>p.result.includes(w)) ? 'text-rose-600' : 'text-slate-700'}`}>{p.result}</span>
+                                    </>
+                                  )}
+                                  <span className="shrink-0 text-[10px] text-slate-300 font-bold">✏️</span>
+                                </button>
+                                <button onClick={() => openRetroSubstitution(idx)} title="この記録の直前に選手交代を挿入" className="shrink-0 px-2.5 border-l border-slate-100 text-[10px] font-black text-amber-600 bg-amber-50/60 hover:bg-amber-100 active:bg-amber-200">🔄<span className="block text-[8px] leading-none mt-0.5">交代挿入</span></button>
+                              </div>
                             ))}
                           </div>
                         </div>
