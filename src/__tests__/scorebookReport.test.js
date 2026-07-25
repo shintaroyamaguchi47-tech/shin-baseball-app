@@ -38,6 +38,22 @@ describe('スコアブックPDFのページ構成', () => {
     expect(html).toContain('打撃成績');
   });
 
+  // 画面プレビューと印刷を一致させるため、シートはA4横1ページ固定枠として組む
+  it('シートをA4横1ページ分の固定枠にし、中身を組版用のラッパーで包む', () => {
+    const html = render({ includeCharts: true, includeStats: true });
+    expect(html).toContain('width:287mm;height:199mm');
+    expect((html.match(/<div class="sb-sheet-content">/g) || []).length).toBe(2);
+    // 印刷側でシート寸法や段組みを組み替えない(=画面と同じものが出る)
+    expect(html).not.toMatch(/@media print\{[^}]*\.sb-sheet\{[^}]*width:auto/);
+  });
+
+  it('組版スクリプトのscriptタグが正しく閉じている', () => {
+    const html = render({ includeCharts: true, includeStats: true });
+    expect(html).not.toContain('<\\/script>');
+    expect(html).toContain('</script>');
+    expect(html).toContain('window.__sbPrint');
+  });
+
   it('設定で図と個人成績ページを省略できる', () => {
     const html = render({ includeCharts: false, includeStats: false });
     expect((html.match(/<article class="sb-sheet /g) || []).length).toBe(2);
