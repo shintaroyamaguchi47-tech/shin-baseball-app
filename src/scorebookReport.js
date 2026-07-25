@@ -306,10 +306,20 @@
         team.slots.forEach(function (slot) { var c = slot.cellsByInning[i]; if (c && c.length > mx) mx = c.length; });
         subCols[i] = mx;
       }
+      // 右端パネルの幅は「最も打席数の多い打者の項目数」で決める。幅指定なしにすると
+      // 残り幅を全部吸ってしまい、表の右側に大きな空白ができる。
+      // 余り幅は table-layout:fixed が各列に按分するので、イニング列も一緒に広がる。
+      var maxPanelItems = 0;
+      team.slots.forEach(function (slot) {
+        var items = 0;
+        for (var i = 1; i <= n; i++) (slot.cellsByInning[i] || []).forEach(function (c) { if (c.summaryText) items++; });
+        if (items) items++; // 末尾の打球方向図
+        if (items > maxPanelItems) maxPanelItems = items;
+      });
       var cols = '<colgroup><col style="width:26px"><col style="width:66px"><col style="width:26px">';
       for (var i = 1; i <= n; i++) for (var k = 0; k < subCols[i]; k++) cols += '<col style="width:66px">';
-      if (options.includeCharts) cols += '<col>';
-      cols += '</colgroup>'; // 右端パネルは残り幅を全て使う
+      if (options.includeCharts) cols += '<col style="width:' + Math.max(66, maxPanelItems * 54 + 6) + 'px">';
+      cols += '</colgroup>';
       var head = '<tr><th class="sb-hd-narrow">打順</th><th class="sb-hd-name">名前</th><th class="sb-hd-narrow">守備</th>';
       for (var i = 1; i <= n; i++) head += '<th' + (subCols[i] > 1 ? ' colspan="' + subCols[i] + '"' : '') + '>' + i + '</th>';
       if (options.includeCharts) head += '<th class="sb-hd-pa">打席内容(コース・球種)・打球方向</th>';
@@ -338,16 +348,17 @@
     }
 
     function playerTotalsTable(team) {
-      var h = '<table class="sb-totals"><thead><tr><th>選手</th><th>打席</th><th>打数</th><th>得点</th><th>安打</th><th>二</th><th>三</th><th>本</th><th>打点</th><th>四死</th><th>三振</th><th>盗塁</th><th>犠打</th><th>犠飛</th></tr></thead><tbody>';
+      var h = '<table class="sb-totals"><thead><tr><th class="sb-tot-name">選手</th><th>打席</th><th>打数</th><th>得点</th><th>安打</th><th>二</th><th>三</th><th>本</th><th>打点</th><th>四死</th><th>三振</th><th>盗塁</th><th>犠打</th><th>犠飛</th><th>打率</th></tr></thead><tbody>';
       team.playerTotals.forEach(function (p) {
-        h += '<tr><td class="sb-tot-name">' + esc(p.name) + '</td><td>' + p.PA + '</td><td>' + p.AB + '</td><td>' + p.R + '</td><td>' + p.H + '</td><td>' + p.H2 + '</td><td>' + p.H3 + '</td><td>' + p.HR + '</td><td>' + p.RBI + '</td><td>' + (p.BB + p.HBP) + '</td><td>' + p.K + '</td><td>' + p.SB + '</td><td>' + p.SH + '</td><td>' + p.SF + '</td></tr>';
+        var avg = p.AB > 0 ? (p.H / p.AB).toFixed(3).replace(/^0/, '') : '.000';
+        h += '<tr><td class="sb-tot-name">' + esc(p.name) + '</td><td>' + p.PA + '</td><td>' + p.AB + '</td><td>' + p.R + '</td><td>' + p.H + '</td><td>' + p.H2 + '</td><td>' + p.H3 + '</td><td>' + p.HR + '</td><td>' + p.RBI + '</td><td>' + (p.BB + p.HBP) + '</td><td>' + p.K + '</td><td>' + p.SB + '</td><td>' + p.SH + '</td><td>' + p.SF + '</td><td>' + avg + '</td></tr>';
       });
       h += '</tbody></table>';
       return h;
     }
     function pitcherTable(team) {
       if (!team.pitcherStats.length) return '';
-      var h = '<table class="sb-pitchers"><thead><tr><th>投手</th><th>投打</th><th>回</th><th>球数</th><th>打者</th><th>安打</th><th>本</th><th>四死</th><th>三振</th><th>失点</th><th>暴投</th><th>ボーク</th></tr></thead><tbody>';
+      var h = '<table class="sb-pitchers"><thead><tr><th class="sb-tot-name">投手</th><th>投打</th><th>回</th><th>球数</th><th>打者</th><th>安打</th><th>本</th><th>四死</th><th>三振</th><th>失点</th><th>暴投</th><th>ボーク</th></tr></thead><tbody>';
       team.pitcherStats.forEach(function (p) {
         var innP = (Math.floor(p.outs / 3) + (p.outs % 3) / 10).toFixed(1);
         h += '<tr><td class="sb-tot-name">' + esc(p.name) + '</td><td>' + esc(p.throws) + '</td><td>' + innP + '</td><td>' + p.pitches + '</td><td>' + p.battersFaced + '</td><td>' + p.hits + '</td><td>' + p.hr + '</td><td>' + (p.bb + p.hbp) + '</td><td>' + p.k + '</td><td>' + p.runs + '</td><td>' + p.wildPitches + '</td><td>' + p.balks + '</td></tr>';
@@ -363,36 +374,20 @@
       return parts.length ? '<div class="sb-footnote">' + parts.join(' 　 ') + '</div>' : '';
     }
 
-    // A4横の右側を活用するコンパクト個人成績。スコアと同じページに収める。
-    function compactTeamStats(team) {
-      var h = '<div class="sb-side-stats"><h4>打撃成績</h4><table><thead><tr><th>選手</th><th>打</th><th>安</th><th>率</th><th>点</th><th>四死</th><th>振</th><th>盗</th></tr></thead><tbody>';
-      team.playerTotals.forEach(function (p) {
-        var avg = p.AB > 0 ? (p.H / p.AB).toFixed(3).replace(/^0/, '') : '.000';
-        h += '<tr><td>' + esc(p.name) + '</td><td>' + p.AB + '</td><td>' + p.H + '</td><td>' + avg + '</td><td>' + p.RBI + '</td><td>' + (p.BB + p.HBP) + '</td><td>' + p.K + '</td><td>' + p.SB + '</td></tr>';
-      });
-      h += '</tbody></table>';
-      if (team.pitcherStats.length) {
-        h += '<h4>投手成績</h4><table><thead><tr><th>投手</th><th>回</th><th>球</th><th>安</th><th>四死</th><th>振</th><th>失</th></tr></thead><tbody>';
-        team.pitcherStats.forEach(function (p) {
-          var innP = Math.floor(p.outs / 3) + '.' + (p.outs % 3);
-          h += '<tr><td>' + esc(p.name) + '</td><td>' + innP + '</td><td>' + p.pitches + '</td><td>' + p.hits + '</td><td>' + (p.bb + p.hbp) + '</td><td>' + p.k + '</td><td>' + p.runs + '</td></tr>';
-        });
-        h += '</tbody></table>';
-      }
-      return h + '</div>';
+    // 個人成績はスコア表の下に「打撃成績 | 投手成績」の横並びで敷く。
+    // 右側の細い縦列に押し込むより1行が大きく読め、スコア表も紙面の全幅を使える
+    // (=打席内容パネルの折り返しが減り、全体の縮小率も小さくて済む)。
+    function teamStatsBand(team) {
+      var bat = '<div class="sb-stats-col"><h4 class="sb-subheading">打撃成績</h4>' + playerTotalsTable(team) + '</div>';
+      // 投手は人数が少なく右側が空きやすいので、長打の注記もこちらに寄せる
+      var right = (team.pitcherStats.length ? '<h4 class="sb-subheading">投手成績</h4>' + pitcherTable(team) : '') + extraBaseFootnote(team);
+      return '<div class="sb-stats-band">' + bat + (right ? '<div class="sb-stats-col sb-stats-col-pit">' + right + '</div>' : '') + '</div>';
     }
 
     function teamScoreSection(team, teamName, accent, headBg) {
-      var stats = options.includeStats ? '<aside class="sb-score-side">' + compactTeamStats(team) + '</aside>' : '';
       return '<section class="sb-section"><h3 class="sb-team-heading" style="color:' + accent + ';">' + esc(teamName) + '</h3>'
-        + '<div class="sb-score-layout"><div class="sb-score-main">' + teamGrid(team, teamName, headBg) + extraBaseFootnote(team)
-        + '</div>' + stats + '</div></section>';
-    }
-
-    function teamStatsSection(team, teamName, accent) {
-      return '<section class="sb-stats-section"><h3 class="sb-team-heading" style="color:' + accent + ';">' + esc(teamName) + ' 個人成績</h3>'
-        + '<h4 class="sb-subheading">打撃成績</h4>' + playerTotalsTable(team)
-        + '<h4 class="sb-subheading">投手成績</h4>' + pitcherTable(team) + '</section>';
+        + teamGrid(team, teamName, headBg)
+        + (options.includeStats ? teamStatsBand(team) : extraBaseFootnote(team)) + '</section>';
     }
 
     var header = '<div class="sb-header"><div class="sb-header-main"><span class="sb-vs">' + esc(gi.teamTop) + ' 対 ' + esc(gi.teamBottom) + '</span>'
@@ -464,7 +459,8 @@
       + '.sb-pn-zone{border:1px solid #e2e8f0;border-radius:2px;overflow:hidden;}'
       + '.sb-pn-res{font-size:8px;font-weight:bold;line-height:1.1;text-align:center;max-width:60px;}'
       + '.sb-pn-seq{font-size:8px;letter-spacing:-0.5px;color:#475569;max-width:51px;word-break:break-all;text-align:center;line-height:1.3;padding-top:14px;min-height:35px;}'
-      + '.sb-box{position:relative;display:flex;align-items:stretch;border-bottom:1px dotted #e2e8f0;min-height:52px;}'
+      // 列が広がったときにダイヤが左に寄って見えないよう、セル内容は中央に置く
+      + '.sb-box{position:relative;display:flex;justify-content:center;align-items:stretch;border-bottom:1px dotted #e2e8f0;min-height:52px;}'
       + '.sb-box:last-child{border-bottom:none;}'
       + '.sb-pit{width:14px;display:flex;flex-direction:column;align-items:center;padding-top:1px;gap:0px;flex-shrink:0;}'
       + '.sb-pm{position:relative;display:flex;align-items:center;}'
@@ -482,19 +478,17 @@
       + '.sb-line{border-top:1.4px solid #1d4ed8;padding:0 1px;}'
       + '.sb-sqr{border:1px solid #1d4ed8;border-radius:1px;padding:0 2px 1px;display:inline-block;line-height:1.1;}'
       + '.sb-sum-row{background:#f8fafc;font-size:8px;}.sb-sum-label{text-align:left !important;padding-left:3px !important;font-weight:bold;color:#475569;white-space:nowrap;}'
-      + 'table.sb-totals,table.sb-pitchers{border-collapse:collapse;font-size:9px;width:100%;margin:4px 0;}'
-      + '.sb-totals th,.sb-totals td,.sb-pitchers th,.sb-pitchers td{border:1px solid #e2e8f0;padding:2px 3px;text-align:center;}'
-      + '.sb-totals thead,.sb-pitchers thead{background:#f1f5f9;}.sb-tot-name{text-align:left !important;font-weight:bold;}'
-      + '.sb-stats-section{margin-bottom:14px;}.sb-subheading{font-size:10px;margin:6px 0 2px;color:#475569;}'
       + '.sb-footnote{font-size:9px;color:#64748b;margin:2px 0 4px;}'
-      + '.sb-score-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(52mm,57mm);gap:2mm;align-items:start;}'
-      + '.sb-score-main{min-width:0;overflow:visible;}.sb-score-side{min-width:0;overflow:visible;border-left:1px solid #cbd5e1;padding-left:2mm;}'
-      + '.sb-side-stats h4{font-size:9px;margin:0 0 2px;color:#475569;border-bottom:1px solid #cbd5e1;padding-bottom:1px;}'
-      + '.sb-side-stats h4:not(:first-child){margin-top:5px;}'
-      + '.sb-side-stats table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:6.5px;margin-bottom:4px;}'
-      + '.sb-side-stats th,.sb-side-stats td{border:1px solid #dbe3ec;padding:1.5px 1px;text-align:center;white-space:nowrap;overflow:visible;}'
-      + '.sb-side-stats th{background:#f1f5f9;color:#475569;font-weight:bold;}'
-      + '.sb-side-stats th:first-child,.sb-side-stats td:first-child{text-align:left;width:34%;font-weight:bold;white-space:normal;overflow-wrap:anywhere;line-height:1.2;}'
+      // 個人成績の帯: 打撃成績(列が多いので広め)と投手成績を横並びにする
+      + '.sb-stats-band{display:flex;align-items:flex-start;gap:4mm;margin-top:2mm;}'
+      + '.sb-stats-col{flex:1.5 1 0;min-width:0;}.sb-stats-col-pit{flex:1 1 0;}'
+      + '.sb-subheading{font-size:9px;font-weight:bold;margin:0 0 2px;color:#475569;border-bottom:1px solid #cbd5e1;padding-bottom:1px;}'
+      + 'table.sb-totals,table.sb-pitchers{border-collapse:collapse;table-layout:fixed;font-size:8px;width:100%;margin:0;}'
+      + '.sb-totals th,.sb-totals td,.sb-pitchers th,.sb-pitchers td{border:1px solid #dbe3ec;padding:1.5px 2px;text-align:center;white-space:nowrap;}'
+      + '.sb-totals thead,.sb-pitchers thead{background:#f1f5f9;color:#475569;}'
+      + '.sb-tot-name{text-align:left !important;font-weight:bold;width:30%;white-space:normal;overflow-wrap:anywhere;line-height:1.2;}'
+      + '.sb-pitchers .sb-tot-name{width:24%;}'
+      + '.sb-stats-col .sb-footnote{margin:3px 0 0;}'
       // 画面: シート自体の寸法・内部倍率は印刷と同一のまま、ページ全体だけを画面幅に合わせて縮小表示する
       + '@media screen{body{overflow-x:hidden;}.sb-page{width:287mm;max-width:none;overflow:visible;transform:scale(var(--preview-scale,1));transform-origin:top left;margin:12px;}.sb-sheet{margin:0 0 18px;box-shadow:0 8px 30px rgba(15,23,42,.12);}}'
       // 印刷: プレビュー用の縮小(と本文高さ指定)を外すだけ。シートの寸法・中身の倍率は画面と同じ
@@ -530,26 +524,29 @@
       'function planPages(sheet,content,k){',
       'var table=content.querySelector(".sb-grid");if(!table)return [[]];',
       'var availH=sheet.clientHeight/k;',
-      'var note=content.querySelector(".sb-footnote");',
       'var thead=table.querySelector("thead"),tfoot=table.querySelector("tfoot");',
-      'var theadH=thead?thead.offsetHeight:0,tfootH=tfoot?tfoot.offsetHeight:0;',
-      // 表より上(試合ヘッダー・凡例・チーム名)と下(注記)は毎ページ再掲するので固定費として引く
-      'var budget=availH-table.offsetTop-(note?note.offsetHeight:0)-theadH-4;',
+      'var theadH=thead?thead.offsetHeight:0;',
+      // 集計行・注記・個人成績の帯は最終ページにだけ載るので、最終行の余白として確保する
+      'var tail=(tfoot?tfoot.offsetHeight:0);',
+      'var extras=content.querySelectorAll(".sb-footnote,.sb-stats-band");',
+      'for(var e=0;e<extras.length;e++)tail+=extras[e].offsetHeight;',
+      // 表より上(試合ヘッダー・凡例・チーム名)は毎ページ再掲するので固定費として引く
+      'var budget=availH-table.offsetTop-theadH-4;',
       'var rows=table.querySelectorAll("tbody tr"),hs=[],total=0;',
       'for(var i=0;i<rows.length;i++){hs.push(rows[i].offsetHeight);total+=hs[i];}',
-      'var groups=pack(hs,budget,Infinity,tfootH);',
+      'var groups=pack(hs,budget,Infinity,tail);',
       // ページ数が変わらない範囲で各ページの行数をならす(最終ページが1行だけ等を避ける)
       'if(groups.length>1){',
-      'var even=pack(hs,budget,Math.ceil(total/groups.length)+1,tfootH);',
+      'var even=pack(hs,budget,Math.ceil(total/groups.length)+1,tail);',
       'if(even.length<=groups.length)groups=even;',
       '}',
       'return groups.length?groups:[[]];',
       '}',
-      // 行を上から詰める。budget=1ページの実寸、cap=ならし用の目標高さ
-      'function pack(hs,budget,cap,tfootH){',
+      // 行を上から詰める。budget=1ページの実寸、cap=ならし用の目標高さ、tail=最終ページの追加分
+      'function pack(hs,budget,cap,tail){',
       'var groups=[],cur=[],used=0;',
       'for(var i=0;i<hs.length;i++){',
-      'var h=hs[i],extra=(i===hs.length-1)?tfootH:0;',
+      'var h=hs[i],extra=(i===hs.length-1)?tail:0;',
       'if(cur.length&&(used+h+extra>budget||used+h>cap)){groups.push(cur);cur=[];used=0;}',
       'cur.push(i);used+=h;',
       '}',
@@ -580,13 +577,12 @@
       'var tb=sheet.querySelector(".sb-grid tbody");',
       'if(tb){var trs=[].slice.call(tb.children);',
       'for(var r=0;r<trs.length;r++)if(groups[g].indexOf(r)<0)tb.removeChild(trs[r]);}',
-      // 集計行と注記は最終ページのみ
+      // 集計行・注記・個人成績の帯は最終ページのみ
       'if(!last){',
       'var ft=sheet.querySelector(".sb-grid tfoot");if(ft)ft.parentNode.removeChild(ft);',
-      'var nt=sheet.querySelector(".sb-footnote");if(nt)nt.parentNode.removeChild(nt);',
+      'var ex=sheet.querySelectorAll(".sb-footnote,.sb-stats-band");',
+      'for(var x=0;x<ex.length;x++)ex[x].parentNode.removeChild(ex[x]);',
       '}',
-      // 個人成績は1ページ目のみ。枠(列幅)は残して全ページで表の列幅を揃える
-      'var side=sheet.querySelector(".sb-score-side");if(side&&g>0)side.innerHTML="";',
       'var foot=sheet.querySelector(".sb-page-footer");',
       'if(foot&&groups.length>1)foot.textContent=foot.textContent+" "+(g+1)+"/"+groups.length;',
       'host.appendChild(sheet);',
