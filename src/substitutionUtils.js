@@ -15,8 +15,12 @@ const orderLabelOf = (order) => (order === 10 ? '控/投' : `${order}番`);
 
 // 交代イベントの表示テキスト。試合中の交代とさかのぼり挿入で同じ形式を使い、
 // スコアブック・レポート側の表示や解析が同じ扱いになるようにする。
-export function buildSubstitutionEventText({ order, oldPos, oldName, newPos, newName, type, shift = null }) {
+// positionOnly は選手が入れ替わらない守備位置の変更(例: 左→遊)で、[退]/[入]ではなく[移]で表す。
+export function buildSubstitutionEventText({ order, oldPos, oldName, newPos, newName, type, shift = null, positionOnly = false }) {
   const shiftText = shift ? ` / [移]${shift.name || '?'} ${newPos}→${shift.toPos}` : '';
+  if (positionOnly) {
+    return `選手交代: [移]${orderLabelOf(order)} ${oldName || '不明'} ${oldPos || '?'}→${newPos} (${type})${shiftText}`;
+  }
   return `選手交代: [退]${orderLabelOf(order)}/${oldPos || '?'} ${oldName || '不明'} ➡️ [入]${newPos} ${newName} (${type})${shiftText}`;
 }
 
@@ -69,12 +73,14 @@ export function lineupSnapshotAt(records, index, currentLineup, side) {
 export function insertSubstitution(records, index, params) {
   const list = Array.isArray(records) ? records : [];
   const at = Math.max(0, Math.min(index ?? list.length, list.length));
-  const { side, type, order, oldPlayer, newPlayer, shift = null, oldPitcherName = null } = params;
+  const { side, type, order, oldPlayer, newPlayer, shift = null, oldPitcherName = null, positionOnly = false } = params;
   const isTop = side === 'top';
 
   let battingUpdated = 0;
   let pitchingUpdated = 0;
   const rewriteFromPitcher = isPitcherPos(newPlayer.pos) && oldPitcherName && oldPitcherName !== newPlayer.name;
+  // 玉突きで別の選手がマウンドへ入る場合(例: 投手が右翼へ回り、右翼手が登板)も投手名を付け替える
+  const shiftToPitcher = !rewriteFromPitcher && shift && isPitcherPos(shift.toPos) && oldPitcherName && shift.name !== oldPitcherName;
 
   const rewritten = list.map((p, i) => {
     if (i < at) return p;
@@ -91,6 +97,9 @@ export function insertSubstitution(records, index, params) {
     }
     if (rewriteFromPitcher && p.isTop !== isTop && p.pitcherName === oldPitcherName) {
       next = { ...next, pitcherName: newPlayer.name, pitcherThrows: newPlayer.throws ?? next.pitcherThrows };
+      pitchingUpdated++;
+    } else if (shiftToPitcher && p.isTop !== isTop && p.pitcherName === oldPitcherName) {
+      next = { ...next, pitcherName: shift.name, pitcherThrows: shift.throws ?? next.pitcherThrows };
       pitchingUpdated++;
     }
     if (shift?.name && p.isTop === isTop && p.batter === shift.order && p.batterName === shift.name) {
@@ -113,6 +122,7 @@ export function insertSubstitution(records, index, params) {
       newName: newPlayer.name,
       type,
       shift,
+      positionOnly,
     }),
     inning: anchor?.inning ?? 1,
     isTop: anchor ? anchor.isTop : isTop,
