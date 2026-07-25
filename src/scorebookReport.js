@@ -347,9 +347,9 @@
       return '<table class="sb-grid">' + cols + '<thead style="background:' + headBg + ';">' + head + '</thead><tbody>' + rows + '</tbody><tfoot>' + foot + '</tfoot></table>';
     }
 
-    function playerTotalsTable(team) {
+    function playerTotalsTable(players) {
       var h = '<table class="sb-totals"><thead><tr><th class="sb-tot-name">選手</th><th>打席</th><th>打数</th><th>得点</th><th>安打</th><th>二</th><th>三</th><th>本</th><th>打点</th><th>四死</th><th>三振</th><th>盗塁</th><th>犠打</th><th>犠飛</th><th>打率</th></tr></thead><tbody>';
-      team.playerTotals.forEach(function (p) {
+      players.forEach(function (p) {
         var avg = p.AB > 0 ? (p.H / p.AB).toFixed(3).replace(/^0/, '') : '.000';
         h += '<tr><td class="sb-tot-name">' + esc(p.name) + '</td><td>' + p.PA + '</td><td>' + p.AB + '</td><td>' + p.R + '</td><td>' + p.H + '</td><td>' + p.H2 + '</td><td>' + p.H3 + '</td><td>' + p.HR + '</td><td>' + p.RBI + '</td><td>' + (p.BB + p.HBP) + '</td><td>' + p.K + '</td><td>' + p.SB + '</td><td>' + p.SH + '</td><td>' + p.SF + '</td><td>' + avg + '</td></tr>';
       });
@@ -377,8 +377,14 @@
     // 個人成績はスコア表の下に「打撃成績 | 投手成績」の横並びで敷く。
     // 右側の細い縦列に押し込むより1行が大きく読め、スコア表も紙面の全幅を使える
     // (=打席内容パネルの折り返しが減り、全体の縮小率も小さくて済む)。
+    // 打撃成績は人数が多いと縦に伸びて紙面を圧迫する(投手成績の右側は空いたまま)ので、
+    // 9人を超えたら2段に割って横に並べ、帯の高さを半分に抑える。
     function teamStatsBand(team) {
-      var bat = '<div class="sb-stats-col"><h4 class="sb-subheading">打撃成績</h4>' + playerTotalsTable(team) + '</div>';
+      var totals = team.playerTotals;
+      var chunks = totals.length > 9 ? [totals.slice(0, Math.ceil(totals.length / 2)), totals.slice(Math.ceil(totals.length / 2))] : [totals];
+      var bat = chunks.map(function (rows, i) {
+        return '<div class="sb-stats-col"><h4 class="sb-subheading">打撃成績' + (i > 0 ? '(続き)' : '') + '</h4>' + playerTotalsTable(rows) + '</div>';
+      }).join('');
       // 投手は人数が少なく右側が空きやすいので、長打の注記もこちらに寄せる
       var right = (team.pitcherStats.length ? '<h4 class="sb-subheading">投手成績</h4>' + pitcherTable(team) : '') + extraBaseFootnote(team);
       return '<div class="sb-stats-band">' + bat + (right ? '<div class="sb-stats-col sb-stats-col-pit">' + right + '</div>' : '') + '</div>';
@@ -390,8 +396,16 @@
         + (options.includeStats ? teamStatsBand(team) : extraBaseFootnote(team)) + '</section>';
     }
 
-    var header = '<div class="sb-header"><div class="sb-header-main"><span class="sb-vs">' + esc(gi.teamTop) + ' 対 ' + esc(gi.teamBottom) + '</span>'
-      + '<span class="sb-meta">' + esc(gi.date || '') + (gi.venue ? ' ／ ' + esc(gi.venue) : '') + (gi.tournament ? ' ／ ' + esc(gi.tournament) : '') + '</span></div>' + linescoreTable() + '</div>';
+    // 試合ヘッダーは「試合名・スコア表・凡例」を1行に横並びにする。縦に積むと
+    // 紙面の高さを10mm近く食うが、右側は元々空いているので横に置けばタダで済む。
+    function headerHtml(legendHtml) {
+      return '<div class="sb-header">'
+        + '<div class="sb-header-main"><span class="sb-vs">' + esc(gi.teamTop) + ' 対 ' + esc(gi.teamBottom) + '</span>'
+        + '<span class="sb-meta">' + esc(gi.date || '') + (gi.venue ? ' ／ ' + esc(gi.venue) : '') + (gi.tournament ? ' ／ ' + esc(gi.tournament) : '') + '</span></div>'
+        + '<div class="sb-header-ls">' + linescoreTable() + '</div>'
+        + (legendHtml ? '<div class="sb-header-legend">' + legendHtml + '</div>' : '')
+        + '</div>';
+    }
 
     var legend = '<div class="sb-legend">'
       + '<span>投球(上→下): <b>●</b>ボール <b>◎</b>見逃し <b>○</b>空振り <b>－</b>ファウル</span>'
@@ -409,7 +423,7 @@
 
     function sheet(content, pageLabel, legendMode, kind) {
       var legendHtml = legendMode === 'full' ? legend : legendMode === 'compact' ? compactLegend : '';
-      return '<article class="sb-sheet sb-' + kind + '-sheet"><div class="sb-sheet-content">' + header + legendHtml + content + '</div>'
+      return '<article class="sb-sheet sb-' + kind + '-sheet"><div class="sb-sheet-content">' + headerHtml(legendHtml) + content + '</div>'
         + '<div class="sb-page-footer">' + esc(pageLabel) + '</div></article>';
     }
 
@@ -420,28 +434,44 @@
     body += '</div>';
 
     var reportFileName = [gi.date, gi.teamTop, 'vs', gi.teamBottom, 'scorebook'].join('_').replace(/[\\\/:*?"<>|]/g, '').replace(/\s+/g, '_');
-    var closeBtn = '<div class="no-print" style="position:fixed;top:12px;right:16px;z-index:999;display:flex;gap:8px;">'
+    var closeBtn = '<div class="no-print" style="position:fixed;top:12px;right:16px;z-index:999;display:flex;align-items:center;gap:8px;">'
+      + '<span style="background:#fff;color:#475569;border:1px solid #cbd5e1;border-radius:8px;padding:6px 10px;font-size:11px;line-height:1.4;">用紙は<b>A4・横</b>。1チーム1ページに収まらないときは<br>印刷設定の<b>「ヘッダーとフッター」をオフ</b>にしてください</span>'
       + '<button onclick="(window.__sbPrint||window.print).call(window)" style="background:#1e293b;color:#fff;border:none;padding:8px 18px;border-radius:8px;font-size:13px;font-weight:bold;cursor:pointer;">🖨️ 印刷 / PDF</button>'
       + '<button onclick="window.close()" style="background:#e2e8f0;color:#334155;border:none;padding:8px 18px;border-radius:8px;font-size:13px;font-weight:bold;cursor:pointer;">✕ 閉じる</button></div>';
 
-    // 画面と印刷でまったく同じ絵にするため、1シート=A4横1ページの固定枠(287mm x 199mm)とし、
+    // 画面と印刷でまったく同じ絵にするため、1シート=A4横1ページの固定枠とし、
     // 中身(.sb-sheet-content)は実測して1ページに収まる倍率へ縮小する(fitScript)。
     // 印刷時に寸法や段組みを組み替えない ＝ 画面プレビューがそのまま出力になる。
+    //
+    // 紙面の大きさ(287mm x 182mm)は @page の余白5mmぴったりではなく、意図的に低くしてある。
+    // ブラウザの印刷は @page の余白どおりに出るとは限らず、
+    //   ・ヘッダー/フッター(URL・ページ番号)をONにすると上下の余白が広がる
+    //   ・プリンタ既定の余白(0.5インチ等)が優先されることがある
+    // といった理由で印刷可能領域が縮む。そのときブラウザは「幅に合わせて全体を縮小」
+    // するため、高さが余るかどうかは 紙面の縦横比 で決まる。A4横で上下左右12.7mm+
+    // ヘッダー/フッター相当まで見込むと 高さ/幅 は 0.66 程度が限界なので、
+    // 199mm(0.693)では数mmだけはみ出して2ページ目に薄い帯が出てしまう。
+    // 182mm(0.634)なら余白1インチの環境でも1ページに収まる。
+    // (縦に詰めたぶんは試合ヘッダーの横並び化で取り返しているので、打席表の高さはほぼ変わらない)
     var style = '@page{size:A4 landscape;margin:5mm;}'
       + 'body{margin:0;background:#f1f5f9;font-family:sans-serif;color:#1e293b;}'
       + '.sb-page{margin:0;padding:0;}'
-      + '.sb-sheet{position:relative;box-sizing:border-box;background:#fff;width:287mm;height:199mm;overflow:hidden;break-after:page;page-break-after:always;break-inside:avoid;page-break-inside:avoid;}'
+      + '.sb-sheet{position:relative;box-sizing:border-box;background:#fff;width:287mm;height:182mm;overflow:hidden;break-after:page;page-break-after:always;break-inside:avoid;page-break-inside:avoid;}'
       + '.sb-sheet:last-child{break-after:auto;page-break-after:auto;}'
       + '.sb-sheet-content{box-sizing:border-box;width:287mm;display:flow-root;transform-origin:top left;}'
       + '.sb-page-footer{position:absolute;right:1mm;bottom:1mm;font-size:8px;color:#94a3b8;}'
-      + '.sb-header-main{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;}'
-      + '.sb-vs{font-size:18px;font-weight:bold;}.sb-meta{font-size:11px;color:#64748b;}'
-      + 'table.sb-linescore{border-collapse:collapse;font-size:11px;margin-bottom:8px;}'
-      + '.sb-linescore th,.sb-linescore td{border:1px solid #cbd5e1;padding:3px 8px;text-align:center;}'
+      // 試合名 / スコア表 / 凡例 を横1行に並べる(縦に積まないぶん打席表に高さを回せる)
+      + '.sb-header{display:flex;align-items:flex-start;gap:6mm;margin-bottom:2px;}'
+      + '.sb-header-main{display:flex;flex-direction:column;gap:1px;flex:none;}'
+      + '.sb-header-ls{flex:none;}'
+      + '.sb-header-legend{flex:1 1 0;min-width:0;padding-top:1px;}'
+      + '.sb-vs{font-size:16px;font-weight:bold;line-height:1.2;}.sb-meta{font-size:10px;color:#64748b;}'
+      + 'table.sb-linescore{border-collapse:collapse;font-size:11px;margin:0;}'
+      + '.sb-linescore th,.sb-linescore td{border:1px solid #cbd5e1;padding:2px 7px;text-align:center;}'
       + '.sb-ls-team{text-align:left !important;font-weight:bold;background:#f8fafc;}.sb-ls-total{font-weight:bold;background:#f8fafc;}'
-      + '.sb-legend{display:flex;flex-direction:column;gap:1px;font-size:9px;color:#64748b;margin-bottom:10px;}'
-      + '.sb-legend-compact{display:flex;flex-wrap:wrap;gap:2px 14px;font-size:7px;color:#64748b;margin:2px 0 4px;}'
-      + '.sb-team-heading{font-size:14px;font-weight:bold;margin:14px 0 4px;border-bottom:2px solid currentColor;padding-bottom:2px;break-after:avoid;page-break-after:avoid;}'
+      + '.sb-legend{display:flex;flex-direction:column;gap:1px;font-size:9px;color:#64748b;margin:0;}'
+      + '.sb-legend-compact{display:flex;flex-wrap:wrap;gap:1px 12px;font-size:7px;color:#64748b;margin:0;}'
+      + '.sb-team-heading{font-size:13px;font-weight:bold;margin:4px 0 3px;border-bottom:2px solid currentColor;padding-bottom:1px;break-after:avoid;page-break-after:avoid;}'
       + 'table.sb-grid{border-collapse:collapse;font-size:9px;width:100%;margin-bottom:4px;table-layout:fixed;}'
       + '.sb-grid th,.sb-grid td{border:1px solid #cbd5e1;text-align:center;vertical-align:top;}'
       + '.sb-grid thead th{padding:3px 2px;font-size:10px;}'
@@ -480,7 +510,7 @@
       + '.sb-sum-row{background:#f8fafc;font-size:8px;}.sb-sum-label{text-align:left !important;padding-left:3px !important;font-weight:bold;color:#475569;white-space:nowrap;}'
       + '.sb-footnote{font-size:9px;color:#64748b;margin:2px 0 4px;}'
       // 個人成績の帯: 打撃成績(列が多いので広め)と投手成績を横並びにする
-      + '.sb-stats-band{display:flex;align-items:flex-start;gap:4mm;margin-top:2mm;}'
+      + '.sb-stats-band{display:flex;align-items:flex-start;gap:3mm;margin-top:1.5mm;}'
       + '.sb-stats-col{flex:1.5 1 0;min-width:0;}.sb-stats-col-pit{flex:1 1 0;}'
       + '.sb-subheading{font-size:9px;font-weight:bold;margin:0 0 2px;color:#475569;border-bottom:1px solid #cbd5e1;padding-bottom:1px;}'
       + 'table.sb-totals,table.sb-pitchers{border-collapse:collapse;table-layout:fixed;font-size:8px;width:100%;margin:0;}'
