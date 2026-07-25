@@ -70,7 +70,8 @@
       var players = (batting.players || []).filter(function(p){ return p.PA > 0; });
       if (players.length === 0) return '';
       var colors = { 'ストレート':'#ef4444', 'スライダー':'#3b82f6', 'シュート':'#10b981', 'カーブ':'#f59e0b', '落ちる球':'#6366f1', 'シンカー':'#06b6d4' };
-      var h='<section class="report-section page-break"><div class="report-heading" style="margin:0 0 4px;font-size:14px;font-weight:bold;color:#1e293b;border-bottom:2px solid #e2e8f0;padding-bottom:3px;break-after:avoid;page-break-after:avoid;">打者詳細: '+esc(teamName)+' <span style="font-size:9px;font-weight:normal;color:#64748b;">(打球方向・打席内容)</span></div>';
+      // 打者詳細は同じチームの打者成績の続きに流す(改ページしない)
+      var h='<section class="report-section"><div class="report-heading" style="margin:0 0 4px;font-size:14px;font-weight:bold;color:#1e293b;border-bottom:2px solid #e2e8f0;padding-bottom:3px;break-after:avoid;page-break-after:avoid;">打者詳細: '+esc(teamName)+' <span style="font-size:9px;font-weight:normal;color:#64748b;">(打球方向・打席内容)</span></div>';
       h+='<div style="display:flex;flex-wrap:wrap;gap:4px 12px;margin-bottom:6px;font-size:9px;color:#64748b;align-items:center;">';
       Object.entries(colors).forEach(function(e){ h+='<span style="white-space:nowrap;"><span style="display:inline-block;width:8px;height:8px;background:'+e[1]+';border-radius:50%;margin-right:3px;"></span>'+esc(e[0])+'</span>'; });
       ['○=ボール','●=ストライク系','数字=投球順','点線=最終球'].forEach(function(t){ h+='<span style="white-space:nowrap;">'+esc(t)+'</span>'; });
@@ -388,7 +389,8 @@
         byInning[inn.inning][inn.isTop ? 'top' : 'bottom'] = inn;
       });
       var innNums = Object.keys(byInning).map(Number).sort(function(a,b){return a-b;});
-      var h='<section class="report-section page-break"><h3 class="report-heading" style="margin:0 0 8px;font-size:15px;font-weight:bold;color:#1e293b;border-bottom:2px solid #e2e8f0;padding-bottom:3px;">テキスト速報</h3>';
+      // テキスト速報は表紙(スコア・チーム比較)の続きに流す(改ページしない)
+      var h='<section class="report-section"><h3 class="report-heading" style="margin:0 0 8px;font-size:15px;font-weight:bold;color:#1e293b;border-bottom:2px solid #e2e8f0;padding-bottom:3px;">テキスト速報</h3>';
       innNums.forEach(function(n){
         var pair = byInning[n];
         h+='<div style="display:flex;gap:8px;margin-bottom:6px;break-inside:avoid;page-break-inside:avoid;align-items:flex-start;">';
