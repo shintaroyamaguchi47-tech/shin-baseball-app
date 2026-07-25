@@ -19,6 +19,10 @@ const POS_NUM = {
 // RBIを記録しない結果(エラーで出塁した打席は打点なし)
 const RBI_ELIGIBLE = new Set(['single', 'double', 'triple', 'homerun', 'walk', 'other', 'sac_bunt', 'sac_fly']);
 
+// 打席直後の進塁補正(runnerAdvance.js)が使う理由。自動進塁より先の塁まで
+// 走者が進んだ場合も打球によるものなので、生還すれば打者の打点に数える。
+const BATTED_BALL_REASONS = ['打球', '送球間'];
+
 function fielderNum(fielderName) { return POS_NUM[fielderName] || null; }
 
 // 守備位置→打球方向チャート上の近似座標(App.jsxのsprayCoordMapと同じ値)
@@ -340,12 +344,17 @@ export function buildScorebookData(pitches, lineups, gameInfo, gameState) {
       const order = play.batter; // この打席の打順(1-9)。走者の進塁を「何番で」と記録するのに使う
       let scoredCells = [];
       let pitchIdx = 0; // この打席で消化した投球数(リンク文字を投球列のどこに付けるか)
+      let movementApplied = false;
+      let extraRbi = 0; // 打席直後の進塁補正で追加生還した走者ぶんの打点
       play.pitchRows.forEach((row) => {
         if (row.isEvent) {
           // 盗塁/暴投/捕逸/ボークにはリンク文字(a,b,c...)を割り当て、
           // この打者の投球列(直近の球)と走者の進塁コードの両方に付けて連動させる。
           const link = String.fromCharCode(97 + linkCounter.n);
-          const consumed = handleRunnerEvent(bases, row.label || '', outCounter, order, link);
+          const text = row.label || '';
+          // 打球による生還は、この打席の結果で入った得点なので打点に数える
+          if (movementApplied && text.includes('で本塁へ') && BATTED_BALL_REASONS.includes((text.split(' ')[1] || '').split('で')[0])) extraRbi++;
+          const consumed = handleRunnerEvent(bases, text, outCounter, order, link);
           if (consumed) { cell.pitchLinks[Math.max(0, pitchIdx - 1)] = link; linkCounter.n++; }
           return;
         }
@@ -354,13 +363,14 @@ export function buildScorebookData(pitches, lineups, gameInfo, gameState) {
           const moved = applyAutoMovement(bases, play.eventType, cell, order);
           bases = moved.bases;
           scoredCells = moved.scoredCells;
+          movementApplied = true;
         }
       });
       cell.basesReachedInitial = cell.scored ? 4 : ([1, 2, 3].find((n) => bases[n] === cell) || 0);
       // 打者自身の打席で到達した初期塁はreachedByから除く(結果記号で示すため)
       for (let n = 1; n <= cell.basesReachedInitial; n++) delete cell.reachedBy[n];
       if (play.isOut) { outCounter.n++; cell.outOrderInInning = outCounter.n; }
-      if (RBI_ELIGIBLE.has(play.eventType)) cell.rbi = scoredCells.length;
+      if (RBI_ELIGIBLE.has(play.eventType)) cell.rbi = scoredCells.length + extraRbi;
     });
     // 半イニング終了時に塁上に残った走者(残塁)には ℓ を描く
     [1, 2, 3].forEach((n) => { if (bases[n]) bases[n].strandedRunner = true; });
