@@ -363,9 +363,30 @@
       return parts.length ? '<div class="sb-footnote">' + parts.join(' 　 ') + '</div>' : '';
     }
 
+    // A4横の右側を活用するコンパクト個人成績。スコアと同じページに収める。
+    function compactTeamStats(team) {
+      var h = '<div class="sb-side-stats"><h4>打撃成績</h4><table><thead><tr><th>選手</th><th>打</th><th>安</th><th>率</th><th>点</th><th>四死</th><th>振</th><th>盗</th></tr></thead><tbody>';
+      team.playerTotals.forEach(function (p) {
+        var avg = p.AB > 0 ? (p.H / p.AB).toFixed(3).replace(/^0/, '') : '.000';
+        h += '<tr><td>' + esc(p.name) + '</td><td>' + p.AB + '</td><td>' + p.H + '</td><td>' + avg + '</td><td>' + p.RBI + '</td><td>' + (p.BB + p.HBP) + '</td><td>' + p.K + '</td><td>' + p.SB + '</td></tr>';
+      });
+      h += '</tbody></table>';
+      if (team.pitcherStats.length) {
+        h += '<h4>投手成績</h4><table><thead><tr><th>投手</th><th>回</th><th>球</th><th>安</th><th>四死</th><th>振</th><th>失</th></tr></thead><tbody>';
+        team.pitcherStats.forEach(function (p) {
+          var innP = Math.floor(p.outs / 3) + '.' + (p.outs % 3);
+          h += '<tr><td>' + esc(p.name) + '</td><td>' + innP + '</td><td>' + p.pitches + '</td><td>' + p.hits + '</td><td>' + (p.bb + p.hbp) + '</td><td>' + p.k + '</td><td>' + p.runs + '</td></tr>';
+        });
+        h += '</tbody></table>';
+      }
+      return h + '</div>';
+    }
+
     function teamScoreSection(team, teamName, accent, headBg) {
+      var stats = options.includeStats ? '<aside class="sb-score-side">' + compactTeamStats(team) + '</aside>' : '';
       return '<section class="sb-section"><h3 class="sb-team-heading" style="color:' + accent + ';">' + esc(teamName) + '</h3>'
-        + teamGrid(team, teamName, headBg) + extraBaseFootnote(team) + '</section>';
+        + '<div class="sb-score-layout"><div class="sb-score-main">' + teamGrid(team, teamName, headBg) + extraBaseFootnote(team)
+        + '</div>' + stats + '</div></section>';
     }
 
     function teamStatsSection(team, teamName, accent) {
@@ -400,10 +421,7 @@
     var body = '<div class="sb-page">'
       + sheet(teamScoreSection(sb.top, gi.teamTop, '#1d4ed8', '#eff6ff'), '先攻スコア', 'compact', 'score')
       + sheet(teamScoreSection(sb.bottom, gi.teamBottom, '#e11d48', '#fef2f2'), '後攻スコア', 'compact', 'score');
-    if (options.includeStats) {
-      body += sheet(teamStatsSection(sb.top, gi.teamTop, '#1d4ed8')
-        + teamStatsSection(sb.bottom, gi.teamBottom, '#e11d48'), '個人成績', '', 'stats');
-    }
+    // 個人成績は各チームのスコアページ右側に統合するため、独立した成績ページは作らない。
     body += '</div>';
 
     var reportFileName = [gi.date, gi.teamTop, 'vs', gi.teamBottom, 'scorebook'].join('_').replace(/[\\\/:*?"<>|]/g, '').replace(/\s+/g, '_');
@@ -468,11 +486,17 @@
       + '.sb-totals thead,.sb-pitchers thead{background:#f1f5f9;}.sb-tot-name{text-align:left !important;font-weight:bold;}'
       + '.sb-stats-section{margin-bottom:14px;}.sb-subheading{font-size:10px;margin:6px 0 2px;color:#475569;}'
       + '.sb-footnote{font-size:9px;color:#64748b;margin:2px 0 4px;}'
-      + '.sb-sheet{width:287mm;height:176mm;min-height:0;overflow:hidden;padding:0;}'
-      + '.sb-score-sheet .sb-sheet-content{zoom:.76;width:131.58%;}'
-      + '.sb-stats-sheet .sb-sheet-content{zoom:.82;width:121.95%;}'
+      + '.sb-sheet{width:287mm;min-height:176mm;height:auto;overflow:visible;padding:0;}'
+      + '.sb-score-layout{display:grid;grid-template-columns:minmax(0,1fr) 57mm;gap:2mm;align-items:start;}'
+      + '.sb-score-main{min-width:0;}.sb-score-side{min-width:0;border-left:1px solid #cbd5e1;padding-left:2mm;}'
+      + '.sb-side-stats h4{font-size:9px;margin:0 0 2px;color:#475569;border-bottom:1px solid #cbd5e1;padding-bottom:1px;}'
+      + '.sb-side-stats h4:not(:first-child){margin-top:5px;}'
+      + '.sb-side-stats table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:6.5px;margin-bottom:4px;}'
+      + '.sb-side-stats th,.sb-side-stats td{border:1px solid #dbe3ec;padding:1.5px 1px;text-align:center;white-space:nowrap;overflow:hidden;}'
+      + '.sb-side-stats th{background:#f1f5f9;color:#475569;font-weight:bold;}'
+      + '.sb-side-stats th:first-child,.sb-side-stats td:first-child{text-align:left;width:34%;font-weight:bold;}'
       + '@media screen{.sb-page{max-width:none;overflow-x:auto;}.sb-sheet{margin:0 auto 18px;box-shadow:0 8px 30px rgba(15,23,42,.12);}}'
-      + '@media print{@page{size:A4 landscape;margin:5mm;}body{background:#fff!important;}.sb-page{margin:0;padding:0;max-width:none;}.sb-sheet{margin:0;}.sb-page-footer{bottom:1mm;}*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}.no-print{display:none!important;}}';
+      + '@media print{@page{size:A4 landscape;margin:5mm;}body{background:#fff!important;}.sb-page{margin:0;padding:0;max-width:none;}.sb-sheet{width:auto;min-height:0;margin:0;break-after:page;page-break-after:always;}.sb-sheet:last-child{break-after:auto;page-break-after:auto;}.sb-page-footer{bottom:1mm;}*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}.no-print{display:none!important;}}';
 
     w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>' + esc(reportFileName) + '<\/title><style>' + style + '<\/style><\/head><body>' + closeBtn + body + '<\/body><\/html>');
     w.document.close();
