@@ -2762,9 +2762,9 @@ import { autoPositions, buildAdvanceChoices, buildAdvanceEvents, previewAdvanceR
                   </label>
                   <label className="flex items-start gap-3 p-4 rounded-2xl border border-slate-200 bg-slate-50 cursor-pointer">
                     <input type="checkbox" checked={scorebookPrintOptions.includeStats} onChange={e => setScorebookPrintOptions(o => ({ ...o, includeStats: e.target.checked }))} className="mt-1 h-5 w-5 accent-amber-600" />
-                    <span><span className="block font-black text-slate-800">個人成績ページを付ける</span><span className="block text-xs text-slate-500 mt-1">両チームの打撃成績・投手成績を、スコアとは別ページにまとめます。</span></span>
+                    <span><span className="block font-black text-slate-800">個人成績を付ける</span><span className="block text-xs text-slate-500 mt-1">そのチームの打撃成績と投手成績を、スコア表の下に横並びで載せます。</span></span>
                   </label>
-                  <div className="rounded-xl bg-blue-50 border border-blue-100 p-3 text-xs text-blue-800 font-bold leading-relaxed">出力構成：1ページ目 先攻 ／ 2ページ目 後攻{scorebookPrintOptions.includeStats ? ' ／ 3ページ目 個人成績' : ''}</div>
+                  <div className="rounded-xl bg-blue-50 border border-blue-100 p-3 text-xs text-blue-800 font-bold leading-relaxed">出力構成：1ページ目 先攻 ／ 2ページ目 後攻。プレビューに表示された紙面がそのまま印刷されます{scorebookPrintOptions.includeCharts ? '。1ページに収まらない場合は打者行の区切りでページを増やします(配球図を外すとコンパクトになります)' : ''}</div>
                 </div>
                 <div className="p-4 border-t border-slate-200 bg-slate-50 flex gap-3">
                   <button onClick={() => setShowScorebookPrintSettings(false)} className="flex-1 bg-white border border-slate-300 text-slate-700 py-3 rounded-xl font-bold">キャンセル</button>

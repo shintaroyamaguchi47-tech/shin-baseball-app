@@ -306,10 +306,20 @@
         team.slots.forEach(function (slot) { var c = slot.cellsByInning[i]; if (c && c.length > mx) mx = c.length; });
         subCols[i] = mx;
       }
+      // 右端パネルの幅は「最も打席数の多い打者の項目数」で決める。幅指定なしにすると
+      // 残り幅を全部吸ってしまい、表の右側に大きな空白ができる。
+      // 余り幅は table-layout:fixed が各列に按分するので、イニング列も一緒に広がる。
+      var maxPanelItems = 0;
+      team.slots.forEach(function (slot) {
+        var items = 0;
+        for (var i = 1; i <= n; i++) (slot.cellsByInning[i] || []).forEach(function (c) { if (c.summaryText) items++; });
+        if (items) items++; // 末尾の打球方向図
+        if (items > maxPanelItems) maxPanelItems = items;
+      });
       var cols = '<colgroup><col style="width:26px"><col style="width:66px"><col style="width:26px">';
       for (var i = 1; i <= n; i++) for (var k = 0; k < subCols[i]; k++) cols += '<col style="width:66px">';
-      if (options.includeCharts) cols += '<col>';
-      cols += '</colgroup>'; // 右端パネルは残り幅を全て使う
+      if (options.includeCharts) cols += '<col style="width:' + Math.max(66, maxPanelItems * 54 + 6) + 'px">';
+      cols += '</colgroup>';
       var head = '<tr><th class="sb-hd-narrow">打順</th><th class="sb-hd-name">名前</th><th class="sb-hd-narrow">守備</th>';
       for (var i = 1; i <= n; i++) head += '<th' + (subCols[i] > 1 ? ' colspan="' + subCols[i] + '"' : '') + '>' + i + '</th>';
       if (options.includeCharts) head += '<th class="sb-hd-pa">打席内容(コース・球種)・打球方向</th>';
@@ -338,16 +348,17 @@
     }
 
     function playerTotalsTable(team) {
-      var h = '<table class="sb-totals"><thead><tr><th>選手</th><th>打席</th><th>打数</th><th>得点</th><th>安打</th><th>二</th><th>三</th><th>本</th><th>打点</th><th>四死</th><th>三振</th><th>盗塁</th><th>犠打</th><th>犠飛</th></tr></thead><tbody>';
+      var h = '<table class="sb-totals"><thead><tr><th class="sb-tot-name">選手</th><th>打席</th><th>打数</th><th>得点</th><th>安打</th><th>二</th><th>三</th><th>本</th><th>打点</th><th>四死</th><th>三振</th><th>盗塁</th><th>犠打</th><th>犠飛</th><th>打率</th></tr></thead><tbody>';
       team.playerTotals.forEach(function (p) {
-        h += '<tr><td class="sb-tot-name">' + esc(p.name) + '</td><td>' + p.PA + '</td><td>' + p.AB + '</td><td>' + p.R + '</td><td>' + p.H + '</td><td>' + p.H2 + '</td><td>' + p.H3 + '</td><td>' + p.HR + '</td><td>' + p.RBI + '</td><td>' + (p.BB + p.HBP) + '</td><td>' + p.K + '</td><td>' + p.SB + '</td><td>' + p.SH + '</td><td>' + p.SF + '</td></tr>';
+        var avg = p.AB > 0 ? (p.H / p.AB).toFixed(3).replace(/^0/, '') : '.000';
+        h += '<tr><td class="sb-tot-name">' + esc(p.name) + '</td><td>' + p.PA + '</td><td>' + p.AB + '</td><td>' + p.R + '</td><td>' + p.H + '</td><td>' + p.H2 + '</td><td>' + p.H3 + '</td><td>' + p.HR + '</td><td>' + p.RBI + '</td><td>' + (p.BB + p.HBP) + '</td><td>' + p.K + '</td><td>' + p.SB + '</td><td>' + p.SH + '</td><td>' + p.SF + '</td><td>' + avg + '</td></tr>';
       });
       h += '</tbody></table>';
       return h;
     }
     function pitcherTable(team) {
       if (!team.pitcherStats.length) return '';
-      var h = '<table class="sb-pitchers"><thead><tr><th>投手</th><th>投打</th><th>回</th><th>球数</th><th>打者</th><th>安打</th><th>本</th><th>四死</th><th>三振</th><th>失点</th><th>暴投</th><th>ボーク</th></tr></thead><tbody>';
+      var h = '<table class="sb-pitchers"><thead><tr><th class="sb-tot-name">投手</th><th>投打</th><th>回</th><th>球数</th><th>打者</th><th>安打</th><th>本</th><th>四死</th><th>三振</th><th>失点</th><th>暴投</th><th>ボーク</th></tr></thead><tbody>';
       team.pitcherStats.forEach(function (p) {
         var innP = (Math.floor(p.outs / 3) + (p.outs % 3) / 10).toFixed(1);
         h += '<tr><td class="sb-tot-name">' + esc(p.name) + '</td><td>' + esc(p.throws) + '</td><td>' + innP + '</td><td>' + p.pitches + '</td><td>' + p.battersFaced + '</td><td>' + p.hits + '</td><td>' + p.hr + '</td><td>' + (p.bb + p.hbp) + '</td><td>' + p.k + '</td><td>' + p.runs + '</td><td>' + p.wildPitches + '</td><td>' + p.balks + '</td></tr>';
@@ -363,36 +374,20 @@
       return parts.length ? '<div class="sb-footnote">' + parts.join(' 　 ') + '</div>' : '';
     }
 
-    // A4横の右側を活用するコンパクト個人成績。スコアと同じページに収める。
-    function compactTeamStats(team) {
-      var h = '<div class="sb-side-stats"><h4>打撃成績</h4><table><thead><tr><th>選手</th><th>打</th><th>安</th><th>率</th><th>点</th><th>四死</th><th>振</th><th>盗</th></tr></thead><tbody>';
-      team.playerTotals.forEach(function (p) {
-        var avg = p.AB > 0 ? (p.H / p.AB).toFixed(3).replace(/^0/, '') : '.000';
-        h += '<tr><td>' + esc(p.name) + '</td><td>' + p.AB + '</td><td>' + p.H + '</td><td>' + avg + '</td><td>' + p.RBI + '</td><td>' + (p.BB + p.HBP) + '</td><td>' + p.K + '</td><td>' + p.SB + '</td></tr>';
-      });
-      h += '</tbody></table>';
-      if (team.pitcherStats.length) {
-        h += '<h4>投手成績</h4><table><thead><tr><th>投手</th><th>回</th><th>球</th><th>安</th><th>四死</th><th>振</th><th>失</th></tr></thead><tbody>';
-        team.pitcherStats.forEach(function (p) {
-          var innP = Math.floor(p.outs / 3) + '.' + (p.outs % 3);
-          h += '<tr><td>' + esc(p.name) + '</td><td>' + innP + '</td><td>' + p.pitches + '</td><td>' + p.hits + '</td><td>' + (p.bb + p.hbp) + '</td><td>' + p.k + '</td><td>' + p.runs + '</td></tr>';
-        });
-        h += '</tbody></table>';
-      }
-      return h + '</div>';
+    // 個人成績はスコア表の下に「打撃成績 | 投手成績」の横並びで敷く。
+    // 右側の細い縦列に押し込むより1行が大きく読め、スコア表も紙面の全幅を使える
+    // (=打席内容パネルの折り返しが減り、全体の縮小率も小さくて済む)。
+    function teamStatsBand(team) {
+      var bat = '<div class="sb-stats-col"><h4 class="sb-subheading">打撃成績</h4>' + playerTotalsTable(team) + '</div>';
+      // 投手は人数が少なく右側が空きやすいので、長打の注記もこちらに寄せる
+      var right = (team.pitcherStats.length ? '<h4 class="sb-subheading">投手成績</h4>' + pitcherTable(team) : '') + extraBaseFootnote(team);
+      return '<div class="sb-stats-band">' + bat + (right ? '<div class="sb-stats-col sb-stats-col-pit">' + right + '</div>' : '') + '</div>';
     }
 
     function teamScoreSection(team, teamName, accent, headBg) {
-      var stats = options.includeStats ? '<aside class="sb-score-side">' + compactTeamStats(team) + '</aside>' : '';
       return '<section class="sb-section"><h3 class="sb-team-heading" style="color:' + accent + ';">' + esc(teamName) + '</h3>'
-        + '<div class="sb-score-layout"><div class="sb-score-main">' + teamGrid(team, teamName, headBg) + extraBaseFootnote(team)
-        + '</div>' + stats + '</div></section>';
-    }
-
-    function teamStatsSection(team, teamName, accent) {
-      return '<section class="sb-stats-section"><h3 class="sb-team-heading" style="color:' + accent + ';">' + esc(teamName) + ' 個人成績</h3>'
-        + '<h4 class="sb-subheading">打撃成績</h4>' + playerTotalsTable(team)
-        + '<h4 class="sb-subheading">投手成績</h4>' + pitcherTable(team) + '</section>';
+        + teamGrid(team, teamName, headBg)
+        + (options.includeStats ? teamStatsBand(team) : extraBaseFootnote(team)) + '</section>';
     }
 
     var header = '<div class="sb-header"><div class="sb-header-main"><span class="sb-vs">' + esc(gi.teamTop) + ' 対 ' + esc(gi.teamBottom) + '</span>'
@@ -426,15 +421,19 @@
 
     var reportFileName = [gi.date, gi.teamTop, 'vs', gi.teamBottom, 'scorebook'].join('_').replace(/[\\\/:*?"<>|]/g, '').replace(/\s+/g, '_');
     var closeBtn = '<div class="no-print" style="position:fixed;top:12px;right:16px;z-index:999;display:flex;gap:8px;">'
-      + '<button onclick="window.print()" style="background:#1e293b;color:#fff;border:none;padding:8px 18px;border-radius:8px;font-size:13px;font-weight:bold;cursor:pointer;">🖨️ 印刷 / PDF</button>'
+      + '<button onclick="(window.__sbPrint||window.print).call(window)" style="background:#1e293b;color:#fff;border:none;padding:8px 18px;border-radius:8px;font-size:13px;font-weight:bold;cursor:pointer;">🖨️ 印刷 / PDF</button>'
       + '<button onclick="window.close()" style="background:#e2e8f0;color:#334155;border:none;padding:8px 18px;border-radius:8px;font-size:13px;font-weight:bold;cursor:pointer;">✕ 閉じる</button></div>';
 
-    var style = '@page{size:A4 landscape;margin:8mm;}'
+    // 画面と印刷でまったく同じ絵にするため、1シート=A4横1ページの固定枠(287mm x 199mm)とし、
+    // 中身(.sb-sheet-content)は実測して1ページに収まる倍率へ縮小する(fitScript)。
+    // 印刷時に寸法や段組みを組み替えない ＝ 画面プレビューがそのまま出力になる。
+    var style = '@page{size:A4 landscape;margin:5mm;}'
       + 'body{margin:0;background:#f1f5f9;font-family:sans-serif;color:#1e293b;}'
-      + '.sb-page{max-width:1500px;margin:0 auto;padding:16px 20px 40px;}'
-      + '.sb-sheet{position:relative;box-sizing:border-box;background:#fff;break-after:page;page-break-after:always;padding-bottom:20px;min-height:190mm;}'
+      + '.sb-page{margin:0;padding:0;}'
+      + '.sb-sheet{position:relative;box-sizing:border-box;background:#fff;width:287mm;height:199mm;overflow:hidden;break-after:page;page-break-after:always;break-inside:avoid;page-break-inside:avoid;}'
       + '.sb-sheet:last-child{break-after:auto;page-break-after:auto;}'
-      + '.sb-page-footer{position:absolute;right:0;bottom:0;font-size:8px;color:#94a3b8;}'
+      + '.sb-sheet-content{box-sizing:border-box;width:287mm;display:flow-root;transform-origin:top left;}'
+      + '.sb-page-footer{position:absolute;right:1mm;bottom:1mm;font-size:8px;color:#94a3b8;}'
       + '.sb-header-main{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;}'
       + '.sb-vs{font-size:18px;font-weight:bold;}.sb-meta{font-size:11px;color:#64748b;}'
       + 'table.sb-linescore{border-collapse:collapse;font-size:11px;margin-bottom:8px;}'
@@ -443,9 +442,6 @@
       + '.sb-legend{display:flex;flex-direction:column;gap:1px;font-size:9px;color:#64748b;margin-bottom:10px;}'
       + '.sb-legend-compact{display:flex;flex-wrap:wrap;gap:2px 14px;font-size:7px;color:#64748b;margin:2px 0 4px;}'
       + '.sb-team-heading{font-size:14px;font-weight:bold;margin:14px 0 4px;border-bottom:2px solid currentColor;padding-bottom:2px;break-after:avoid;page-break-after:avoid;}'
-      // 右端パネルで行が高くなりチーム表が1ページに収まらないことがあるため、
-      // セクション単位ではなく打者行単位で改ページする
-      + '.sb-grid tbody tr,.sb-grid tfoot tr{break-inside:avoid;page-break-inside:avoid;}'
       + 'table.sb-grid{border-collapse:collapse;font-size:9px;width:100%;margin-bottom:4px;table-layout:fixed;}'
       + '.sb-grid th,.sb-grid td{border:1px solid #cbd5e1;text-align:center;vertical-align:top;}'
       + '.sb-grid thead th{padding:3px 2px;font-size:10px;}'
@@ -463,7 +459,8 @@
       + '.sb-pn-zone{border:1px solid #e2e8f0;border-radius:2px;overflow:hidden;}'
       + '.sb-pn-res{font-size:8px;font-weight:bold;line-height:1.1;text-align:center;max-width:60px;}'
       + '.sb-pn-seq{font-size:8px;letter-spacing:-0.5px;color:#475569;max-width:51px;word-break:break-all;text-align:center;line-height:1.3;padding-top:14px;min-height:35px;}'
-      + '.sb-box{position:relative;display:flex;align-items:stretch;border-bottom:1px dotted #e2e8f0;min-height:52px;}'
+      // 列が広がったときにダイヤが左に寄って見えないよう、セル内容は中央に置く
+      + '.sb-box{position:relative;display:flex;justify-content:center;align-items:stretch;border-bottom:1px dotted #e2e8f0;min-height:52px;}'
       + '.sb-box:last-child{border-bottom:none;}'
       + '.sb-pit{width:14px;display:flex;flex-direction:column;align-items:center;padding-top:1px;gap:0px;flex-shrink:0;}'
       + '.sb-pm{position:relative;display:flex;align-items:center;}'
@@ -481,27 +478,162 @@
       + '.sb-line{border-top:1.4px solid #1d4ed8;padding:0 1px;}'
       + '.sb-sqr{border:1px solid #1d4ed8;border-radius:1px;padding:0 2px 1px;display:inline-block;line-height:1.1;}'
       + '.sb-sum-row{background:#f8fafc;font-size:8px;}.sb-sum-label{text-align:left !important;padding-left:3px !important;font-weight:bold;color:#475569;white-space:nowrap;}'
-      + 'table.sb-totals,table.sb-pitchers{border-collapse:collapse;font-size:9px;width:100%;margin:4px 0;}'
-      + '.sb-totals th,.sb-totals td,.sb-pitchers th,.sb-pitchers td{border:1px solid #e2e8f0;padding:2px 3px;text-align:center;}'
-      + '.sb-totals thead,.sb-pitchers thead{background:#f1f5f9;}.sb-tot-name{text-align:left !important;font-weight:bold;}'
-      + '.sb-stats-section{margin-bottom:14px;}.sb-subheading{font-size:10px;margin:6px 0 2px;color:#475569;}'
       + '.sb-footnote{font-size:9px;color:#64748b;margin:2px 0 4px;}'
-      + '.sb-sheet{width:287mm;min-height:176mm;height:auto;overflow:visible;padding:0;}'
-      + '.sb-score-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(52mm,57mm);gap:2mm;align-items:start;}'
-      + '.sb-score-main{min-width:0;overflow:visible;}.sb-score-side{min-width:0;overflow:visible;border-left:1px solid #cbd5e1;padding-left:2mm;}'
-      + '.sb-side-stats h4{font-size:9px;margin:0 0 2px;color:#475569;border-bottom:1px solid #cbd5e1;padding-bottom:1px;}'
-      + '.sb-side-stats h4:not(:first-child){margin-top:5px;}'
-      + '.sb-side-stats table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:6.5px;margin-bottom:4px;}'
-      + '.sb-side-stats th,.sb-side-stats td{border:1px solid #dbe3ec;padding:1.5px 1px;text-align:center;white-space:nowrap;overflow:visible;}'
-      + '.sb-side-stats th{background:#f1f5f9;color:#475569;font-weight:bold;}'
-      + '.sb-side-stats th:first-child,.sb-side-stats td:first-child{text-align:left;width:34%;font-weight:bold;white-space:normal;overflow-wrap:anywhere;line-height:1.2;}'
+      // 個人成績の帯: 打撃成績(列が多いので広め)と投手成績を横並びにする
+      + '.sb-stats-band{display:flex;align-items:flex-start;gap:4mm;margin-top:2mm;}'
+      + '.sb-stats-col{flex:1.5 1 0;min-width:0;}.sb-stats-col-pit{flex:1 1 0;}'
+      + '.sb-subheading{font-size:9px;font-weight:bold;margin:0 0 2px;color:#475569;border-bottom:1px solid #cbd5e1;padding-bottom:1px;}'
+      + 'table.sb-totals,table.sb-pitchers{border-collapse:collapse;table-layout:fixed;font-size:8px;width:100%;margin:0;}'
+      + '.sb-totals th,.sb-totals td,.sb-pitchers th,.sb-pitchers td{border:1px solid #dbe3ec;padding:1.5px 2px;text-align:center;white-space:nowrap;}'
+      + '.sb-totals thead,.sb-pitchers thead{background:#f1f5f9;color:#475569;}'
+      + '.sb-tot-name{text-align:left !important;font-weight:bold;width:30%;white-space:normal;overflow-wrap:anywhere;line-height:1.2;}'
+      + '.sb-pitchers .sb-tot-name{width:24%;}'
+      + '.sb-stats-col .sb-footnote{margin:3px 0 0;}'
+      // 画面: シート自体の寸法・内部倍率は印刷と同一のまま、ページ全体だけを画面幅に合わせて縮小表示する
       + '@media screen{body{overflow-x:hidden;}.sb-page{width:287mm;max-width:none;overflow:visible;transform:scale(var(--preview-scale,1));transform-origin:top left;margin:12px;}.sb-sheet{margin:0 0 18px;box-shadow:0 8px 30px rgba(15,23,42,.12);}}'
-      + '@media print{@page{size:A4 landscape;margin:5mm;}body{background:#fff!important;}.sb-page{width:auto;margin:0;padding:0;max-width:none;transform:none!important;}.sb-sheet{width:auto;min-height:0;margin:0;break-after:page;page-break-after:always;}.sb-sheet:last-child{break-after:auto;page-break-after:auto;}.sb-page-footer{bottom:1mm;}*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}.no-print{display:none!important;}}';
+      // 印刷: プレビュー用の縮小(と本文高さ指定)を外すだけ。シートの寸法・中身の倍率は画面と同じ
+      + '@media print{body{background:#fff!important;height:auto!important;}.sb-page{margin:0;padding:0;transform:none!important;}.sb-sheet{margin:0;box-shadow:none;}*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}.no-print{display:none!important;}}';
 
-    var previewScript = '<script>(function(){function fit(){var page=document.querySelector(".sb-page");if(!page)return;var target=1085;var scale=Math.min(1,Math.max(.35,(window.innerWidth-24)/target));document.documentElement.style.setProperty("--preview-scale",String(scale));document.body.style.height=Math.ceil(page.scrollHeight*scale+24)+"px";}window.addEventListener("resize",fit);window.addEventListener("load",fit);fit();})();<\\/script>';
+    // ブラウザ任せの改ページは環境ごとに結果が変わり、画面プレビューと印刷がずれる原因になる。
+    // そこでポップアップ側で「A4横1ページ = .sb-sheet(287mm x 199mm)」の紙面を自分で組み、
+    // 画面はその紙面をそのまま並べて表示するだけにする(＝プレビュー = 印刷結果)。
+    //   1) 倍率探索: 中身の版面幅を 287mm/k に広げて k 倍に縮小する。単純な全体縮小と違い
+    //      右端パネルの折り返しが減るため、少ない縮小でページ数を減らせる。
+    //      ページ数が最小になる中で最大の k(=一番大きい文字)を採用する。
+    //   2) 改ページ: 採用した k で打者行を実測し、1ページに入る分だけ詰める。
+    //      行の途中では切らず、試合ヘッダー・表ヘッダー・列幅は全ページ共通にする。
+    //   3) 保険: それでも溢れるページは、そのページだけさらに縮小して収める。
+    var fitScript = [
+      '(function(){',
+      'var KS=[1,.92,.85,.78,.72,.66,.62],templates=null;',
+      // 元の(チーム単位の)シートを雛形として保持し、再実行時は必ず雛形から組み直す
+      'function initTemplates(){',
+      'if(templates)return;',
+      'templates=[];',
+      'var list=document.querySelectorAll(".sb-sheet");',
+      'for(var i=0;i<list.length;i++)templates.push(list[i].cloneNode(true));',
+      '}',
+      // 版面を availW/k の幅で組んで k 倍に縮小する(見た目の幅は availW のまま)
+      'function applyScale(c,k,availW){',
+      'c.style.width=(availW/k)+"px";',
+      'c.style.transform=k<1?"scale("+k+")":"none";',
+      'c.setAttribute("data-k",String(k));',
+      '}',
+      // 現在の版面で打者行をページに詰める。戻り値は各ページの行indexの配列
+      // (offsetTop/offsetHeight は transform の影響を受けない版面座標なので availH も k で割る)
+      'function planPages(sheet,content,k){',
+      'var table=content.querySelector(".sb-grid");if(!table)return [[]];',
+      'var availH=sheet.clientHeight/k;',
+      'var thead=table.querySelector("thead"),tfoot=table.querySelector("tfoot");',
+      'var theadH=thead?thead.offsetHeight:0;',
+      // 集計行・注記・個人成績の帯は最終ページにだけ載るので、最終行の余白として確保する
+      'var tail=(tfoot?tfoot.offsetHeight:0);',
+      'var extras=content.querySelectorAll(".sb-footnote,.sb-stats-band");',
+      'for(var e=0;e<extras.length;e++)tail+=extras[e].offsetHeight;',
+      // 表より上(試合ヘッダー・凡例・チーム名)は毎ページ再掲するので固定費として引く
+      'var budget=availH-table.offsetTop-theadH-4;',
+      'var rows=table.querySelectorAll("tbody tr"),hs=[],total=0;',
+      'for(var i=0;i<rows.length;i++){hs.push(rows[i].offsetHeight);total+=hs[i];}',
+      'var groups=pack(hs,budget,Infinity,tail);',
+      // ページ数が変わらない範囲で各ページの行数をならす(最終ページが1行だけ等を避ける)
+      'if(groups.length>1){',
+      'var even=pack(hs,budget,Math.ceil(total/groups.length)+1,tail);',
+      'if(even.length<=groups.length)groups=even;',
+      '}',
+      'return groups.length?groups:[[]];',
+      '}',
+      // 行を上から詰める。budget=1ページの実寸、cap=ならし用の目標高さ、tail=最終ページの追加分
+      'function pack(hs,budget,cap,tail){',
+      'var groups=[],cur=[],used=0;',
+      'for(var i=0;i<hs.length;i++){',
+      'var h=hs[i],extra=(i===hs.length-1)?tail:0;',
+      'if(cur.length&&(used+h+extra>budget||used+h>cap)){groups.push(cur);cur=[];used=0;}',
+      'cur.push(i);used+=h;',
+      '}',
+      'if(cur.length)groups.push(cur);',
+      'return groups;',
+      '}',
+      // ページ数が最小になる中で最大の倍率を探す
+      'function planTeam(tpl,host){',
+      'var probe=tpl.cloneNode(true);host.appendChild(probe);',
+      'var content=probe.querySelector(".sb-sheet-content");',
+      'var best={k:1,groups:[[]]};',
+      'if(content){',
+      'var availW=probe.clientWidth;',
+      'for(var i=0;i<KS.length;i++){',
+      'applyScale(content,KS[i],availW);',
+      'var groups=planPages(probe,content,KS[i]);',
+      'if(i===0||groups.length<best.groups.length)best={k:KS[i],groups:groups};',
+      'if(best.groups.length<=1)break;',
+      '}}',
+      'host.removeChild(probe);',
+      'return best;',
+      '}',
+      // 雛形1枚(=1チーム)をA4ページ群に分割して host に並べる
+      'function buildPages(tpl,host){',
+      'var plan=planTeam(tpl,host),groups=plan.groups;',
+      'for(var g=0;g<groups.length;g++){',
+      'var sheet=tpl.cloneNode(true),last=(g===groups.length-1);',
+      'var tb=sheet.querySelector(".sb-grid tbody");',
+      'if(tb){var trs=[].slice.call(tb.children);',
+      'for(var r=0;r<trs.length;r++)if(groups[g].indexOf(r)<0)tb.removeChild(trs[r]);}',
+      // 集計行・注記・個人成績の帯は最終ページのみ
+      'if(!last){',
+      'var ft=sheet.querySelector(".sb-grid tfoot");if(ft)ft.parentNode.removeChild(ft);',
+      'var ex=sheet.querySelectorAll(".sb-footnote,.sb-stats-band");',
+      'for(var x=0;x<ex.length;x++)ex[x].parentNode.removeChild(ex[x]);',
+      '}',
+      'var foot=sheet.querySelector(".sb-page-footer");',
+      'if(foot&&groups.length>1)foot.textContent=foot.textContent+" "+(g+1)+"/"+groups.length;',
+      'host.appendChild(sheet);',
+      'var c=sheet.querySelector(".sb-sheet-content");',
+      'if(c)applyScale(c,plan.k,sheet.clientWidth);',
+      '}',
+      '}',
+      'function paginate(){',
+      'var host=document.querySelector(".sb-page");if(!host)return;',
+      'initTemplates();',
+      'host.innerHTML="";',
+      'for(var i=0;i<templates.length;i++)buildPages(templates[i],host);',
+      '}',
+      // 保険: 1行が1ページより高い等でまだ溢れるページは、そのページだけさらに縮めて収める
+      'function fitSheets(){',
+      'var sheets=document.querySelectorAll(".sb-sheet");',
+      'for(var i=0;i<sheets.length;i++){',
+      'var s=sheets[i],c=s.querySelector(".sb-sheet-content");if(!c)continue;',
+      'var k=parseFloat(c.getAttribute("data-k"))||1,guard=0;',
+      'while(c.offsetHeight*k>s.clientHeight&&k>.3&&guard++<20){',
+      'k=Math.round((k-.04)*100)/100;applyScale(c,k,s.clientWidth);',
+      '}}}',
+      // 画面プレビューだけ、紙面(287mm)を画面幅に合わせて全体縮小する(印刷には効かない)
+      'function fitPreview(){',
+      'var page=document.querySelector(".sb-page");if(!page)return;',
+      'var sheet=document.querySelector(".sb-sheet");',
+      'var target=(sheet?sheet.offsetWidth:1085)+24;',
+      'var scale=Math.min(1,Math.max(.3,window.innerWidth/target));',
+      'document.documentElement.style.setProperty("--preview-scale",String(scale));',
+      'document.body.style.height=Math.ceil(page.scrollHeight*scale+24)+"px";',
+      '}',
+      'function layout(){paginate();fitSheets();fitPreview();}',
+      'window.__sbPrint=function(){layout();window.print();};',
+      // 紙面は mm 基準なので画面幅が変わっても組版は不変。リサイズ時は表示倍率だけ直す
+      'window.addEventListener("resize",fitPreview);',
+      'window.addEventListener("load",layout);',
+      'window.addEventListener("beforeprint",fitSheets);',
+      'if(document.fonts&&document.fonts.ready&&document.fonts.ready.then)document.fonts.ready.then(layout);',
+      'layout();',
+      '})();'
+    ].join('');
+    var previewScript = '<script>' + fitScript + '<' + '/script>';
     w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>' + esc(reportFileName) + '<\/title><style>' + style + '<\/style><\/head><body>' + closeBtn + body + previewScript + '<\/body><\/html>');
     w.document.close();
-    setTimeout(function () { w.print(); }, 800);
+    // 自動印刷の前に、フォント読み込み後のレイアウトで倍率を計算し直す
+    setTimeout(function () {
+      try {
+        if (typeof w.__sbPrint === 'function') w.__sbPrint();
+        else w.print();
+      } catch (e) { try { w.print(); } catch (e2) { /* 印刷ボタンから再実行できる */ } }
+    }, 800);
     return true;
   };
   } catch (e) { console.error('Pre-script error:', e); }

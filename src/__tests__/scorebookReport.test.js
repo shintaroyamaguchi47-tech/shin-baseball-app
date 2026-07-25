@@ -27,21 +27,40 @@ describe('スコアブックPDFのページ構成', () => {
     return html;
   };
 
-  // 個人成績は独立したページをやめ、各チームのスコアページ右側へ統合した
-  it('先攻・後攻の2シートにまとめ、個人成績はスコアページに同居させる', () => {
+  // 個人成績は独立したページをやめ、各チームのスコアページに同居させる
+  it('先攻・後攻の2シートにまとめ、個人成績はスコア表の下に横並びで載せる', () => {
     const html = render({ includeCharts: true, includeStats: true });
     expect((html.match(/<article class="sb-sheet /g) || []).length).toBe(2);
     expect(html).toContain('先攻スコア');
     expect(html).toContain('後攻スコア');
-    // 個人成績はスコア表の右側(aside)に入る
-    expect(html).toContain('<aside class="sb-score-side">');
+    // 打撃成績と投手成績は同じ帯(flex)の中に横並びで入る
+    expect(html).toContain('<div class="sb-stats-band">');
+    expect(html).toContain('.sb-stats-band{display:flex;');
     expect(html).toContain('打撃成績');
+    // 右側の細い縦列レイアウトは廃止
+    expect(html).not.toContain('sb-score-side');
+  });
+
+  // 画面プレビューと印刷を一致させるため、シートはA4横1ページ固定枠として組む
+  it('シートをA4横1ページ分の固定枠にし、中身を組版用のラッパーで包む', () => {
+    const html = render({ includeCharts: true, includeStats: true });
+    expect(html).toContain('width:287mm;height:199mm');
+    expect((html.match(/<div class="sb-sheet-content">/g) || []).length).toBe(2);
+    // 印刷側でシート寸法や段組みを組み替えない(=画面と同じものが出る)
+    expect(html).not.toMatch(/@media print\{[^}]*\.sb-sheet\{[^}]*width:auto/);
+  });
+
+  it('組版スクリプトのscriptタグが正しく閉じている', () => {
+    const html = render({ includeCharts: true, includeStats: true });
+    expect(html).not.toContain('<\\/script>');
+    expect(html).toContain('</script>');
+    expect(html).toContain('window.__sbPrint');
   });
 
   it('設定で図と個人成績ページを省略できる', () => {
     const html = render({ includeCharts: false, includeStats: false });
     expect((html.match(/<article class="sb-sheet /g) || []).length).toBe(2);
     expect(html).not.toContain('<th class="sb-hd-pa">');
-    expect(html).not.toContain('<aside class="sb-score-side">');
+    expect(html).not.toContain('<div class="sb-stats-band">');
   });
 });
