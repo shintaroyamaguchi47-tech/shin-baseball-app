@@ -7,7 +7,7 @@ import { buildPlayByPlayReport } from './playByPlay.js';
 import * as storage from './storage.js';
 import { asPlayerObj, findDuplicateNameIndices, mergeRosterPlayers, renamePlayersInGame, detectLineupRenames } from './teamUtils.js';
 import { renumberPitchNumbers, reassignPitchBatter } from './gameUtils.js';
-import { insertSubstitution, applySubstitutionToLineup, lineupSnapshotAt, findPitcherAt, buildSubstitutionEventText } from './substitutionUtils.js';
+import { insertSubstitution, applySubstitutionToLineup, lineupSnapshotAt, findPitcherAt, buildSubstitutionEventText, dropBenchEntry, STARTING_SLOTS } from './substitutionUtils.js';
 import AnalyticsHub from './components/AnalyticsHub.jsx';
 import { normalizeArchive } from './analyticsData.js';
 import { isScorerGdf, convertScorerGame } from './scorerImport.js';
@@ -717,7 +717,7 @@ import { buildScorebookData } from './scorebookData.js';
           setPitches(renumberPitchNumbers(res.records));
           // 現在のオーダーにまだ退いた選手が残っていれば(=以降に別の交代が無ければ)ここも差し替える
           const applied = applySubstitutionToLineup(lineups[team], { order, oldPlayer, newPlayer, shift });
-          if (applied.applied) setLineups(prev => ({ ...prev, [team]: applied.lineup }));
+          if (applied.applied) setLineups(prev => ({ ...prev, [team]: dropBenchEntry(applied.lineup, newPlayer.name) }));
           setShowSubstitutionModal(false);
           const changed = res.battingUpdated + res.pitchingUpdated;
           showToast(changed > 0 ? `${type}: ${newName} を挿入し、以降の記録${changed}件を書き換えました` : `${type}: ${newName} を挿入しました`);
@@ -729,7 +729,8 @@ import { buildScorebookData } from './scorebookData.js';
         currentLineup[targetIndex] = { ...oldPlayer, ...newPlayer };
         // ポジション移動がある場合（例: ショートがサードへ）
         if (shift) currentLineup[shift.order - 1] = { ...currentLineup[shift.order - 1], pos: shiftNewPos };
-        setLineups(prev => ({ ...prev, [team]: currentLineup }));
+        // 控え欄から出場した選手はオーダーに二重で並ばないよう控え欄から外す
+        setLineups(prev => ({ ...prev, [team]: dropBenchEntry(currentLineup, newPlayer.name) }));
 
         // イベントとして履歴に記録
         const eventText = buildSubstitutionEventText({ order, oldPos: oldPlayer.pos, oldName: oldPlayer.name, newPos, newName, type, shift });
@@ -1315,13 +1316,32 @@ import { buildScorebookData } from './scorebookData.js';
         if (!t || !t.players) return [];
         return t.players.map(pl => typeof pl === 'string' ? { name: pl, throws: '右', bats: '右' } : pl);
       };
-      const onLineupNameChange = (side, i, newName) => {
+      // dropBench: 控え欄にいる選手を先発オーダーへ入れたとき、控え欄の重複を外す
+      // (入力中に行が消えないよう、選手選択ポップアップからの確定時のみ true)
+      const onLineupNameChange = (side, i, newName, { dropBench = false } = {}) => {
         const roster = getRosterPlayers(side === 'top' ? gameInfo.teamTop : gameInfo.teamBottom);
         const match = roster.find(pl => pl.name === newName);
         const nl = [...lineups[side]];
         nl[i] = match ? { ...nl[i], name: newName, throws: match.throws || '右', bats: match.bats || '右' } : { ...nl[i], name: newName };
-        setLineups(prev => ({...prev, [side]: nl}));
+        setLineups(prev => ({...prev, [side]: dropBench && i < STARTING_SLOTS ? dropBenchEntry(nl, newName) : nl}));
       };
+
+      // 交代で入れる選手の候補: オーダーの控え欄 → 名簿で出場していない選手 → 出場中の選手 の順。
+      // 出場中でも選択自体はできる(記録の付け方はスコアラーの判断に任せる)。
+      const subCandidates = useMemo(() => {
+        const lineup = lineups[subData.team] || [];
+        const teamName = subData.team === 'top' ? gameInfo.teamTop : gameInfo.teamBottom;
+        const onField = new Set(lineup.slice(0, STARTING_SLOTS).map(p => p.name?.trim()).filter(n => n && !isPlaceholderName(n)));
+        const list = [];
+        const push = (name, throws, bats, fromBench) => {
+          const trimmed = (name || '').trim();
+          if (!trimmed || isPlaceholderName(trimmed) || list.some(c => c.name === trimmed)) return;
+          list.push({ name: trimmed, throws: throws || '右', bats: bats || '右', fromBench, onField: onField.has(trimmed) });
+        };
+        lineup.slice(STARTING_SLOTS).forEach(p => push(p.name, p.throws, p.bats, true));
+        getRosterPlayers(teamName).forEach(pl => push(pl.name, pl.throws, pl.bats, false));
+        return list.sort((a, b) => (a.onField ? 1 : 0) - (b.onField ? 1 : 0) || (b.fromBench ? 1 : 0) - (a.fromBench ? 1 : 0));
+      }, [lineups, subData.team, gameInfo.teamTop, gameInfo.teamBottom, registeredTeams]);
 
       const getPitchTypes = (throwsRight) => [
         { name: 'ストレート', icon: '↑', colorClass: 'border-rose-500 bg-rose-50 text-rose-700' },
@@ -2083,6 +2103,25 @@ import { buildScorebookData } from './scorebookData.js';
                     <datalist id="sub-roster-list">
                       {getRosterPlayers(subData.team === 'top' ? gameInfo.teamTop : gameInfo.teamBottom).map((pl, idx) => <option key={idx} value={pl.name} />)}
                     </datalist>
+                    {/* 控え選手・登録選手からワンタップで選ぶ(出場中の選手も選択できる) */}
+                    {subCandidates.length > 0 && (
+                      <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                        <div className="text-[10px] font-bold text-slate-400 mb-1.5">控え・登録選手から選ぶ</div>
+                        <div className="flex flex-wrap gap-1">
+                          {subCandidates.map(c => {
+                            const active = subData.newName === c.name;
+                            return (
+                              <button key={c.name} type="button" onClick={() => setSubData({...subData, newName: c.name, newThrows: c.throws, newBats: c.bats})}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-bold border flex items-center gap-1 ${active ? 'bg-blue-600 text-white border-blue-600' : c.onField ? 'bg-white border-slate-200 text-slate-400' : 'bg-white border-slate-300 text-slate-700 hover:border-slate-500'}`}>
+                                <span className="truncate max-w-[7rem]">{c.name}</span>
+                                {c.fromBench && <span className={`text-[9px] font-black rounded px-1 ${active ? 'bg-white/25 text-white' : 'bg-emerald-100 text-emerald-700'}`}>控</span>}
+                                {c.onField && <span className={`text-[9px] font-black rounded px-1 ${active ? 'bg-white/25 text-white' : 'bg-slate-200 text-slate-500'}`}>出場中</span>}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                     <div className="flex gap-1.5">
                       <input type="text" list="sub-roster-list" autoComplete="off" value={subData.newName} onChange={e => { const pl = getRosterPlayers(subData.team === 'top' ? gameInfo.teamTop : gameInfo.teamBottom).find(r => r.name === e.target.value); setSubData({...subData, newName: e.target.value, ...(pl ? {newThrows: pl.throws||'右', newBats: pl.bats||'右'} : {})}); }} placeholder="新しい選手名" className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm font-bold" />
                       {subData.newName && <button type="button" onClick={() => setSubData({...subData, newName: ''})} className="text-slate-300 hover:text-slate-500 font-bold text-sm px-2 border border-slate-300 rounded-lg bg-white">×</button>}
@@ -2273,7 +2312,9 @@ import { buildScorebookData } from './scorebookData.js';
             const teamName = side === 'top' ? gameInfo.teamTop : gameInfo.teamBottom;
             const roster = getRosterPlayers(teamName);
             const currentName = (lineups[side][playerPicker.index] || {}).name;
-            const usedNames = new Set(lineups[side].map(p => p.name).filter(n => n && n !== currentName));
+            // 「出場中」は先発オーダー(打順9人+控/投)に入っている選手のみ。
+            // 控え欄に登録しただけの選手は交代要員なので、そのまま選べるようにする
+            const usedNames = new Set(lineups[side].slice(0, STARTING_SLOTS).map(p => p.name).filter(n => n && n !== currentName));
             return (
               <div className="fixed inset-0 bg-slate-900/60 z-[400] flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setPlayerPicker(null)}>
                 <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xs max-h-[70vh] flex flex-col overflow-hidden border border-slate-200" onClick={e => e.stopPropagation()}>
@@ -2289,7 +2330,7 @@ import { buildScorebookData } from './scorebookData.js';
                     {roster.map((pl, idx) => {
                       const used = usedNames.has(pl.name);
                       return (
-                        <button key={idx} disabled={used} onClick={() => { onLineupNameChange(side, playerPicker.index, pl.name); setPlayerPicker(null); }} className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl border text-left ${used ? 'bg-slate-50 border-slate-100 text-slate-300' : pl.name === currentName ? 'bg-blue-50 border-blue-300 text-blue-800' : 'bg-white border-slate-200 text-slate-700 active:bg-blue-50'}`}>
+                        <button key={idx} disabled={used} onClick={() => { onLineupNameChange(side, playerPicker.index, pl.name, { dropBench: true }); setPlayerPicker(null); }} className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl border text-left ${used ? 'bg-slate-50 border-slate-100 text-slate-300' : pl.name === currentName ? 'bg-blue-50 border-blue-300 text-blue-800' : 'bg-white border-slate-200 text-slate-700 active:bg-blue-50'}`}>
                           <span className="text-xs font-black truncate">{pl.name}</span>
                           <span className="text-[9px] font-bold shrink-0 flex items-center gap-1.5">
                             <span className={used ? '' : 'text-slate-400'}>{pl.throws || '右'}投{pl.bats || '右'}打</span>

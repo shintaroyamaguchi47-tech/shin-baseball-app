@@ -4,6 +4,9 @@
 // 交代を後から挿入するときは「交代イベントの挿入」だけでなく
 // 「それ以降の記録の打者名・投手名の書き換え」もセットで行う必要がある。
 
+// 先発オーダーのスロット数(打順9人 + 控/投)。これ以降の要素はオーダー設定で足した控え選手。
+export const STARTING_SLOTS = 10;
+
 const PITCHER_POS = ['投', '1', '①'];
 
 export const isPitcherPos = (pos) => PITCHER_POS.includes(pos);
@@ -130,6 +133,16 @@ export function insertSubstitution(records, index, params) {
     battingUpdated,
     pitchingUpdated,
   };
+}
+
+// 控え欄から出場した選手を控え欄から取り除く。
+// オーダー設定に同じ選手が「先発スロット」と「控え」で二重に並ぶのを防ぐ。
+export function dropBenchEntry(lineup, name) {
+  const list = Array.isArray(lineup) ? lineup : [];
+  const target = (name || '').trim();
+  if (!target) return list;
+  const next = list.filter((p, i) => i < STARTING_SLOTS || (p?.name || '').trim() !== target);
+  return next.length === list.length ? list : next;
 }
 
 // さかのぼり交代を現在のオーダーにも反映する。

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  dropBenchEntry,
   buildSubstitutionEventText,
   findSlotPlayerAt,
   findPitcherAt,
@@ -192,6 +193,30 @@ describe('insertSubstitution', () => {
     expect(r.records[4].isEvent).toBe(true);
     expect(r.records[4].inning).toBe(5);
     expect(r.battingUpdated).toBe(0);
+  });
+});
+
+describe('dropBenchEntry', () => {
+  // 先発スロット10枠 + 控え2人のオーダー
+  const lineup = [
+    ...lineupOf(['A1', 'A2', 'A3', 'A4', 'A5', 'A6', 'A7', 'A8', 'A9', 'P1']),
+    { order: '控', name: '控太郎', pos: '控', throws: '右', bats: '右' },
+    { order: '控', name: '控次郎', pos: '控', throws: '右', bats: '右' },
+  ];
+
+  it('出場した控え選手を控え欄から外す', () => {
+    const next = dropBenchEntry(lineup, '控太郎');
+    expect(next).toHaveLength(11);
+    expect(next.slice(10).map((p) => p.name)).toEqual(['控次郎']);
+  });
+
+  it('先発スロットの選手は削除しない', () => {
+    expect(dropBenchEntry(lineup, 'A3')).toBe(lineup);
+  });
+
+  it('該当が無ければ同じ配列を返す', () => {
+    expect(dropBenchEntry(lineup, '無関係')).toBe(lineup);
+    expect(dropBenchEntry(lineup, '')).toBe(lineup);
   });
 });
 
