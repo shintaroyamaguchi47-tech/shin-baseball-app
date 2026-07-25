@@ -11,6 +11,7 @@ import AnalyticsHub from './components/AnalyticsHub.jsx';
 import { normalizeArchive } from './analyticsData.js';
 import { isScorerGdf, convertScorerGame } from './scorerImport.js';
 import { buildScorebookData } from './scorebookData.js';
+import { autoPositions, buildAdvanceChoices, buildAdvanceEvents, previewAdvanceResult, isAdjustableEventType, isEarnedAdvanceReason, describeRunners } from './runnerAdvance.js';
 
     function App() {
       const makeInitialGameState = () => ({ inning: 1, isTop: true, outs: 0, balls: 0, strikes: 0, batterTop: 1, batterBottom: 1, runners: { first: false, second: false, third: false }, runs: { top: [0,0,0,0,0,0,0,0,0], bottom: [0,0,0,0,0,0,0,0,0] }, earnedRuns: { top: [0,0,0,0,0,0,0,0,0], bottom: [0,0,0,0,0,0,0,0,0] } });
@@ -89,6 +90,37 @@ import { buildScorebookData } from './scorebookData.js';
         if (result.includes('犠飛')) return 'sac_fly';
         return 'out';
       };
+      // 走者イベント記録(「2塁走者 盗塁で3塁へ」「1塁走者が牽制死」など)1件を試合状況へ反映する。
+      // 記録の再構築(rebuildGameStateFromPitches)と、打席直後の進塁補正の両方から使う。
+      const applyRunnerEventToState = (prev, resultText) => {
+        const state = normalizeGameState(prev);
+        const res = resultText || '';
+        const runnerKey = res.startsWith('1塁走者') ? 'first' : res.startsWith('2塁走者') ? 'second' : res.startsWith('3塁走者') ? 'third' : null;
+        if (!runnerKey) return state;
+        if (res.includes('が')) {
+          let newOuts = state.outs + 1, newRunners = { ...state.runners, [runnerKey]: false }, newInning = state.inning, newIsTop = state.isTop;
+          if (newOuts >= 3) { newOuts = 0; newRunners = { first: false, second: false, third: false }; if (state.isTop) newIsTop = false; else { newIsTop = true; newInning++; } }
+          return normalizeGameState({ ...state, outs: newOuts, inning: newInning, isTop: newIsTop, runners: newRunners, balls: 0, strikes: 0 });
+        }
+        if (res.includes('で')) {
+          const newRunners = { ...state.runners, [runnerKey]: false };
+          const runs = { ...state.runs };
+          const earnedRuns = { ...state.earnedRuns };
+          if (res.includes('2塁へ')) newRunners.second = true;
+          else if (res.includes('3塁へ')) newRunners.third = true;
+          else if (res.includes('本塁へ')) {
+            const team = state.isTop ? 'top' : 'bottom';
+            const arr = ensureRunArray(runs[team], state.inning); arr[state.inning - 1] = (arr[state.inning - 1] || 0) + 1; runs[team] = arr;
+            // 打球・送球間での生還は自責点に数える(盗塁・暴投など従来の理由は据え置き)
+            const reason = (res.split(' ')[1] || '').split('で')[0];
+            if (isEarnedAdvanceReason(reason)) {
+              const er = ensureRunArray(earnedRuns[team], state.inning); er[state.inning - 1] = Math.min(arr[state.inning - 1], (er[state.inning - 1] || 0) + 1); earnedRuns[team] = er;
+            }
+          }
+          return normalizeGameState({ ...state, runners: newRunners, runs, earnedRuns });
+        }
+        return state;
+      };
       const rebuildGameStateFromPitches = (records) => {
         let state = makeInitialGameState();
         let lastAtBatKey = null;
@@ -101,19 +133,7 @@ import { buildScorebookData } from './scorebookData.js';
             lastAtBatKey = atBatKey;
           }
           if (p.isEvent) {
-            const runnerKey = p.result?.startsWith('1塁走者') ? 'first' : p.result?.startsWith('2塁走者') ? 'second' : p.result?.startsWith('3塁走者') ? 'third' : null;
-            if (runnerKey && p.result.includes('が')) {
-              let newOuts = state.outs + 1, newRunners = { ...state.runners, [runnerKey]: false }, newInning = state.inning, newIsTop = state.isTop;
-              if (newOuts >= 3) { newOuts = 0; newRunners = { first: false, second: false, third: false }; if (state.isTop) newIsTop = false; else { newIsTop = true; newInning++; } }
-              state = normalizeGameState({ ...state, outs: newOuts, inning: newInning, isTop: newIsTop, runners: newRunners, balls: 0, strikes: 0 });
-            } else if (runnerKey && p.result.includes('で')) {
-              const newRunners = { ...state.runners, [runnerKey]: false };
-              const runs = { ...state.runs };
-              if (p.result.includes('2塁へ')) newRunners.second = true;
-              else if (p.result.includes('3塁へ')) newRunners.third = true;
-              else if (p.result.includes('本塁へ')) { const team = state.isTop ? 'top' : 'bottom'; const arr = ensureRunArray(runs[team], state.inning); arr[state.inning - 1] = (arr[state.inning - 1] || 0) + 1; runs[team] = arr; }
-              state = normalizeGameState({ ...state, runners: newRunners, runs });
-            }
+            state = applyRunnerEventToState(state, p.result);
             return;
           }
           const res = p.result || '';
@@ -163,6 +183,9 @@ import { buildScorebookData } from './scorebookData.js';
       const [showErrorTypeSelect, setShowErrorTypeSelect] = useState(false);
       const [showAdvanceModal, setShowAdvanceModal] = useState(false);
       const [advanceData, setAdvanceData] = useState({ runner: '', reason: '', to: '', countAsPitch: null });
+      // 打席結果の直後に出す「走者はどこまで進んだか」の確認シート
+      const [advanceSheet, setAdvanceSheet] = useState(null);
+      const [askAdvanceAfterHit, setAskAdvanceAfterHit] = useState(() => loadStored('baseball_askAdvanceAfterHit_v1', true));
       const [showOutRunnerModal, setShowOutRunnerModal] = useState(false);
       const [showPickoffModal, setShowPickoffModal] = useState(false);
       const [showFurinigeModal, setShowFurinigeModal] = useState(false);
@@ -213,6 +236,7 @@ import { buildScorebookData } from './scorebookData.js';
       useEffect(() => { storage.setItem('baseball_lineups_v2', JSON.stringify(lineups)); }, [lineups]);
       useEffect(() => { storage.setItem('baseball_pitches_v2', JSON.stringify(pitches)); }, [pitches]);
       useEffect(() => { storage.setItem('baseball_pitchView_v2', JSON.stringify(pitchView)); }, [pitchView]);
+      useEffect(() => { storage.setItem('baseball_askAdvanceAfterHit_v1', JSON.stringify(askAdvanceAfterHit)); }, [askAdvanceAfterHit]);
       useEffect(() => { storage.setItem('baseball_savedGames_v2', JSON.stringify(savedGames)); }, [savedGames]);
       useEffect(() => { storage.setItem('baseball_registeredTeams_v2', JSON.stringify(registeredTeams)); }, [registeredTeams]);
 
@@ -604,8 +628,69 @@ import { buildScorebookData } from './scorebookData.js';
         });
         let eventType = 'out';
         if (typeLabel.includes('本塁打')) eventType = 'homerun'; else if (typeLabel.includes('三塁打')) eventType = 'triple'; else if (typeLabel.includes('二塁打')) eventType = 'double'; else if (typeLabel.includes('安')) eventType = 'single'; else if (['エラー','敵失(エラー)','野手選択'].includes(typeLabel) || typeLabel.includes('エラー')) eventType = 'error'; else if (typeLabel === '犠打') eventType = 'sac_bunt'; else if (typeLabel === '犠飛') eventType = 'sac_fly';
+        // 走者がいる打席で打者が出塁したときは、自動進塁のままでよいかを確認する
+        // (1死2塁の単打が必ず1・3塁になってしまうのを防ぐ)
+        const hasRunner = gameState.runners.first || gameState.runners.second || gameState.runners.third;
+        if (askAdvanceAfterHit && hasRunner && isAdjustableEventType(eventType) && gameState.outs + outCount < 3) {
+          openAdvanceSheet(eventType, outCount, `${selectedPosition}${typeLabel}`);
+          setShowInPlayResult(false); setSelectedPosition(null); setSelectedHitCoord(null); setShowErrorTypeSelect(false);
+          return;
+        }
         handleAdvanceAndNextBatter(eventType, outCount);
         setSelectedHitCoord(null);
+      };
+
+      // ---- 打席直後の進塁確認シート ----
+      const openAdvanceSheet = (eventType, addedOuts, resultText) => {
+        const runnersBefore = { ...gameState.runners };
+        setAdvanceSheet({
+          eventType, addedOuts, resultText, runnersBefore,
+          outsBefore: gameState.outs,
+          batter: gameState.isTop ? gameState.batterTop : gameState.batterBottom,
+          plan: autoPositions(runnersBefore, eventType),
+        });
+      };
+
+      // 進塁シートの内容を記録に反映する。
+      // データ構造は増やさず、既存の走者イベント記録として書き出すことで
+      // 記録の再構築・速報・スコアブックのすべてに反映される。
+      const applyAdvanceSheet = (planOverride = null) => {
+        if (!advanceSheet) return;
+        const { eventType, addedOuts, runnersBefore, batter } = advanceSheet;
+        const plan = planOverride || advanceSheet.plan;
+        const { pre, post } = buildAdvanceEvents(runnersBefore, eventType, plan);
+        const inning = gameState.inning, isTop = gameState.isTop;
+        const pitcherObj = lineups[isTop ? 'bottom' : 'top'].find(p => p.pos === '投' || p.pos === '1' || p.pos === '①') || { name: '投手未設定', throws: '右' };
+        // イベント記録の打順は、記録の再構築(rebuildGameStateFromPitches)が
+        // 打順を巻き戻さないよう、その記録の時点で打席に立っている打者に合わせる。
+        // 打席結果の前に差し込む記録はこの打者、後ろに続く記録は次の打者。
+        const mkEvent = (result, batterNum, runners, outs) => {
+          const b = lineups[isTop ? 'top' : 'bottom'][batterNum - 1] || { name: '打者未設定', bats: '右' };
+          return {
+            course: null, type: '-', result, inning, isTop, batter: batterNum, pitchNumber: '-',
+            pitcherName: pitcherObj.name, pitcherThrows: pitcherObj.throws,
+            batterName: b.name, batterBats: b.bats,
+            isEvent: true, runners: { ...runners }, outs
+          };
+        };
+
+        // 状況を1件ずつ進めながら、各イベント記録にその時点の塁状況・アウト数を持たせる
+        let st = normalizeGameState(gameState);
+        const preRecords = pre.map(text => { const rec = mkEvent(text, batter, st.runners, st.outs); st = applyRunnerEventToState(st, text); return rec; });
+        st = advanceGameState(st, eventType, addedOuts);
+        const nextBatter = isTop ? st.batterTop : st.batterBottom;
+        const postRecords = post.map(text => { const rec = mkEvent(text, nextBatter, st.runners, st.outs); st = applyRunnerEventToState(st, text); return rec; });
+
+        if (preRecords.length > 0 || postRecords.length > 0) {
+          setPitches(prev => {
+            const arr = [...prev];
+            // 事前イベント(自動進塁だと生還してしまう走者のアウト)は打席結果の直前へ差し込む
+            arr.splice(Math.max(0, arr.length - 1), 0, ...preRecords);
+            return [...arr, ...postRecords];
+          });
+        }
+        setGameState(st);
+        setAdvanceSheet(null);
       };
 
       const handleAdvanceRecord = () => {
@@ -2610,13 +2695,85 @@ import { buildScorebookData } from './scorebookData.js';
                     </div>
                   </div>
                 </div>
-                <div className="p-4 border-t border-slate-200 flex gap-3 bg-slate-50">
-                  <button onClick={() => { setShowAdvanceModal(false); setAdvanceData({ runner: '', reason: '', to: '', countAsPitch: null }); }} className="flex-1 bg-slate-100 text-slate-700 py-3 rounded-xl font-bold">キャンセル</button>
-                  <button onClick={handleAdvanceRecord} className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-black shadow-md active:scale-95">記録する</button>
+                <div className="border-t border-slate-200 bg-slate-50">
+                  <div className="p-4 flex gap-3">
+                    <button onClick={() => { setShowAdvanceModal(false); setAdvanceData({ runner: '', reason: '', to: '', countAsPitch: null }); }} className="flex-1 bg-slate-100 text-slate-700 py-3 rounded-xl font-bold">キャンセル</button>
+                    <button onClick={handleAdvanceRecord} className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-black shadow-md active:scale-95">記録する</button>
+                  </div>
+                  <label className="flex items-center justify-center gap-2 pb-3 text-[11px] font-bold text-slate-500 cursor-pointer">
+                    <input type="checkbox" checked={askAdvanceAfterHit} onChange={e => setAskAdvanceAfterHit(e.target.checked)} className="w-3.5 h-3.5" />
+                    安打・出塁のあとに「走者はどこまで進んだ？」を出す
+                  </label>
                 </div>
               </div>
             </div>
           )}
+
+          {/* ============================================================ */}
+          {/* ==== MODAL 6b: ADVANCE SHEET (打席直後の進塁確認) ========== */}
+          {/* ============================================================ */}
+          {advanceSheet && (() => {
+            const outsAfterPlay = advanceSheet.outsBefore + advanceSheet.addedOuts;
+            const rows = buildAdvanceChoices(advanceSheet.runnersBefore, advanceSheet.eventType, outsAfterPlay);
+            const auto = autoPositions(advanceSheet.runnersBefore, advanceSheet.eventType);
+            const preview = previewAdvanceResult(advanceSheet.runnersBefore, advanceSheet.eventType, advanceSheet.plan, outsAfterPlay);
+            const isAuto = rows.every(r => advanceSheet.plan[r.id] === r.autoPos);
+            const setPlan = (id, value) => setAdvanceSheet(prev => ({ ...prev, plan: { ...prev.plan, [id]: value } }));
+            return (
+              <div className="fixed inset-0 bg-slate-900/70 z-[310] flex items-center justify-center p-4 backdrop-blur-sm">
+                <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[92vh] border border-slate-200">
+                  <div className="p-4 border-b border-emerald-200 bg-emerald-50">
+                    <h2 className="text-lg font-black text-emerald-800">🏃 走者はどこまで進んだ？</h2>
+                    <p className="text-[11px] font-bold text-emerald-700/80 mt-1">
+                      <span className="bg-white px-2 py-0.5 rounded border border-emerald-200 mr-1.5">{advanceSheet.resultText}</span>
+                      打席前: {advanceSheet.outsBefore}アウト {describeRunners(advanceSheet.runnersBefore)}
+                    </p>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-4 space-y-3 modal-scroll">
+                    {rows.map(row => (
+                      <div key={row.id} className="bg-slate-50 rounded-2xl border border-slate-200 p-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-black text-slate-700">{row.label}</span>
+                          {advanceSheet.plan[row.id] !== row.autoPos && (
+                            <button onClick={() => setPlan(row.id, row.autoPos)} className="text-[10px] text-slate-400 underline font-bold">自動に戻す</button>
+                          )}
+                        </div>
+                        <div className="flex gap-2 flex-wrap">
+                          {row.choices.map(c => {
+                            const selected = advanceSheet.plan[row.id] === c.value;
+                            const isOut = c.value === 'out';
+                            return (
+                              <button key={String(c.value)} onClick={() => setPlan(row.id, c.value)}
+                                className={`flex-1 min-w-[64px] py-2.5 rounded-xl font-bold text-xs border-2 active:scale-95 ${selected ? (isOut ? 'bg-rose-600 text-white border-rose-600 shadow-md' : 'bg-emerald-600 text-white border-emerald-600 shadow-md') : 'bg-white text-slate-600 border-slate-300'}`}>
+                                {c.label}{c.value === row.autoPos && <span className={`ml-1 text-[9px] ${selected ? 'text-white/70' : 'text-slate-400'}`}>自動</span>}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                    <div className="bg-blue-50 rounded-2xl border border-blue-200 p-3 text-center">
+                      <div className="text-[10px] font-bold text-blue-500 mb-1">この打席のあと</div>
+                      <div className="text-base font-black text-blue-800">
+                        {preview.outs}アウト {describeRunners(preview.runners)}
+                        {preview.runs > 0 && <span className="ml-2 text-rose-600">{preview.runs}点</span>}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="border-t border-slate-200 bg-slate-50">
+                    <div className="p-4 flex gap-3">
+                      <button onClick={() => applyAdvanceSheet(auto)} className="flex-1 bg-white border border-slate-300 text-slate-700 py-3 rounded-xl font-bold text-sm active:scale-95">自動進塁のまま</button>
+                      <button onClick={() => applyAdvanceSheet()} className={`flex-[1.4] py-3 rounded-xl font-black shadow-md active:scale-95 ${isAuto ? 'bg-slate-600 text-white' : 'bg-emerald-600 text-white'}`}>記録する</button>
+                    </div>
+                    <label className="flex items-center justify-center gap-2 pb-3 text-[11px] font-bold text-slate-500 cursor-pointer">
+                      <input type="checkbox" checked={askAdvanceAfterHit} onChange={e => setAskAdvanceAfterHit(e.target.checked)} className="w-3.5 h-3.5" />
+                      出塁した打席のあと、毎回この確認を出す
+                    </label>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* ============================================================ */}
           {/* ============= MODAL 7: OUT RUNNER (走者アウト) ============= */}
