@@ -15,8 +15,9 @@
       if(label){h+='<div style="font-size:9px;font-weight:bold;color:'+clrHex+';margin-bottom:2px;">'+esc(label)+'</div>';}
       h+='<svg width="'+sz+'" height="'+sz+'" viewBox="0 0 '+sz+' '+sz+'" style="background:#f8fafc;border:1px solid #cbd5e1;border-radius:4px;box-shadow:inset 0 2px 4px rgba(0,0,0,0.05);">';
       h+='<rect x="'+(cs*2)+'" y="'+(cs*2)+'" width="'+(cs*3)+'" height="'+(cs*3)+'" fill="none" stroke="#64748b" stroke-width="1.5"/>';
-      var fnt=cs>=10?9:8;
-      for(var i=0;i<GS*GS;i++){var row=Math.floor(i/GS),col=i%GS,v=d[i]||0;if(v>0){var op=mx>0?(v/mx)*0.85:0;var fill=color==='red'?'rgba(239,68,68,'+op+')':color==='indigo'?'rgba(139,92,246,'+op+')':'rgba(59,130,246,'+op+')';h+='<rect x="'+(col*cs)+'" y="'+(row*cs)+'" width="'+cs+'" height="'+cs+'" fill="'+fill+'"/>';h+='<text x="'+(col*cs+cs/2)+'" y="'+(row*cs+cs/2+3)+'" text-anchor="middle" fill="'+(op>0.5?'#fff':'#334155')+'" font-size="'+fnt+'" font-family="monospace" font-weight="bold">'+v+'</text>';}}
+      // マス目に合わせて数字を拡大(図を大きくしたときに読めるように)
+      var fnt=Math.max(8, Math.min(13, Math.round(cs*0.72)));
+      for(var i=0;i<GS*GS;i++){var row=Math.floor(i/GS),col=i%GS,v=d[i]||0;if(v>0){var op=mx>0?(v/mx)*0.85:0;var fill=color==='red'?'rgba(239,68,68,'+op+')':color==='indigo'?'rgba(139,92,246,'+op+')':'rgba(59,130,246,'+op+')';h+='<rect x="'+(col*cs)+'" y="'+(row*cs)+'" width="'+cs+'" height="'+cs+'" fill="'+fill+'"/>';h+='<text x="'+(col*cs+cs/2)+'" y="'+(row*cs+cs/2+fnt*0.36)+'" text-anchor="middle" fill="'+(op>0.5?'#fff':'#334155')+'" font-size="'+fnt+'" font-family="monospace" font-weight="bold">'+v+'</text>';}}
       h+='</svg></div>';return h;
     }
     function formatResultTagsHtml(results) {
@@ -69,39 +70,40 @@
       var players = (batting.players || []).filter(function(p){ return p.PA > 0; });
       if (players.length === 0) return '';
       var colors = { 'ストレート':'#ef4444', 'スライダー':'#3b82f6', 'シュート':'#10b981', 'カーブ':'#f59e0b', '落ちる球':'#6366f1', 'シンカー':'#06b6d4' };
+      // 打者詳細は同じチームの打者成績の続きに流す(改ページしない)
       var h='<section class="report-section"><div class="report-heading" style="margin:0 0 4px;font-size:14px;font-weight:bold;color:#1e293b;border-bottom:2px solid #e2e8f0;padding-bottom:3px;break-after:avoid;page-break-after:avoid;">打者詳細: '+esc(teamName)+' <span style="font-size:9px;font-weight:normal;color:#64748b;">(打球方向・打席内容)</span></div>';
-      h+='<div style="display:flex;flex-wrap:wrap;gap:6px 12px;margin-bottom:5px;font-size:8px;color:#64748b;align-items:center;">';
-      Object.entries(colors).forEach(function(e){ h+='<span style="white-space:nowrap;"><span style="display:inline-block;width:7px;height:7px;background:'+e[1]+';border-radius:50%;margin-right:2px;"></span>'+esc(e[0])+'</span>'; });
-      h+='<span>○=ボール ●=ストライク系 数字=投球順 点線=最終球</span></div>';
-      // flexの大箱はChrome印刷でページ分割されないため、2人ずつの行に分けて行単位で分割禁止にする
+      h+='<div style="display:flex;flex-wrap:wrap;gap:4px 12px;margin-bottom:6px;font-size:9px;color:#64748b;align-items:center;">';
+      Object.entries(colors).forEach(function(e){ h+='<span style="white-space:nowrap;"><span style="display:inline-block;width:8px;height:8px;background:'+e[1]+';border-radius:50%;margin-right:3px;"></span>'+esc(e[0])+'</span>'; });
+      ['○=ボール','●=ストライク系','数字=投球順','点線=最終球'].forEach(function(t){ h+='<span style="white-space:nowrap;">'+esc(t)+'</span>'; });
+      h+='</div>';
+      // 配球図を大きく取るため1人1行を基本にしつつ、2打席以下の選手は半分の幅にして横に並べ、
+      // ページ内の余白を減らす。カード単位で分割禁止にし、ページをまたがないようにする
       function batterCard(p){
-        var c='<div class="bdc" style="flex:1;min-width:0;background:#ffffff;border:1px solid #cbd5e1;border-radius:6px;padding:5px 6px;box-sizing:border-box;">';
-        c+='<div style="font-size:10px;font-weight:bold;border-bottom:1px solid #e2e8f0;padding-bottom:2px;margin-bottom:4px;">'+p.order+'番 '+esc(p.name)
-          +' <span style="font-size:9px;color:#0ea5e9;">AVG:'+p.AVG+' OPS:'+p.OPS+'</span>'
-          +' <span style="font-size:8px;color:#64748b;font-weight:normal;">'+p.AB+'打数'+p.H+'安打 四死'+p.BB_HBP+' K'+p.K+'</span></div>';
-        c+='<div style="display:flex;flex-wrap:wrap;gap:3px;align-items:flex-start;">';
+        var wide=(p.atBats||[]).length>2;
+        var c='<div class="bdc" style="'+(wide?'width:100%;':'flex:1 1 calc(50% - 4px);min-width:320px;')+'background:#ffffff;border:1px solid #cbd5e1;border-radius:6px;padding:6px 8px;box-sizing:border-box;">';
+        c+='<div style="font-size:11px;font-weight:bold;border-bottom:1px solid #e2e8f0;padding-bottom:3px;margin-bottom:5px;line-height:1.5;">'
+          +'<span style="white-space:nowrap;">'+p.order+'番 '+esc(p.name)+'</span>'
+          +' <span style="font-size:10px;color:#0ea5e9;white-space:nowrap;">AVG:'+p.AVG+' OPS:'+p.OPS+'</span>'
+          +' <span style="font-size:9px;color:#64748b;font-weight:normal;white-space:nowrap;">'+p.AB+'打数'+p.H+'安打</span>'
+          +' <span style="font-size:9px;color:#64748b;font-weight:normal;white-space:nowrap;">四死'+p.BB_HBP+' K'+p.K+'</span></div>';
+        c+='<div style="display:flex;flex-wrap:wrap;gap:6px 8px;align-items:flex-start;">';
         (p.atBats || []).forEach(function(ab){
           var rl=atBatResultLabel(ab.result);
-          c+='<div style="width:120px;text-align:center;">';
-          c+='<div style="font-size:7px;color:#64748b;font-weight:bold;">'+ab.inning+'回'+(ab.isTop?'表':'裏')+'</div>';
-          c+='<div style="display:flex;gap:3px;justify-content:center;align-items:flex-start;">';
-          c+='<div><div style="font-size:6px;color:#94a3b8;font-weight:bold;">配球</div><div style="border:1px solid #e2e8f0;border-radius:4px;overflow:hidden;background:#fff;display:inline-block;">'+atBatZoneSvg(ab.pitches, 8)+'</div></div>';
-          c+='<div><div style="font-size:6px;color:#94a3b8;font-weight:bold;">打球方向</div>'+sprayChartSvg(ab.sprayHit?[ab.sprayHit]:[],'',56,'打球なし')+'</div>';
+          c+='<div style="width:152px;text-align:center;">';
+          c+='<div style="font-size:9px;color:#64748b;font-weight:bold;white-space:nowrap;margin-bottom:1px;">'+ab.inning+'回'+(ab.isTop?'表':'裏')+'</div>';
+          c+='<div style="display:flex;gap:4px;justify-content:center;align-items:flex-start;">';
+          c+='<div><div style="font-size:8px;color:#94a3b8;font-weight:bold;">配球</div><div style="border:1px solid #e2e8f0;border-radius:4px;overflow:hidden;background:#fff;display:inline-block;">'+atBatZoneSvg(ab.pitches, 13)+'</div></div>';
+          c+='<div><div style="font-size:8px;color:#94a3b8;font-weight:bold;">打球方向</div>'+sprayChartSvg(ab.sprayHit?[ab.sprayHit]:[],'',56,'なし')+'</div>';
           c+='</div>';
-          c+='<div style="font-size:7px;font-weight:bold;line-height:1.2;color:'+rl.color+';word-break:break-all;">'+esc(rl.text)+'</div>';
+          c+='<div style="font-size:9px;font-weight:bold;line-height:1.3;color:'+rl.color+';word-break:keep-all;line-break:strict;">'+esc(rl.text)+'</div>';
           c+='</div>';
         });
         c+='</div></div>';
         return c;
       }
-      for (var ri=0; ri<players.length; ri+=2) {
-        var row = players.slice(ri, ri+2);
-        h+='<div style="display:flex;gap:5px;margin-bottom:5px;break-inside:avoid;page-break-inside:avoid;align-items:stretch;">';
-        row.forEach(function(p){ h+=batterCard(p); });
-        for (var pad=row.length; pad<2; pad++) h+='<div style="flex:1;min-width:0;"></div>';
-        h+='</div>';
-      }
-      h+='</section>';
+      h+='<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:flex-start;">';
+      players.forEach(function(p){ h+=batterCard(p); });
+      h+='</div></section>';
       return h;
     }
     function atBatZoneSvg(abPitches, cellSize) {
@@ -118,18 +120,20 @@
         var row=Math.floor(idx/7), col=idx%7, isZone=row>=2&&row<=4&&col>=2&&col<=4;
         h+='<rect x="'+(col*cs)+'" y="'+(row*cs)+'" width="'+(cs-0.5)+'" height="'+(cs-0.5)+'" fill="'+(isZone?'#f0f9ff':'#f8fafc')+'" stroke="'+(isZone?'#bae6fd':'#e2e8f0')+'" stroke-width="0.4"/>';
       }
-      h+='<rect x="'+(2*cs)+'" y="'+(2*cs)+'" width="'+(3*cs)+'" height="'+(3*cs)+'" fill="none" stroke="#475569" stroke-width="1.4" rx="0.5"/>';
+      h+='<rect x="'+(2*cs)+'" y="'+(2*cs)+'" width="'+(3*cs)+'" height="'+(3*cs)+'" fill="none" stroke="#475569" stroke-width="'+(cs>=12?2:1.4)+'" rx="0.5"/>';
+      // 図を大きくした分、マーカーと投球順の数字もマス目に合わせて拡大する
+      var mkFnt=Math.max(5, Math.round(cs*0.62));
       Object.entries(byPos).forEach(function(entry) {
         var cIdx=parseInt(entry[0],10), ps=entry[1], row=Math.floor(cIdx/7), col=cIdx%7;
         if (!Number.isFinite(cIdx)) return;
-        var baseCx=col*cs+cs/2, baseCy=row*cs+cs/2, r=cs/2-1.2;
+        var baseCx=col*cs+cs/2, baseCy=row*cs+cs/2, r=cs/2-(cs>=12?1.8:1.2);
         ps.forEach(function(p, pIdx) {
           var angle=ps.length>1?(pIdx/ps.length)*Math.PI*2-Math.PI/2:0, dist=ps.length>1?r*0.55:0;
           var cx=baseCx+Math.cos(angle)*dist, cy=baseCy+Math.sin(angle)*dist;
           var color=ptColors[p.type] || '#94a3b8', isBall=['ボール','ウエスト'].includes(p.result), isLast=p.seq===(abPitches||[]).length;
-          if (isLast) h+='<circle cx="'+cx+'" cy="'+cy+'" r="'+(r+2)+'" fill="none" stroke="'+color+'" stroke-width="1.3" stroke-dasharray="2 1" opacity="0.7"/>';
-          h+='<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="'+(isBall?'white':color)+'" stroke="'+color+'" stroke-width="'+(isBall?1.2:0)+'" opacity="0.92"/>';
-          h+='<text x="'+cx+'" y="'+(cy+2.2)+'" text-anchor="middle" font-size="5" font-weight="900" fill="'+(isBall?color:'white')+'">'+p.seq+'</text>';
+          if (isLast) h+='<circle cx="'+cx+'" cy="'+cy+'" r="'+(r+cs*0.2)+'" fill="none" stroke="'+color+'" stroke-width="'+(cs>=12?1.8:1.3)+'" stroke-dasharray="'+(cs>=12?'3 1.5':'2 1')+'" opacity="0.7"/>';
+          h+='<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="'+(isBall?'white':color)+'" stroke="'+color+'" stroke-width="'+(isBall?(cs>=12?1.6:1.2):0)+'" opacity="0.92"/>';
+          h+='<text x="'+cx+'" y="'+(cy+mkFnt*0.36)+'" text-anchor="middle" font-size="'+mkFnt+'" font-weight="900" fill="'+(isBall?color:'white')+'">'+p.seq+'</text>';
         });
       });
       h+='</svg>';
@@ -152,7 +156,7 @@
         if(d.total>0){
             Object.entries(d.types).sort(function(a,b){return b[1]-a[1];}).forEach(function(e){
                 var pct=Math.round((e[1]/d.total)*100);
-                h+='<div style="margin:2px 0;font-size:8px;"><div style="overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:#334155;">'+esc(e[0])+'</div><div style="display:flex;align-items:center;gap:2px;"><div style="flex:1;height:4px;background:#e2e8f0;border-radius:2px;"><div style="width:'+pct+'%;height:100%;background:#3b82f6;border-radius:2px;"></div></div><span style="flex-shrink:0;font-size:7px;color:#475569;">'+pct+'%</span></div></div>';
+                h+='<div style="margin:2px 0;font-size:8px;"><div style="color:#334155;line-height:1.3;word-break:keep-all;line-break:strict;">'+esc(e[0])+'</div><div style="display:flex;align-items:center;gap:2px;"><div style="flex:1;height:4px;background:#e2e8f0;border-radius:2px;"><div style="width:'+pct+'%;height:100%;background:#3b82f6;border-radius:2px;"></div></div><span style="flex-shrink:0;font-size:7px;color:#475569;">'+pct+'%</span></div></div>';
             });
         }else{h+='<div style="text-align:center;font-size:9px;color:#94a3b8;">-</div>';}
         h+='</div>';
@@ -163,14 +167,14 @@
       var h='';
       pitching.pitchers.forEach(function(p, idx){
         // 各チームの投手詳細の先頭はページ頭から始める
-        h+='<section class="report-section pitcher-section'+(idx===0?' page-break':'')+'">';
+        h+='<section class="report-section pitcher-section page-break">';
         h+='<div style="font-size:11px;font-weight:bold;color:#64748b;margin-bottom:4px;break-after:avoid;page-break-after:avoid;">投手詳細: '+esc(teamName)+'</div>';
         h+='<div style="font-size:19px;font-weight:bold;margin-bottom:8px;border-bottom:2px solid #f1f5f9;padding-bottom:6px;break-after:avoid;page-break-after:avoid;">'+esc(p.name)+' <span style="font-size:13px;color:#64748b;font-weight:normal;">('+p.total+'球)</span></div>';
         h+='<div style="display:flex;gap:8px;margin-bottom:8px;break-inside:avoid;page-break-inside:avoid;">';
         h+='<div style="flex:1;background:#f8fafc;padding:6px 10px;border-radius:7px;text-align:center;"><div style="font-size:10px;color:#64748b;">CSW%</div><div style="font-size:22px;font-weight:bold;color:#d97706;">'+p.csw+'%</div></div>';
         h+='<div style="flex:1;background:#f8fafc;padding:6px 10px;border-radius:7px;text-align:center;"><div style="font-size:10px;color:#64748b;">Whiff%</div><div style="font-size:22px;font-weight:bold;color:#ef4444;">'+p.whiff+'%</div></div>';
         h+='<div style="flex:1;background:#f8fafc;padding:6px 10px;border-radius:7px;text-align:center;"><div style="font-size:10px;color:#64748b;">初球S率</div><div style="font-size:22px;font-weight:bold;color:#0ea5e9;">'+p.fStrikePct+'%</div></div>';
-        h+='</section>';
+        h+='</div>';
         // スプリット表 + カウント別配球を横並び
         h+='<div style="display:flex;gap:8px;margin-bottom:8px;break-inside:avoid;page-break-inside:avoid;">';
         // スプリット表（左）
@@ -214,10 +218,11 @@
         h+='<div style="font-size:11px;font-weight:bold;margin-bottom:6px;color:#475569;">球種別ヒートマップ</div>';
         var sortedTypedHm = Object.entries(p.pitchTypeHeatmaps||{}).sort(function(a,b){var ta=0,tb=0;Object.values(a[1].all||{}).forEach(function(v){ta+=v;});Object.values(b[1].all||{}).forEach(function(v){tb+=v;});return tb-ta;}).filter(function(e){var cnt=0;Object.values(e[1].all||{}).forEach(function(v){cnt+=v;});return cnt>0;});
         if(sortedTypedHm.length > 0) {
-          var hmSz=62;
+          var hmSz=92;
           var hmCols=['all','ahead','even','behind'];
           var hmColLabels=['全体','有利','平行','不利'];
-          h+='<table style="border-collapse:collapse;width:100%;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;">';
+          // 表全体を1ページに収めようとすると大きな余白ができるため、行単位で分割できるようにする
+          h+='<table style="border-collapse:collapse;width:100%;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;break-inside:auto;page-break-inside:auto;">';
           h+='<thead><tr style="background:#f1f5f9;border-bottom:1px solid #e2e8f0;">';
           h+='<th style="padding:5px 8px;font-size:9px;font-weight:bold;color:#94a3b8;text-align:left;min-width:72px;"></th>';
           hmColLabels.forEach(function(lbl){h+='<th style="padding:5px 8px;font-size:10px;font-weight:bold;color:#475569;text-align:center;">'+lbl+'</th>';});
@@ -242,7 +247,7 @@
           });
           h+='</tbody></table>';
         }
-        h+='</div>';
+        h+='</section>';
       });
       return h;
     }
@@ -261,8 +266,12 @@
       }
       function segTxt(label,segs,total){
         if(!total) return '<div style="font-size:10px;margin:2px 0;color:#94a3b8;">'+label+': データなし</div>';
-        var parts=segs.map(function(s){var p=total>0?Math.round(s.v/total*1000)/10:0;return '<span style="color:'+s.c+';font-weight:bold;">'+s.label+' '+p+'%</span>';}).join(' / ');
-        return '<div style="font-size:10px;margin:2px 0;"><span style="color:#475569;font-weight:bold;">'+label+':</span> '+parts+' <span style="color:#94a3b8;">(n='+total+')</span></div>';
+        // 「ゴロ 53.3%」のような項目が途中で改行されないよう、項目ごとに折り返しを禁止する
+        var parts=segs.map(function(s){var p=total>0?Math.round(s.v/total*1000)/10:0;return '<span style="color:'+s.c+';font-weight:bold;white-space:nowrap;">'+s.label+' '+p+'%</span>';}).join('<span style="color:#cbd5e1;">/</span>');
+        // 折り返しても項目が縦に揃うようにflexで並べる
+        return '<div style="display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 6px;font-size:10px;margin:4px 0;line-height:1.5;">'
+          +'<span style="color:#475569;font-weight:bold;white-space:nowrap;">'+label+':</span>'
+          +'<span style="display:flex;flex-wrap:wrap;gap:2px 5px;align-items:baseline;">'+parts+'<span style="color:#94a3b8;white-space:nowrap;">(n='+total+')</span></span></div>';
       }
       function perTypeTable(perType){
         if(!perType||!perType.items.length) return '<span style="color:#94a3b8;font-size:10px;">データなし</span>';
@@ -286,7 +295,7 @@
         var pN=tm.pitching.situational.none.pd, pR=tm.pitching.situational.risp.pd;
         function tbl(title,color,n,r,rows){
           var h='<div style="flex:1;min-width:220px;"><div style="font-size:10px;font-weight:bold;color:'+color+';margin-bottom:3px;">'+title+'</div>';
-          h+='<table style="width:100%;border-collapse:collapse;font-size:10px;"><thead><tr style="background:#f1f5f9;color:#94a3b8;"><th style="padding:2px 6px;text-align:left;"></th><th style="padding:2px 6px;text-align:right;">走者なし('+n.pitches+')</th><th style="padding:2px 6px;text-align:right;">得点圏('+r.pitches+')</th></tr></thead><tbody>';
+          h+='<table style="width:100%;border-collapse:collapse;font-size:10px;"><thead><tr style="background:#f1f5f9;color:#94a3b8;"><th style="padding:2px 6px;text-align:left;"></th><th style="padding:2px 6px;text-align:right;white-space:nowrap;">走者なし('+n.pitches+')</th><th style="padding:2px 6px;text-align:right;white-space:nowrap;">得点圏('+r.pitches+')</th></tr></thead><tbody>';
           rows.forEach(function(rw){h+='<tr style="border-bottom:1px solid #eef2f7;"><td style="padding:2px 6px;font-weight:bold;color:#475569;background:#f8fafc;">'+rw[0]+'</td><td style="padding:2px 6px;text-align:right;">'+pf(rw[1])+'</td><td style="padding:2px 6px;text-align:right;font-weight:bold;color:#1e293b;">'+pf(rw[2])+'</td></tr>';});
           h+='</tbody></table></div>';return h;
         }
@@ -295,9 +304,9 @@
         h+=tbl('投手：走者なし vs 得点圏','#e11d48',pN,pR,[['Zone%',pN.zonePct,pR.zonePct],['CSW%',pN.cswPct,pR.cswPct],['誘い率',pN.chasePct,pR.chasePct]]);
         h+='</div>';return h;
       }
-      function teamBlock(tm, breakBefore){
+      function teamBlock(tm, note){
         var bp=tm.batting.pd, pp=tm.pitching.pd, bb=tm.batting.battedBall;
-        var h='<section class="report-section'+(breakBefore?' page-break':'')+'"><div class="report-heading" style="font-size:15px;font-weight:bold;color:#1e293b;border-bottom:2px solid #e2e8f0;padding-bottom:3px;margin-bottom:8px;">アナリスト指標: '+esc(tm.name)+'</div>';
+        var h='<section class="report-section page-break"><div class="report-heading" style="font-size:15px;font-weight:bold;color:#1e293b;border-bottom:2px solid #e2e8f0;padding-bottom:3px;margin-bottom:8px;">アナリスト指標: '+esc(tm.name)+'</div>'+(note||'');
         h+='<div style="display:flex;gap:14px;flex-wrap:wrap;">';
         h+='<div style="flex:1;min-width:240px;"><div style="font-size:11px;font-weight:bold;color:#2563eb;margin-bottom:3px;">打撃アプローチ（選球眼）</div>';
         h+=statTable([['Swing%',bp.swingPct,'全投球を振った率'],['Chase%',bp.chasePct,'ボール球を振った率'],['Z-Swing%',bp.zSwingPct,'ゾーンを振った率'],['Contact%',bp.contactPct,'スイング時コンタクト'],['空振り率',bp.swStrPct,'全投球の空振り']]);
@@ -314,11 +323,15 @@
         h+='</section>';
         return h;
       }
-      // 各チームのアナリスト指標はページ頭から。ガイド(小)は先攻チームのページ冒頭に同居させる
-      var h='<section class="report-section page-break"><div class="report-heading" style="font-size:16px;font-weight:bold;color:#1e293b;border-bottom:2px solid #e2e8f0;padding-bottom:4px;margin-bottom:6px;">アナリスト指標ガイド</div>';
-      h+='<div style="font-size:10px;color:#64748b;margin-bottom:6px;line-height:1.5;">記録した球種・コース・結果・カウント・投打の左右・打球方向から算出。<b>算出可:</b> 選球眼(Swing/Chase/Contact/空振り)、制球・支配力(Zone/初球S/CSW/誘い率)、配球(球種構成・決め球)、打球プロファイル。 <b>算出不可(要トラッキング):</b> 球速・回転数・打球初速・打球角度・守備/走力指標。</div></section>';
-      h+=teamBlock(a.top, false)+teamBlock(a.bottom, true);
-      return h;
+      // 指標の見方は独立した見出しにせず、最初のチームのページに注記として添える
+      // (1行の長文は改行位置が乱れるため、項目ごとに行を分ける)
+      var guide='<div style="font-size:10px;color:#64748b;margin-bottom:8px;line-height:1.7;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:6px 10px;">'
+        +'<div style="font-weight:bold;color:#475569;">指標の見方</div>'
+        +'<div>記録した球種・コース・結果・カウント・投打の左右・打球方向から算出。</div>'
+        +'<div><b>算出可:</b> <span style="white-space:nowrap;">選球眼(Swing/Chase/Contact/空振り)</span>、<span style="white-space:nowrap;">制球・支配力(Zone/初球S/CSW/誘い率)</span>、<span style="white-space:nowrap;">配球(球種構成・決め球)</span>、打球プロファイル。</div>'
+        +'<div><b>算出不可(要トラッキング):</b> 球速・回転数・打球初速・打球角度・<span style="white-space:nowrap;">守備/走力指標</span>。</div>'
+        +'</div>';
+      return teamBlock(a.top, guide)+teamBlock(a.bottom, '');
     }
     var t=stats;
     var scoreBoardH='<table style="width:100%;border-collapse:collapse;text-align:center;font-size:12px;margin-bottom:6px;border:1px solid #cbd5e1;"><thead><tr style="background:#1e293b;color:#fff;"><th style="padding:4px 8px;text-align:left;">TEAM</th>';
@@ -376,6 +389,7 @@
         byInning[inn.inning][inn.isTop ? 'top' : 'bottom'] = inn;
       });
       var innNums = Object.keys(byInning).map(Number).sort(function(a,b){return a-b;});
+      // テキスト速報は表紙(スコア・チーム比較)の続きに流す(改ページしない)
       var h='<section class="report-section"><h3 class="report-heading" style="margin:0 0 8px;font-size:15px;font-weight:bold;color:#1e293b;border-bottom:2px solid #e2e8f0;padding-bottom:3px;">テキスト速報</h3>';
       innNums.forEach(function(n){
         var pair = byInning[n];
@@ -394,7 +408,7 @@
         var h='<div style="flex:1;min-width:230px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:5px 8px;">';
         h+='<div style="font-size:11px;font-weight:bold;color:'+accent+';margin-bottom:2px;">'+esc(tm.name)+'</div>';
         if(items.length===0){h+='<div style="font-size:9px;color:#94a3b8;">データが少なく要点を抽出できません</div>';}
-        else{h+='<ul style="margin:0;padding-left:15px;font-size:9px;color:#334155;line-height:1.4;">';items.slice(0,4).forEach(function(s){h+='<li>'+esc(s)+'</li>';});h+='</ul>';}
+        else{h+='<ul style="margin:0;padding-left:15px;font-size:9.5px;color:#334155;line-height:1.65;">';items.slice(0,4).forEach(function(s){h+='<li style="margin-bottom:1px;">'+esc(s)+'</li>';});h+='</ul>';}
         h+='</div>';return h;
       }
       var h='<div style="margin:0 0 8px;break-inside:avoid;page-break-inside:avoid;"><div style="font-size:13px;font-weight:bold;color:#1e293b;border-bottom:2px solid #e2e8f0;padding-bottom:3px;margin-bottom:5px;">📝 講評サマリー</div>';
@@ -422,7 +436,22 @@
       +'</div>';
     // セクション毎の強制改ページはページ数が膨らむため廃止し、
     // カード単位の break-inside:avoid で自然に流し込む。
-    w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>'+esc(reportFileName)+'<\/title><style>@page{margin:10mm 10mm;}body{margin:0;background:#f1f5f9;}.report-section{margin:0 0 12px;}.report-heading{break-after:avoid;page-break-after:avoid;}@media print{body{background:#fff !important;}*{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;}.report-section{break-inside:auto;page-break-inside:auto;padding-top:0;}.page-break{break-before:page;page-break-before:always;}.report-heading{break-after:avoid;page-break-after:avoid;orphans:3;widows:3;}.bdc,.abc,.bif,.pitcher-section table,.pitcher-section [style*="display:flex"]{break-inside:avoid;page-break-inside:avoid;}.no-print{display:none !important;}}table{page-break-inside:auto;}tr{page-break-inside:avoid;}h1,h3{break-after:avoid;page-break-after:avoid;}<\/style><\/head><body>'+closeBtn+body+'<\/body><\/html>');
+    // 日本語の改行位置(句読点・小書き仮名の行頭禁則)を効かせ、単語の途中で切れないようにする
+    var css='@page{margin:10mm 10mm;}'
+      +'body{margin:0;background:#f1f5f9;line-break:strict;word-break:normal;overflow-wrap:break-word;text-align:left;}'
+      +'p,li,td,th,div,span{orphans:2;widows:2;}'
+      +'.report-section{margin:0 0 12px;}'
+      +'.report-heading{break-after:avoid;page-break-after:avoid;}'
+      +'@media print{body{background:#fff !important;}'
+      +'*{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;}'
+      +'.report-section{break-inside:auto;page-break-inside:auto;padding-top:0;}'
+      +'.page-break{break-before:page;page-break-before:always;}'
+      +'.report-heading{break-after:avoid;page-break-after:avoid;orphans:3;widows:3;}'
+      +'.bdc,.abc,.bif,.pitcher-section table,.pitcher-section [style*="display:flex"]{break-inside:avoid;page-break-inside:avoid;}'
+      +'.no-print{display:none !important;}}'
+      +'table{page-break-inside:auto;}tr{page-break-inside:avoid;}'
+      +'h1,h3{break-after:avoid;page-break-after:avoid;}';
+    w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>'+esc(reportFileName)+'<\/title><style>'+css+'<\/style><\/head><body>'+closeBtn+body+'<\/body><\/html>');
     w.document.close();
     setTimeout(function(){w.print();},800);
     return true;
