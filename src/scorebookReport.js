@@ -468,9 +468,9 @@
       + '.sb-totals thead,.sb-pitchers thead{background:#f1f5f9;}.sb-tot-name{text-align:left !important;font-weight:bold;}'
       + '.sb-stats-section{margin-bottom:14px;}.sb-subheading{font-size:10px;margin:6px 0 2px;color:#475569;}'
       + '.sb-footnote{font-size:9px;color:#64748b;margin:2px 0 4px;}'
-      + '.sb-sheet{width:287mm;height:200mm;min-height:0;overflow:hidden;padding:0;}'
-      + '.sb-score-sheet .sb-sheet-content{transform:scale(.76);transform-origin:top left;width:131.58%;}'
-      + '.sb-stats-sheet .sb-sheet-content{transform:scale(.82);transform-origin:top left;width:121.95%;}'
+      + '.sb-sheet{width:287mm;height:176mm;min-height:0;overflow:hidden;padding:0;}'
+      + '.sb-score-sheet .sb-sheet-content{zoom:.76;width:131.58%;}'
+      + '.sb-stats-sheet .sb-sheet-content{zoom:.82;width:121.95%;}'
       + '@media screen{.sb-page{max-width:none;overflow-x:auto;}.sb-sheet{margin:0 auto 18px;box-shadow:0 8px 30px rgba(15,23,42,.12);}}'
       + '@media print{@page{size:A4 landscape;margin:5mm;}body{background:#fff!important;}.sb-page{margin:0;padding:0;max-width:none;}.sb-sheet{margin:0;}.sb-page-footer{bottom:1mm;}*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}.no-print{display:none!important;}}';
 
