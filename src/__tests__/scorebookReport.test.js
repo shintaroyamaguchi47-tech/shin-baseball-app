@@ -2,14 +2,18 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import '../scorebookReport.js';
 
-const player = (name) => ({
-  name, PA: 1, AB: 1, R: 0, H: 0, H2: 0, H3: 0, HR: 0, RBI: 0, BB: 0, HBP: 0, K: 0, SB: 0, SH: 0, SF: 0,
+const player = (name, bats) => ({
+  name, bats, PA: 1, AB: 1, R: 0, H: 0, H2: 0, H3: 0, HR: 0, RBI: 0, BB: 0, HBP: 0, K: 0, SB: 0, SH: 0, SF: 0,
 });
 
-const emptyTeam = (playerCount = 0) => ({
-  slots: Array.from({ length: 9 }, (_, i) => ({ order: i + 1, occupants: [], cellsByInning: {} })),
+const emptyTeam = (playerCount = 0, withBats = true) => ({
+  slots: Array.from({ length: 9 }, (_, i) => ({
+    order: i + 1,
+    occupants: [{ name: '選手' + (i + 1), pos: 'ショート', bats: withBats ? (i === 0 ? '左' : i === 1 ? '両' : '右') : null }],
+    cellsByInning: {},
+  })),
   inningSummary: [{ H: 0, BB: 0, K: 0, R: 0, LOB: 0, pitchCount: 0, E: 0 }],
-  playerTotals: Array.from({ length: playerCount }, (_, i) => player('選手' + (i + 1))),
+  playerTotals: Array.from({ length: playerCount }, (_, i) => player('選手' + (i + 1), withBats ? (i === 0 ? '左' : '右') : null)),
   pitcherStats: [],
   extraBaseHits: { doubles: [], triples: [], homeruns: [] },
 });
@@ -19,11 +23,11 @@ describe('スコアブックPDFのページ構成', () => {
 
   beforeAll(() => { originalOpen = window.open; });
 
-  const render = (options, playerCount = 0) => {
+  const render = (options, playerCount = 0, withBats = true) => {
     let html = '';
     window.open = () => ({ document: { write: s => { html += s; }, close() {} }, print() {} });
     window.generateScorebookReport({
-      scorebook: { maxInning: 1, top: emptyTeam(playerCount), bottom: emptyTeam(playerCount) },
+      scorebook: { maxInning: 1, top: emptyTeam(playerCount, withBats), bottom: emptyTeam(playerCount, withBats) },
       gameInfo: { date: '2026-07-19', teamTop: '先攻A', teamBottom: '後攻B' },
       gameState: { runs: { top: [0], bottom: [0] } },
       options,
@@ -72,9 +76,9 @@ describe('スコアブックPDFのページ構成', () => {
     expect(html).toMatch(/<div class="sb-header">.*<div class="sb-header-ls">.*<div class="sb-header-legend">/s);
   });
 
-  // 打撃成績が縦に伸びると紙面を圧迫するので、控えを含めて10人以上なら2段に割る
-  it('打撃成績は10人以上で2つの表に分けて横に並べる', () => {
-    const few = render({ includeCharts: true, includeStats: true }, 9);
+  // 打撃成績が縦に伸びるほど打席表(=1マスの大きさ)の取り分が減るので、7人以上なら2段に割る
+  it('打撃成績は7人以上で2つの表に分けて横に並べる', () => {
+    const few = render({ includeCharts: true, includeStats: true }, 6);
     expect((few.match(/<table class="sb-totals">/g) || []).length).toBe(2); // 先攻・後攻で1つずつ
     expect(few).not.toContain('打撃成績(続き)');
 
@@ -83,6 +87,42 @@ describe('スコアブックPDFのページ構成', () => {
     expect(many).toContain('打撃成績(続き)');
     // 7人 + 6人に割り、全員がどちらかの表に載る
     expect((many.match(/class="sb-tot-name">選手\d+</g) || []).length).toBe(26);
+  });
+
+  // 打順表と打撃成績の両方に「どっち打ち」を載せる(左打ちは色を変える)
+  it('打順表と打撃成績にどっち打ちの列を出す', () => {
+    const html = render({ includeCharts: true, includeStats: true }, 3);
+    expect(html).toContain('<th class="sb-hd-narrow">打</th>');
+    expect(html).toContain('<th class="sb-tot-bats">打</th>');
+    expect(html).toContain('<span class="sb-bats sb-bats-l">左</span>');
+    expect(html).toContain('<span class="sb-bats sb-bats-s">両</span>');
+    expect(html).toContain('<span class="sb-bats">右</span>');
+    // 集計行のラベルは打順・名前・打・守備の4列ぶん
+    expect(html).toContain('<td colspan="4" class="sb-sum-label">');
+  });
+
+  // 未記録(古い試合データ)を「右打ち」と決めつけない
+  it('どっち打ちが未記録の選手は空欄にする', () => {
+    const html = render({ includeCharts: true, includeStats: true }, 3, false);
+    expect(html).not.toContain('<span class="sb-bats');
+    expect(html).toContain('<th class="sb-hd-narrow">打</th>'); // 列自体は残す
+  });
+
+  // 列幅を先に配り切り、ダイヤはマス幅いっぱいまで伸ばす(マスの中に余白を残さない)
+  it('列幅を紙面の幅から割り付け、余りの配り先を列ごとに指定する', () => {
+    const html = render({ includeCharts: true, includeStats: true });
+    const colgroup = html.match(/<colgroup>.*?<\/colgroup>/)[0];
+    const specs = [...colgroup.matchAll(/<col data-w="(\d+(?:\.\d+)?)" data-grow="([\d.]+)"/g)];
+    expect(specs.length).toBeGreaterThan(4);
+    const total = specs.reduce((a, m) => a + Number(m[1]), 0);
+    expect(total).toBeGreaterThan(1040); // 287mm ≒ 1085px をほぼ使い切る
+    expect(total).toBeLessThanOrEqual(1085);
+    // 全体縮小のぶん版面を広げたときの余りは、合計1.0の割合で配る
+    const grow = specs.reduce((a, m) => a + Number(m[2]), 0);
+    expect(grow).toBeCloseTo(1, 5);
+    // ダイヤ・コース図は枠いっぱいに伸びる(固定pxで描かない)
+    expect(html).toContain('.sb-play{position:relative;flex:1 1 auto;min-width:0;max-width:var(--sb-d,52px);aspect-ratio:1/1;}');
+    expect(html).toContain('--sb-d:');
   });
 
   it('組版スクリプトのscriptタグが正しく閉じている', () => {

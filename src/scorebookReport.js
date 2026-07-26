@@ -22,7 +22,8 @@
       else if (type === 'foul') body = '<line x1="1.5" y1="5" x2="8.5" y2="5" stroke="#1e293b" stroke-width="1.3"/>'; // ファウル=ダッシュ
       else if (type === 'hbp') body = '<text x="' + cx + '" y="7.5" text-anchor="middle" font-size="7" fill="#7c3aed">死</text>';
       else body = '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="#1e293b" stroke-width="1"/>'; // swing/other = 白丸(空振り)
-      return '<svg width="' + sz + '" height="' + sz + '" viewBox="0 0 ' + sz + ' ' + sz + '" style="display:block;">' + body + '</svg>';
+      // 実寸はCSS(.sb-pm svg)側で決める。viewBoxだけ持たせて拡大縮小に追従させる
+      return '<svg viewBox="0 0 ' + sz + ' ' + sz + '" style="display:block;">' + body + '</svg>';
     }
     function pitchColumnHtml(cell) {
       var marks = cell.pitchMarks || [], links = cell.pitchLinks || {};
@@ -47,10 +48,11 @@
     // 細い線でなぞる。中央 ●生還(自責)/○生還(非自責)/ℓ残塁、打者アウトはローマ数字、
     // 走塁死は赤斜線。四隅=塁(下:本, 右:一, 上:二, 左:三)。
     function diamondSvg(cell) {
-      var s = 52, m = 26, dr = 13; // 箱52, 中心26, ダイヤ半径13(小さめ)
+      var s = 52, m = 26, dr = 15; // 箱52(=描画座標系), 中心26, ダイヤ半径15
       var P = { 0: [m, m + dr], 1: [m + dr, m], 2: [m, m - dr], 3: [m - dr, m], 4: [m, m + dr] };
       var legEnd = [null, [P[0], P[1]], [P[1], P[2]], [P[2], P[3]], [P[3], P[0]]];
-      var svg = '<svg width="' + s + '" height="' + s + '" viewBox="0 0 ' + s + ' ' + s + '">';
+      // 実寸はセル幅からCSS(.sb-play)で決まる。viewBox基準で描いて枠いっぱいに伸ばす
+      var svg = '<svg viewBox="0 0 ' + s + ' ' + s + '" preserveAspectRatio="xMidYMid meet" style="display:block;width:100%;height:100%;">';
       // 頂点→セル辺の十字線(薄グレー)
       svg += '<line x1="' + P[3][0] + '" y1="' + m + '" x2="0" y2="' + m + '" stroke="#d1d5db" stroke-width="0.8"/>';
       svg += '<line x1="' + P[1][0] + '" y1="' + m + '" x2="' + s + '" y2="' + m + '" stroke="#d1d5db" stroke-width="0.8"/>';
@@ -164,7 +166,7 @@
     function zoneChartSvg(cell) {
       var marks = (cell.pitchMarks || []).filter(function (m) { return m.type !== 'pickoff'; });
       var cs = ZONE_CS, sz = cs * 7;
-      var svg = '<svg width="' + sz + '" height="' + sz + '" viewBox="0 0 ' + sz + ' ' + sz + '" style="display:block;background:#fff;">';
+      var svg = '<svg viewBox="0 0 ' + sz + ' ' + sz + '" style="display:block;width:100%;height:100%;background:#fff;">';
       for (var idx = 0; idx < 49; idx++) {
         var row = Math.floor(idx / 7), col = idx % 7;
         var isZone = row >= 2 && row <= 4 && col >= 2 && col <= 4;
@@ -211,7 +213,7 @@
         pts.push({ x: x, y: y, color: color, flight: c.flight || 'fly' });
       });
       if (!pts.length) return '';
-      var svg = '<svg width="84" height="70" viewBox="0 0 240 200" style="display:block;background:#fff;">';
+      var svg = '<svg viewBox="0 0 240 200" style="display:block;width:100%;height:100%;background:#fff;">';
       svg += '<path d="M 120 185 L 0 65 L 0 0 L 240 0 L 240 65 Z" fill="#f8fafc"/>';
       svg += '<path d="M 120 185 L 8 70 Q 120 -25 232 70 Z" fill="#dcfce7"/>';
       svg += '<path d="M 120 185 L 55 120 Q 120 70 185 120 Z" fill="#fef3c7" opacity="0.6"/>';
@@ -275,8 +277,24 @@
       }
       if (!items.length) return '';
       var spray = sprayChartSvg(sprayCells);
-      if (spray) items.push('<div class="sb-pn-item"><div class="sb-pn-inn">打球</div><div class="sb-pn-zone">' + spray + '</div></div>');
+      // 打球方向図は横長のぶん縦に余裕があるので、少し広めの枠を与えて読みやすくする
+      if (spray) items.push('<div class="sb-pn-item sb-pn-item-spray"><div class="sb-pn-inn">打球</div><div class="sb-pn-spray">' + spray + '</div></div>');
       return '<div class="sb-pn">' + items.join('') + '</div>';
+    }
+
+    // 守備位置は漢字1字にする。細い列に「ショート」と入れると3行に折り返してしまう
+    var POS_ABBR = {
+      'ピッチャー': '投', 'キャッチャー': '捕', 'ファースト': '一', 'セカンド': '二', 'サード': '三',
+      'ショート': '遊', 'レフト': '左', 'センター': '中', 'ライト': '右', '指名打者': 'DH',
+    };
+    function posAbbr(pos) { return POS_ABBR[pos] || pos || ''; }
+
+    // どっち打ち(右/左/両)。左打ちは色を変えて一目で分かるようにする。
+    // 未記録(古い試合データ)は空欄にして「右」と決めつけない。
+    function batsMarkHtml(bats) {
+      if (!bats) return '';
+      var cls = bats === '左' ? ' sb-bats-l' : bats === '両' ? ' sb-bats-s' : '';
+      return '<span class="sb-bats' + cls + '">' + esc(bats) + '</span>';
     }
 
     function linescoreTable() {
@@ -306,9 +324,6 @@
         team.slots.forEach(function (slot) { var c = slot.cellsByInning[i]; if (c && c.length > mx) mx = c.length; });
         subCols[i] = mx;
       }
-      // 右端パネルの幅は「最も打席数の多い打者の項目数」で決める。幅指定なしにすると
-      // 残り幅を全部吸ってしまい、表の右側に大きな空白ができる。
-      // 余り幅は table-layout:fixed が各列に按分するので、イニング列も一緒に広がる。
       var maxPanelItems = 0;
       team.slots.forEach(function (slot) {
         var items = 0;
@@ -316,17 +331,55 @@
         if (items) items++; // 末尾の打球方向図
         if (items > maxPanelItems) maxPanelItems = items;
       });
-      var cols = '<colgroup><col style="width:26px"><col style="width:66px"><col style="width:26px">';
-      for (var i = 1; i <= n; i++) for (var k = 0; k < subCols[i]; k++) cols += '<col style="width:66px">';
-      if (options.includeCharts) cols += '<col style="width:' + Math.max(66, maxPanelItems * 54 + 6) + 'px">';
+      // ---- 列幅を紙面の実寸(287mm≒1085px)から割り付ける ----
+      // 以前は各列を66px固定にしていたが、table-layout:fixed は余った幅を各列へ
+      // 按分するだけなので、セルは広がってもダイヤ(52px固定)は大きくならず、
+      // 1マスの6割が余白という状態になっていた。ここで先に幅を配り切り、
+      // ダイヤ・コース図はCSS側でセル幅いっぱいまで伸ばす(.sb-play/.sb-pn-zone)。
+      var AVAIL = 1085, NARROW = 28, BATS_W = 24, NAME_W = 92, PITCH_W = 18;
+      var PANEL_ITEM = 48, PANEL_ITEM_MIN = 32, CELL_MIN = 58, CELL_MAX = 108;
+      var totalSub = 0;
+      for (var i = 1; i <= n; i++) totalSub += subCols[i];
+      var nameW = NAME_W;
+      var restW = AVAIL - (NARROW * 2 + BATS_W + nameW); // 打席表＋打席内容パネルで分け合う幅
+      var panelUnits = options.includeCharts && maxPanelItems ? maxPanelItems + 0.45 : 0; // +0.45=打球方向図の広げたぶん
+      var panelW = panelUnits ? Math.round(panelUnits * PANEL_ITEM) + 8 : 0;
+      // 延長戦や打者一巡でイニング列が増えるとマスが潰れてしまう。主役は打席表なので、
+      // マスが小さくなりすぎるときは先に打席内容パネルを詰めて幅を回す。
+      if (panelUnits && (restW - panelW) / totalSub < CELL_MIN) {
+        panelW = Math.max(Math.round(panelUnits * PANEL_ITEM_MIN) + 8, restW - CELL_MIN * totalSub);
+      }
+      // 打席内容パネル1項目の高さ(イニング表記＋コース図＋結果)。行の高さはここで決まる
+      var panelItemW = panelUnits ? Math.floor((panelW - 8) / panelUnits) : 0;
+      var panelItemH = panelItemW ? panelItemW + 21 : 0;
+      // 1マスは正方形なので、広げるほど行も高くなり紙面が足りなくなって、結局
+      // 全体縮小(fitScript)で相殺されてしまう。右のパネルが決める行の高さを大きく
+      // 超えて広げても得が無いので、そこで頭打ちにする。
+      var cellCap = panelItemH ? Math.min(CELL_MAX, Math.max(64, panelItemH + PITCH_W + 12)) : CELL_MAX;
+      var cellW = Math.max(44, Math.min(cellCap, Math.floor((restW - panelW) / Math.max(1, totalSub))));
+      var slack = restW - panelW - cellW * totalSub;
+      // 余りは名前列を読みやすい幅まで広げてから、残りを打席内容パネルへ
+      if (slack > 0) { var toName = Math.min(slack, 44); nameW += toName; slack -= toName; }
+      if (slack > 0) { if (panelW) panelW += slack; else nameW += slack; }
+      var diamondW = Math.max(34, cellW - PITCH_W);
+      // data-w/data-grow: fitScriptが全体縮小(k)のぶん版面を広げたとき、その余りを
+      // どの列に配るかの指定。イニング列だけを広げるとダイヤは行の高さで頭打ちになり
+      // マスの中に大きな余白が残るので、主に打席内容パネルへ寄せ、イニング列には
+      // 余白として自然に見える程度だけ配る。
+      var col = function (w, grow) { return '<col data-w="' + w + '" data-grow="' + (grow || 0) + '" style="width:' + w + 'px">'; };
+      var cellGrow = (options.includeCharts ? 0.3 : 0.85) / totalSub;
+      var cols = '<colgroup>' + col(NARROW) + col(nameW, options.includeCharts ? 0.1 : 0.15) + col(BATS_W) + col(NARROW);
+      for (var i = 1; i <= n; i++) for (var k = 0; k < subCols[i]; k++) cols += col(cellW, cellGrow);
+      if (options.includeCharts) cols += col(panelW, 0.6);
       cols += '</colgroup>';
-      var head = '<tr><th class="sb-hd-narrow">打順</th><th class="sb-hd-name">名前</th><th class="sb-hd-narrow">守備</th>';
+      var head = '<tr><th class="sb-hd-narrow">打順</th><th class="sb-hd-name">名前</th><th class="sb-hd-narrow">打</th><th class="sb-hd-narrow">守備</th>';
       for (var i = 1; i <= n; i++) head += '<th' + (subCols[i] > 1 ? ' colspan="' + subCols[i] + '"' : '') + '>' + i + '</th>';
       if (options.includeCharts) head += '<th class="sb-hd-pa">打席内容(コース・球種)・打球方向</th>';
       head += '</tr>';
       var rows = team.slots.map(function (slot) {
         var names = slot.occupants.length ? slot.occupants.map(function (o) { return esc(o.name); }).join('<br>') : '<span class="sb-empty">-</span>';
-        var poss = slot.occupants.map(function (o) { return esc(o.pos || ''); }).join('<br>');
+        var bats = slot.occupants.map(function (o) { return batsMarkHtml(o.bats); }).join('<br>');
+        var poss = slot.occupants.map(function (o) { return esc(posAbbr(o.pos)); }).join('<br>');
         var tds = '';
         for (var i = 1; i <= n; i++) {
           var cellsArr = slot.cellsByInning[i] || [];
@@ -336,22 +389,23 @@
           }
         }
         if (options.includeCharts) tds += '<td class="sb-td-pa">' + paPanelHtml(slot, n) + '</td>';
-        return '<tr><td class="sb-hd-narrow">' + slot.order + '</td><td class="sb-hd-name">' + names + '</td><td class="sb-hd-narrow">' + poss + '</td>' + tds + '</tr>';
+        return '<tr><td class="sb-hd-narrow">' + slot.order + '</td><td class="sb-hd-name">' + names + '</td><td class="sb-hd-narrow">' + bats + '</td><td class="sb-hd-narrow">' + poss + '</td>' + tds + '</tr>';
       }).join('');
       function multiRow(label, keys) {
         var cells = '';
         for (var i = 1; i <= n; i++) { var s = team.inningSummary[i - 1]; cells += '<td' + (subCols[i] > 1 ? ' colspan="' + subCols[i] + '"' : '') + '>' + (s ? keys.map(function (k) { return s[k]; }).join('|') : '') + '</td>'; }
-        return '<tr class="sb-sum-row"><td colspan="3" class="sb-sum-label">' + label + '</td>' + cells + (options.includeCharts ? '<td></td>' : '') + '</tr>';
+        return '<tr class="sb-sum-row"><td colspan="4" class="sb-sum-label">' + label + '</td>' + cells + (options.includeCharts ? '<td></td>' : '') + '</tr>';
       }
       var foot = multiRow('安打|四球|三振', ['H', 'BB', 'K']) + multiRow('得点|残塁', ['R', 'LOB']) + multiRow('投球数|失策', ['pitchCount', 'E']);
-      return '<table class="sb-grid">' + cols + '<thead style="background:' + headBg + ';">' + head + '</thead><tbody>' + rows + '</tbody><tfoot>' + foot + '</tfoot></table>';
+      // --sb-d = 1マスのダイヤの実寸。マス内の文字(隅ラベル・守備結果)はこれに比例させる
+      return '<table class="sb-grid" style="--sb-d:' + diamondW + 'px;--sb-pi:' + Math.max(24, panelItemW - 4) + 'px;">' + cols + '<thead style="background:' + headBg + ';">' + head + '</thead><tbody>' + rows + '</tbody><tfoot>' + foot + '</tfoot></table>';
     }
 
     function playerTotalsTable(players) {
-      var h = '<table class="sb-totals"><thead><tr><th class="sb-tot-name">選手</th><th>打席</th><th>打数</th><th>得点</th><th>安打</th><th>二</th><th>三</th><th>本</th><th>打点</th><th>四死</th><th>三振</th><th>盗塁</th><th>犠打</th><th>犠飛</th><th>打率</th></tr></thead><tbody>';
+      var h = '<table class="sb-totals"><thead><tr><th class="sb-tot-name">選手</th><th class="sb-tot-bats">打</th><th>打席</th><th>打数</th><th>得点</th><th>安打</th><th>二</th><th>三</th><th>本</th><th>打点</th><th>四死</th><th>三振</th><th>盗塁</th><th>犠打</th><th>犠飛</th><th>打率</th></tr></thead><tbody>';
       players.forEach(function (p) {
         var avg = p.AB > 0 ? (p.H / p.AB).toFixed(3).replace(/^0/, '') : '.000';
-        h += '<tr><td class="sb-tot-name">' + esc(p.name) + '</td><td>' + p.PA + '</td><td>' + p.AB + '</td><td>' + p.R + '</td><td>' + p.H + '</td><td>' + p.H2 + '</td><td>' + p.H3 + '</td><td>' + p.HR + '</td><td>' + p.RBI + '</td><td>' + (p.BB + p.HBP) + '</td><td>' + p.K + '</td><td>' + p.SB + '</td><td>' + p.SH + '</td><td>' + p.SF + '</td><td>' + avg + '</td></tr>';
+        h += '<tr><td class="sb-tot-name">' + esc(p.name) + '</td><td class="sb-tot-bats">' + batsMarkHtml(p.bats) + '</td><td>' + p.PA + '</td><td>' + p.AB + '</td><td>' + p.R + '</td><td>' + p.H + '</td><td>' + p.H2 + '</td><td>' + p.H3 + '</td><td>' + p.HR + '</td><td>' + p.RBI + '</td><td>' + (p.BB + p.HBP) + '</td><td>' + p.K + '</td><td>' + p.SB + '</td><td>' + p.SH + '</td><td>' + p.SF + '</td><td>' + avg + '</td></tr>';
       });
       h += '</tbody></table>';
       return h;
@@ -377,11 +431,12 @@
     // 個人成績はスコア表の下に「打撃成績 | 投手成績」の横並びで敷く。
     // 右側の細い縦列に押し込むより1行が大きく読め、スコア表も紙面の全幅を使える
     // (=打席内容パネルの折り返しが減り、全体の縮小率も小さくて済む)。
-    // 打撃成績は人数が多いと縦に伸びて紙面を圧迫する(投手成績の右側は空いたまま)ので、
-    // 9人を超えたら2段に割って横に並べ、帯の高さを半分に抑える。
+    // 打撃成績は縦に伸びるほど打席表の取り分(=1マスの大きさ)を削ってしまう。
+    // 帯の右側は投手成績しか無く横は余っているので、6人を超えたら2段に割って
+    // 横に並べ、帯の高さを半分に抑える。
     function teamStatsBand(team) {
       var totals = team.playerTotals;
-      var chunks = totals.length > 9 ? [totals.slice(0, Math.ceil(totals.length / 2)), totals.slice(Math.ceil(totals.length / 2))] : [totals];
+      var chunks = totals.length > 6 ? [totals.slice(0, Math.ceil(totals.length / 2)), totals.slice(Math.ceil(totals.length / 2))] : [totals];
       var bat = chunks.map(function (rows, i) {
         return '<div class="sb-stats-col"><h4 class="sb-subheading">打撃成績' + (i > 0 ? '(続き)' : '') + '</h4>' + playerTotalsTable(rows) + '</div>';
       }).join('');
@@ -465,58 +520,70 @@
       + '.sb-header-main{display:flex;flex-direction:column;gap:1px;flex:none;}'
       + '.sb-header-ls{flex:none;}'
       + '.sb-header-legend{flex:1 1 0;min-width:0;padding-top:1px;}'
-      + '.sb-vs{font-size:16px;font-weight:bold;line-height:1.2;}.sb-meta{font-size:10px;color:#64748b;}'
-      + 'table.sb-linescore{border-collapse:collapse;font-size:11px;margin:0;}'
-      + '.sb-linescore th,.sb-linescore td{border:1px solid #cbd5e1;padding:2px 7px;text-align:center;}'
+      + '.sb-vs{font-size:17px;font-weight:bold;line-height:1.2;}.sb-meta{font-size:11px;color:#64748b;}'
+      + 'table.sb-linescore{border-collapse:collapse;font-size:12px;margin:0;}'
+      + '.sb-linescore th,.sb-linescore td{border:1px solid #cbd5e1;padding:2px 8px;text-align:center;}'
       + '.sb-ls-team{text-align:left !important;font-weight:bold;background:#f8fafc;}.sb-ls-total{font-weight:bold;background:#f8fafc;}'
       + '.sb-legend{display:flex;flex-direction:column;gap:1px;font-size:9px;color:#64748b;margin:0;}'
-      + '.sb-legend-compact{display:flex;flex-wrap:wrap;gap:1px 12px;font-size:7px;color:#64748b;margin:0;}'
+      // 凡例は横に余っている場所へ流し込むだけなので、読める大きさまで上げても紙面は減らない
+      + '.sb-legend-compact{display:flex;flex-wrap:wrap;gap:1px 14px;font-size:8.5px;line-height:1.5;color:#64748b;margin:0;}'
       + '.sb-team-heading{font-size:13px;font-weight:bold;margin:4px 0 3px;border-bottom:2px solid currentColor;padding-bottom:1px;break-after:avoid;page-break-after:avoid;}'
-      + 'table.sb-grid{border-collapse:collapse;font-size:9px;width:100%;margin-bottom:4px;table-layout:fixed;}'
+      + 'table.sb-grid{border-collapse:collapse;font-size:10px;width:100%;margin-bottom:4px;table-layout:fixed;}'
       + '.sb-grid th,.sb-grid td{border:1px solid #cbd5e1;text-align:center;vertical-align:top;}'
-      + '.sb-grid thead th{padding:3px 2px;font-size:10px;}'
-      + '.sb-hd-narrow{width:26px;}.sb-hd-name{width:66px;font-weight:bold;font-size:9px;text-align:left !important;padding-left:3px !important;}'
+      + '.sb-grid thead th{padding:3px 2px;font-size:11px;}'
+      + '.sb-hd-name{font-weight:bold;font-size:12px;text-align:left !important;padding-left:4px !important;line-height:1.25;}'
       + '.sb-empty{color:#cbd5e1;}'
-      + '.sb-td{width:66px;padding:0;background:#fff;}'
+      // どっち打ち。左打ちだけ色を変えて、並びの中で見つけやすくする
+      + '.sb-bats{display:inline-block;min-width:1.15em;font-weight:bold;font-size:10px;line-height:1.3;border-radius:2px;color:#475569;}'
+      + '.sb-bats-l{color:#fff;background:#2563eb;}.sb-bats-s{color:#fff;background:#7c3aed;}'
+      + '.sb-td{padding:0;background:#fff;}'
       // 打者一巡でイニング列を分割したときの2列目以降(同一イニングの続き)。境界を破線にして区別
       + '.sb-td-cont{border-left:1px dashed #cbd5e1 !important;}'
       // 右端の「打席内容・打球方向」パネル(コース図+結果+打球方向図)
       + '.sb-hd-pa{font-size:9px;}'
       + '.sb-td-pa{background:#fff;text-align:left !important;vertical-align:top;padding:1px 2px !important;}'
       + '.sb-pn{display:flex;flex-wrap:wrap;align-items:flex-start;gap:3px;}'
-      + '.sb-pn-item{display:flex;flex-direction:column;align-items:center;gap:1px;min-width:51px;}'
-      + '.sb-pn-inn{font-size:6.5px;font-weight:bold;color:#94a3b8;line-height:1;}'
-      + '.sb-pn-zone{border:1px solid #e2e8f0;border-radius:2px;overflow:hidden;}'
-      + '.sb-pn-res{font-size:8px;font-weight:bold;line-height:1.1;text-align:center;max-width:60px;}'
-      + '.sb-pn-seq{font-size:8px;letter-spacing:-0.5px;color:#475569;max-width:51px;word-break:break-all;text-align:center;line-height:1.3;padding-top:14px;min-height:35px;}'
-      // 列が広がったときにダイヤが左に寄って見えないよう、セル内容は中央に置く
-      + '.sb-box{position:relative;display:flex;justify-content:center;align-items:stretch;border-bottom:1px dotted #e2e8f0;min-height:52px;}'
+      // 1項目の幅は列幅から逆算した --sb-pi。中の図は幅いっぱいに伸ばす
+      + '.sb-pn-item{display:flex;flex-direction:column;align-items:center;gap:1px;width:var(--sb-pi,54px);}'
+      + '.sb-pn-inn{font-size:7.5px;font-weight:bold;color:#94a3b8;line-height:1;}'
+      + '.sb-pn-zone{width:100%;aspect-ratio:1/1;border:1px solid #e2e8f0;border-radius:2px;overflow:hidden;}'
+      // 打球方向図は横長。ここを正方形にすると行の高さを1マスぶん余計に取る
+      + '.sb-pn-spray{width:100%;aspect-ratio:6/5;border:1px solid #e2e8f0;border-radius:2px;overflow:hidden;}'
+      + '.sb-pn-item-spray{width:calc(var(--sb-pi,54px)*1.45);}'
+      + '.sb-pn-res{font-size:9px;font-weight:bold;line-height:1.15;text-align:center;width:100%;}'
+      + '.sb-pn-seq{width:100%;font-size:9px;letter-spacing:-0.5px;color:#475569;word-break:break-all;text-align:center;line-height:1.3;display:flex;align-items:center;justify-content:center;aspect-ratio:1/1;}'
+      // 1マス: 左に投球マーク列(固定幅)、残り全部をダイヤに与えて正方形に伸ばす。
+      // ダイヤはSVGのviewBoxで描いてあるので、枠が大きくなればそのまま大きく描かれる。
+      + '.sb-box{position:relative;display:flex;justify-content:center;align-items:flex-start;border-bottom:1px dotted #e2e8f0;min-height:var(--sb-d,52px);}'
       + '.sb-box:last-child{border-bottom:none;}'
-      + '.sb-pit{width:14px;display:flex;flex-direction:column;align-items:center;padding-top:1px;gap:0px;flex-shrink:0;}'
+      + '.sb-pit{width:18px;display:flex;flex-direction:column;align-items:center;padding-top:1px;gap:0px;flex-shrink:0;}'
       + '.sb-pm{position:relative;display:flex;align-items:center;}'
-      + '.sb-pl{position:absolute;left:10px;top:0;font-size:6px;font-weight:bold;color:#c026d3;}'
-      + '.sb-lk{font-size:5.5px;font-weight:bold;color:#c026d3;vertical-align:super;}'
-      + '.sb-play{position:relative;width:52px;height:52px;flex:none;}'
-      + '.sb-dia{position:absolute;top:0;left:0;}'
-      + '.sb-c{position:absolute;font-size:7px;font-weight:bold;color:#334155;line-height:1;z-index:2;}'
-      + '.sb-c-tl{top:2px;left:1px;}.sb-c-tr{top:2px;right:1px;}.sb-c-bl{bottom:12px;left:1px;}.sb-c-br{bottom:12px;right:1px;}'
+      + '.sb-pm svg{width:12px;height:12px;}'
+      + '.sb-pl{position:absolute;left:11px;top:0;font-size:7px;font-weight:bold;color:#c026d3;}'
+      + '.sb-lk{font-size:6.5px;font-weight:bold;color:#c026d3;vertical-align:super;}'
+      + '.sb-play{position:relative;flex:1 1 auto;min-width:0;max-width:var(--sb-d,52px);aspect-ratio:1/1;}'
+      + '.sb-dia{position:absolute;inset:0;}'
+      // マス内の文字はダイヤの大きさに比例させる(1マスが大きくなれば文字も大きくなる)
+      + '.sb-c{position:absolute;font-size:calc(var(--sb-d,52px)*0.145);font-weight:bold;color:#334155;line-height:1;z-index:2;}'
+      + '.sb-c-tl{top:3%;left:2%;}.sb-c-tr{top:3%;right:2%;}.sb-c-bl{bottom:23%;left:2%;}.sb-c-br{bottom:23%;right:2%;}'
       // 守備結果は常に十字の右下区画(本塁→一塁)に配置する(二塁打/三塁打/本塁打でも同じ)
-      + '.sb-res{position:absolute;font-size:9px;font-weight:bold;color:#1d4ed8;line-height:1;z-index:2;white-space:nowrap;}'
-      + '.sb-res-br{right:1px;bottom:1px;text-align:right;}'
+      + '.sb-res{position:absolute;font-size:calc(var(--sb-d,52px)*0.19);font-weight:bold;color:#1d4ed8;line-height:1;z-index:2;white-space:nowrap;}'
+      + '.sb-res-br{right:2%;bottom:2%;text-align:right;}'
       + '.sb-res-k{color:#1d4ed8;}'
       + '.sb-arch{border-top:1.4px solid #1d4ed8;border-radius:60% 60% 0 0/100% 100% 0 0;padding:0 2px;}'
       + '.sb-line{border-top:1.4px solid #1d4ed8;padding:0 1px;}'
       + '.sb-sqr{border:1px solid #1d4ed8;border-radius:1px;padding:0 2px 1px;display:inline-block;line-height:1.1;}'
-      + '.sb-sum-row{background:#f8fafc;font-size:8px;}.sb-sum-label{text-align:left !important;padding-left:3px !important;font-weight:bold;color:#475569;white-space:nowrap;}'
+      + '.sb-sum-row{background:#f8fafc;font-size:9px;}.sb-sum-label{text-align:left !important;padding-left:3px !important;font-weight:bold;color:#475569;white-space:nowrap;}'
       + '.sb-footnote{font-size:9px;color:#64748b;margin:2px 0 4px;}'
       // 個人成績の帯: 打撃成績(列が多いので広め)と投手成績を横並びにする
       + '.sb-stats-band{display:flex;align-items:flex-start;gap:3mm;margin-top:1.5mm;}'
-      + '.sb-stats-col{flex:1.5 1 0;min-width:0;}.sb-stats-col-pit{flex:1 1 0;}'
+      + '.sb-stats-col{flex:1.3 1 0;min-width:0;}.sb-stats-col-pit{flex:1.5 1 0;}' // 投手成績は列数が多いので狭くしすぎない
       + '.sb-subheading{font-size:9px;font-weight:bold;margin:0 0 2px;color:#475569;border-bottom:1px solid #cbd5e1;padding-bottom:1px;}'
-      + 'table.sb-totals,table.sb-pitchers{border-collapse:collapse;table-layout:fixed;font-size:8px;width:100%;margin:0;}'
+      + 'table.sb-totals,table.sb-pitchers{border-collapse:collapse;table-layout:fixed;font-size:9px;width:100%;margin:0;}'
       + '.sb-totals th,.sb-totals td,.sb-pitchers th,.sb-pitchers td{border:1px solid #dbe3ec;padding:1.5px 2px;text-align:center;white-space:nowrap;}'
       + '.sb-totals thead,.sb-pitchers thead{background:#f1f5f9;color:#475569;}'
-      + '.sb-tot-name{text-align:left !important;font-weight:bold;width:30%;white-space:normal;overflow-wrap:anywhere;line-height:1.2;}'
+      + '.sb-tot-name{text-align:left !important;font-weight:bold;width:28%;white-space:normal;overflow-wrap:anywhere;line-height:1.2;}'
+      + '.sb-tot-bats{width:6%;}'
       + '.sb-pitchers .sb-tot-name{width:24%;}'
       + '.sb-stats-col .sb-footnote{margin:3px 0 0;}'
       // 画面: シート自体の寸法・内部倍率は印刷と同一のまま、ページ全体だけを画面幅に合わせて縮小表示する
@@ -535,7 +602,9 @@
     //   3) 保険: それでも溢れるページは、そのページだけさらに縮小して収める。
     var fitScript = [
       '(function(){',
-      'var KS=[1,.92,.85,.78,.72,.66,.62],templates=null;',
+      // 倍率の刻みは細かいほど「1ページに収まる中で一番大きい文字」に近づく
+      'var KS=[],templates=null;',
+      'for(var _k=100;_k>=50;_k-=2)KS.push(_k/100);',
       // 元の(チーム単位の)シートを雛形として保持し、再実行時は必ず雛形から組み直す
       'function initTemplates(){',
       'if(templates)return;',
@@ -548,7 +617,20 @@
       'c.style.width=(availW/k)+"px";',
       'c.style.transform=k<1?"scale("+k+")":"none";',
       'c.setAttribute("data-k",String(k));',
+      'absorbSlack(c,availW/k);',
       '}',
+      // 版面を広げたぶんの余りを data-grow の割合で配る。指定が無い列(イニング列)は
+      // 元の幅のまま = ダイヤがマスいっぱいに収まり、マス内に余白が残らない。
+      'function absorbSlack(c,vw){',
+      'var t=c.querySelector(".sb-grid");if(!t)return;',
+      'var cols=t.querySelectorAll("col"),spec=0,i,w;',
+      'for(i=0;i<cols.length;i++)spec+=parseFloat(cols[i].getAttribute("data-w"))||0;',
+      'if(!spec)return;',
+      'var slack=vw-spec;',
+      'for(i=0;i<cols.length;i++){',
+      'w=parseFloat(cols[i].getAttribute("data-w"))||0;',
+      'cols[i].style.width=(w+(slack>0?slack*(parseFloat(cols[i].getAttribute("data-grow"))||0):0))+"px";',
+      '}}',
       // 現在の版面で打者行をページに詰める。戻り値は各ページの行indexの配列
       // (offsetTop/offsetHeight は transform の影響を受けない版面座標なので availH も k で割る)
       'function planPages(sheet,content,k){',
@@ -583,19 +665,26 @@
       'if(cur.length)groups.push(cur);',
       'return groups;',
       '}',
-      // ページ数が最小になる中で最大の倍率を探す
+      // ページ数が最小になる中で最大の倍率(=一番大きい文字)を探す。
+      // 倍率を下げるほど紙面に対する余裕は増える一方なのでページ数は単調に減る。
+      // 刻みを細かくしても試す回数が増えないよう、線形に舐めず二分探索する。
       'function planTeam(tpl,host){',
       'var probe=tpl.cloneNode(true);host.appendChild(probe);',
       'var content=probe.querySelector(".sb-sheet-content");',
       'var best={k:1,groups:[[]]};',
       'if(content){',
       'var availW=probe.clientWidth;',
-      'for(var i=0;i<KS.length;i++){',
-      'applyScale(content,KS[i],availW);',
-      'var groups=planPages(probe,content,KS[i]);',
-      'if(i===0||groups.length<best.groups.length)best={k:KS[i],groups:groups};',
-      'if(best.groups.length<=1)break;',
+      'var at=function(i){applyScale(content,KS[i],availW);return planPages(probe,content,KS[i]);};',
+      'var lo=0,hi=KS.length-1;',
+      'var minGroups=at(hi),minPages=minGroups.length;',
+      'var top=at(lo);',
+      'if(top.length<=minPages){best={k:KS[lo],groups:top};}',
+      'else{best={k:KS[hi],groups:minGroups};',
+      'while(lo+1<hi){',
+      'var mid=(lo+hi)>>1,g=at(mid);',
+      'if(g.length<=minPages){hi=mid;best={k:KS[mid],groups:g};}else{lo=mid;}',
       '}}',
+      '}',
       'host.removeChild(probe);',
       'return best;',
       '}',
