@@ -232,7 +232,7 @@ function buildMainNarrative(batterTag, finalLabel, eventType, pf, scored, basesB
  * pitches配列から、時系列順のイニング別・打席別の速報データを構築する。
  * 戻り値: [{ inning, isTop, plays: [Play] }]
  * Play: {
- *   key, batter, batterName, batterPos, batterPosMark, pitcherName,
+ *   key, batter, batterName, batterPos, batterPosMark, batterBats, pitcherName,
  *   pitchRows: [{ isEvent, label, count }],
  *   narrative: string[], finalLabel, eventType,
  *   isHit, isOut, isBB, isError,
@@ -310,6 +310,7 @@ export function buildPlayByPlayReport(pitches) {
       key: `${last.inning}-${last.isTop}-${last.batter}-${last.pitchNumber}`,
       inning: last.inning, isTop: last.isTop,
       batter: last.batter, batterName: last.batterName, batterPos: last.batterPos, batterPosMark: circledPos(last.batterPos),
+      batterBats: last.batterBats || null,
       pitcherName: last.pitcherName,
       pitchRows,
       narrative,

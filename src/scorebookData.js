@@ -158,6 +158,7 @@ function newCell(play) {
     battingSlot: play.batter,
     batterName: play.batterName,
     batterPos: play.batterPos,
+    batterBats: play.batterBats || null, // 右/左/両。打順表と打撃成績に「打」として出す
     pitcherName: play.pitcherName,
     finalLabel: play.finalLabel,
     eventType: play.eventType,
@@ -292,7 +293,7 @@ function emptyPlayerTotal(name, pos, bats) {
 
 function accumulatePlayerTotal(totals, cell) {
   const key = cell.batterName;
-  if (!totals.has(key)) totals.set(key, emptyPlayerTotal(cell.batterName, cell.batterPos, null));
+  if (!totals.has(key)) totals.set(key, emptyPlayerTotal(cell.batterName, cell.batterPos, cell.batterBats));
   if (cell.incompletePA) return; // 中断打席は打席数に数えない(選手行は作る)
   const t = totals.get(key);
   t.PA++;
@@ -319,6 +320,14 @@ function emptyPitcherStat(name, throws) {
 
 export function buildScorebookData(pitches, lineups, gameInfo, gameState) {
   const report = buildPlayByPlayReport(pitches);
+  // 打席記録にどっち打ちが入っていない古い試合データ用に、打順表から名前で補う
+  const batsByName = new Map();
+  ['top', 'bottom'].forEach((side) => (lineups?.[side] || []).forEach((p) => {
+    if (p?.name && p.bats && !batsByName.has(p.name)) batsByName.set(p.name, p.bats);
+  }));
+  report.forEach(({ plays }) => plays.forEach((p) => {
+    if (!p.batterBats) p.batterBats = batsByName.get(p.batterName) || null;
+  }));
   const maxInning = Math.max(gameState?.inning || 1, ...report.map((i) => i.inning), 1);
 
   const allCells = []; // フラットな全セル一覧(集計・脚注用)
@@ -386,7 +395,7 @@ export function buildScorebookData(pitches, lineups, gameInfo, gameState) {
       Object.keys(cellsByInning).map(Number).sort((a, b) => a - b).forEach((inn) => {
         cellsByInning[inn].forEach((c) => {
           const last = occupants[occupants.length - 1];
-          if (!last || last.name !== c.batterName) occupants.push({ name: c.batterName, pos: c.batterPos, fromInning: inn });
+          if (!last || last.name !== c.batterName) occupants.push({ name: c.batterName, pos: c.batterPos, bats: c.batterBats, fromInning: inn });
         });
       });
       return { order, occupants, cellsByInning };
