@@ -120,9 +120,24 @@ describe('スコアブックPDFのページ構成', () => {
     // 全体縮小のぶん版面を広げたときの余りは、合計1.0の割合で配る
     const grow = specs.reduce((a, m) => a + Number(m[2]), 0);
     expect(grow).toBeCloseTo(1, 5);
-    // ダイヤ・コース図は枠いっぱいに伸びる(固定pxで描かない)
-    expect(html).toContain('.sb-play{position:relative;flex:1 1 auto;min-width:0;max-width:var(--sb-d,52px);aspect-ratio:1/1;}');
+    // ダイヤ・コース図は枠いっぱいに伸びる(SVG側は固定pxで描かない)
+    expect(html).toContain('.sb-play{position:relative;flex:0 1 auto;min-width:0;width:var(--sb-d,52px);height:var(--sb-d,52px);}');
     expect(html).toContain('--sb-d:');
+    expect(html).toContain('--sb-pi:');
+  });
+
+  // 図が消えた不具合の再発防止。
+  // aspect-ratio だけで高さを作った枠の中で svg{height:100%} を使うと、その組み合わせを
+  // 解決できないブラウザ(iOS Safari 16.3以前など)で高さが0になり、コース図・打球方向図・
+  // ダイヤが印刷結果から消えてしまう。枠の高さは必ず実寸(px)で与える。
+  it('図の枠の高さをpxで指定し、aspect-ratioに依存しない', () => {
+    const html = render({ includeCharts: true, includeStats: true });
+    const style = html.match(/<style>(.*?)<\/style>/s)[1];
+    expect(style).not.toContain('aspect-ratio');
+    // コース図・打球方向図・配球記号列・ダイヤの4つとも高さがpx(CSS変数)で決まる
+    expect(style).toContain('.sb-pn-zone{box-sizing:border-box;width:100%;height:var(--sb-pi,44px);');
+    expect(style).toContain('.sb-pn-spray{box-sizing:border-box;width:100%;height:calc(var(--sb-pi,44px)*1.208);');
+    expect(style).toContain('.sb-pn-seq{box-sizing:border-box;width:100%;height:var(--sb-pi,44px);');
   });
 
   it('組版スクリプトのscriptタグが正しく閉じている', () => {
