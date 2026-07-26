@@ -546,12 +546,17 @@
       // 1項目の幅は列幅から逆算した --sb-pi。中の図は幅いっぱいに伸ばす
       + '.sb-pn-item{display:flex;flex-direction:column;align-items:center;gap:1px;width:var(--sb-pi,54px);}'
       + '.sb-pn-inn{font-size:7.5px;font-weight:bold;color:#94a3b8;line-height:1;}'
-      + '.sb-pn-zone{width:100%;aspect-ratio:1/1;border:1px solid #e2e8f0;border-radius:2px;overflow:hidden;}'
+      // 図の枠は「高さもpxで指定する」。aspect-ratio で高さを作った枠の中で
+      // svg{height:100%} を使うと、その組み合わせを解決できないブラウザ(iOS Safari 16.3
+      // 以前など)で高さが0になり、コース図・打球方向図が消えてしまう。
+      // 枠の高さを --sb-pi から実寸で与えれば、svgの100%は必ず解決できる。
+      + '.sb-pn-zone{box-sizing:border-box;width:100%;height:var(--sb-pi,44px);border:1px solid #e2e8f0;border-radius:2px;overflow:hidden;}'
       // 打球方向図は横長。ここを正方形にすると行の高さを1マスぶん余計に取る
-      + '.sb-pn-spray{width:100%;aspect-ratio:6/5;border:1px solid #e2e8f0;border-radius:2px;overflow:hidden;}'
+      // (枠は --sb-pi の1.45倍幅なので、6:5にするには高さ = 1.45/1.2 ≒ 1.208倍)
+      + '.sb-pn-spray{box-sizing:border-box;width:100%;height:calc(var(--sb-pi,44px)*1.208);border:1px solid #e2e8f0;border-radius:2px;overflow:hidden;}'
       + '.sb-pn-item-spray{width:calc(var(--sb-pi,54px)*1.45);}'
       + '.sb-pn-res{font-size:9px;font-weight:bold;line-height:1.15;text-align:center;width:100%;}'
-      + '.sb-pn-seq{width:100%;font-size:9px;letter-spacing:-0.5px;color:#475569;word-break:break-all;text-align:center;line-height:1.3;display:flex;align-items:center;justify-content:center;aspect-ratio:1/1;}'
+      + '.sb-pn-seq{box-sizing:border-box;width:100%;height:var(--sb-pi,44px);font-size:9px;letter-spacing:-0.5px;color:#475569;word-break:break-all;text-align:center;line-height:1.3;display:flex;align-items:center;justify-content:center;}'
       // 1マス: 左に投球マーク列(固定幅)、残り全部をダイヤに与えて正方形に伸ばす。
       // ダイヤはSVGのviewBoxで描いてあるので、枠が大きくなればそのまま大きく描かれる。
       + '.sb-box{position:relative;display:flex;justify-content:center;align-items:flex-start;border-bottom:1px dotted #e2e8f0;min-height:var(--sb-d,52px);}'
@@ -561,7 +566,8 @@
       + '.sb-pm svg{width:12px;height:12px;}'
       + '.sb-pl{position:absolute;left:11px;top:0;font-size:7px;font-weight:bold;color:#c026d3;}'
       + '.sb-lk{font-size:6.5px;font-weight:bold;color:#c026d3;vertical-align:super;}'
-      + '.sb-play{position:relative;flex:1 1 auto;min-width:0;max-width:var(--sb-d,52px);aspect-ratio:1/1;}'
+      // ダイヤの枠も高さをpxで与える(aspect-ratioに頼らない。理由はコース図と同じ)
+      + '.sb-play{position:relative;flex:0 1 auto;min-width:0;width:var(--sb-d,52px);height:var(--sb-d,52px);}'
       + '.sb-dia{position:absolute;inset:0;}'
       // マス内の文字はダイヤの大きさに比例させる(1マスが大きくなれば文字も大きくなる)
       + '.sb-c{position:absolute;font-size:calc(var(--sb-d,52px)*0.145);font-weight:bold;color:#334155;line-height:1;z-index:2;}'
