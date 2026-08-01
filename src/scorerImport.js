@@ -31,7 +31,8 @@
 //   W... / Sc / Odp / Am{n} / Ah  : 注記類(ゲーム状態に影響しないため読み飛ばす)
 // ============================================================
 
-const POS_CHAR = ['投', '捕', '一', '二', '三', '遊', '左', '中', '右'];
+// 守備位置コード(0-8)＋指名打者(9)
+const POS_CHAR = ['投', '捕', '一', '二', '三', '遊', '左', '中', '右', '指'];
 const FIELD_NAME = ['ピッチャー', 'キャッチャー', 'ファースト', 'セカンド', 'サード', 'ショート', 'レフト', 'センター', 'ライト'];
 // スプレー図(240x200, 本塁=120,185)上の各守備位置の基準座標
 const FIELD_XY = [
@@ -186,12 +187,18 @@ export function convertScorerGame(text) {
   const gteams = cf.gteams || [];
   const makeTeam = (teamId) => {
     const gt = gteams.find((t) => t.id === teamId) || { players: [] };
-    const slots = Array(9).fill(null);   // 打順(0-8)→選手id
-    const defense = Array(9).fill(null); // 守備位置(0-8)→選手id
+    const slots = Array(9).fill(null);    // 打順(0-8)→選手id
+    const defense = Array(10).fill(null); // 守備位置(0-8)＋指名打者(9)→選手id
     (gt.players || []).forEach((p) => {
       if (p.ord >= 0 && p.ord < 9) slots[p.ord] = p.id;
-      if (p.pos >= 0 && p.pos < 9 && p.ord >= 0) defense[p.pos] = p.id;
+      if (p.pos >= 0 && p.pos < 10 && p.ord >= 0) defense[p.pos] = p.id;
     });
+    // 指名打者制では投手が打順に入らない(ord < 0)ため、上の条件から漏れる。
+    // 打順を持たない投手をここで拾って守備に登録する
+    if (defense[0] == null) {
+      const starter = (gt.players || []).find((p) => p.pos === 0);
+      if (starter) defense[0] = starter.id;
+    }
     return { slots, defense, nextSlot: 0, ids: new Set((gt.players || []).map((p) => p.id)) };
   };
   const teams = { top: makeTeam(game.td), bottom: makeTeam(game.bd) };
