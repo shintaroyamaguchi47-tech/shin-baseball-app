@@ -519,20 +519,36 @@ import { autoPositions, buildAdvanceChoices, buildAdvanceEvents, previewAdvanceR
         });
       };
 
+      // その回に記録済みのプレーを最初から再生し、記録どおりのアウト数・走者・
+      // カウント・打者で再開する。以前は最後の投球記録に保存された「その投球を
+      // 投げる前」の状況を読んでいたため、その回の最後の打席結果(例: ライトゴロ)の
+      // アウトが数えられないまま再開してしまっていた。
       const jumpToInning = (inning, isTop) => {
         recordAction();
         const inningPitches = pitches.filter(p => p.inning === inning && p.isTop === isTop);
-        let targetBatter = isTop ? gameState.batterTop : gameState.batterBottom;
-        let newRunners = { first: false, second: false, third: false }, newOuts = 0, newBalls = 0, newStrikes = 0;
-        if (inningPitches.length > 0) {
-          const lastPitch = inningPitches[inningPitches.length - 1];
-          targetBatter = lastPitch.batter; newRunners = lastPitch.runners || newRunners; newOuts = lastPitch.outs || 0;
-          for (let p of inningPitches.filter(p => p.batter === targetBatter && !p.isEvent)) {
-            if (p.result === 'ボール' || p.result === 'ウエスト') newBalls++; else if (p.result === 'ストライク' || p.result === '空振り' || p.result === 'バント空振り') newStrikes++; else if (['ファウル','バントファウル'].includes(p.result) && newStrikes < 2) newStrikes++;
-          }
-        }
-        setGameState(prev => ({ ...prev, inning, isTop, ...(isTop ? { batterTop: targetBatter } : { batterBottom: targetBatter }), runners: newRunners, outs: newOuts, balls: newBalls, strikes: newStrikes }));
+        setGameState(prev => {
+          const base = { ...prev, inning, isTop, outs: 0, balls: 0, strikes: 0, runners: { first: false, second: false, third: false } };
+          if (inningPitches.length === 0) return base;
+          const replay = rebuildGameStateFromPitches(inningPitches);
+          return {
+            ...base,
+            ...(isTop ? { batterTop: replay.batterTop } : { batterBottom: replay.batterBottom }),
+            runners: replay.runners, outs: replay.outs, balls: replay.balls, strikes: replay.strikes,
+          };
+        });
         setShowInPlayResult(false); setSelectedPosition(null); setSelectedHitCoord(null); setShowErrorTypeSelect(false);
+      };
+
+      // アウト数・走者・得点が記録と食い違ったときに、記録全体から計算し直す。
+      // (記録修正・削除のあとに走る再計算と同じ処理を、手動でも実行できるようにしたもの)
+      const recalcFromRecords = () => {
+        setConfirmDialog({
+          title: '🔄 記録から再計算',
+          message: 'アウト数・走者・得点を、記録されている全プレーから計算し直しますか？',
+          subMessage: '※「スコア修正」で手動調整した得点も、記録どおりに計算し直されます',
+          isDanger: false,
+          onConfirm: () => { recordAction(); setGameState(rebuildGameStateFromPitches(pitches)); setConfirmDialog(null); showToast('記録からアウト数・走者・得点を再計算しました'); }
+        });
       };
 
       const manuallyChangeBatter = (newBatterNum) => {
@@ -1559,6 +1575,7 @@ import { autoPositions, buildAdvanceChoices, buildAdvanceEvents, previewAdvanceR
                 <button onClick={openOrderSettings} className="whitespace-nowrap shrink-0 bg-white text-slate-700 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-slate-300 shadow-sm">⚙️ オーダー</button>
                 <button onClick={()=>openSubstitutionModal()} className="whitespace-nowrap shrink-0 bg-blue-50 text-blue-700 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-blue-200 shadow-sm">🔄 交代</button>
                 <button onClick={()=>setShowRecordEditor(true)} className="whitespace-nowrap shrink-0 bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-indigo-200 shadow-sm">📝 記録修正</button>
+                <button onClick={recalcFromRecords} title="アウト数・走者・得点を記録から計算し直す" className="whitespace-nowrap shrink-0 bg-white text-slate-700 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-slate-300 shadow-sm">🔄 記録から再計算</button>
                 <button onClick={()=>openScoreEdit('current')} className="whitespace-nowrap shrink-0 bg-white text-slate-700 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-slate-300 shadow-sm">✏️ スコア修正</button>
                 <button onClick={()=>{ setEditingTeamIndex(null); setShowTeamManager(true); }} className="whitespace-nowrap shrink-0 bg-white text-slate-700 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-slate-300 shadow-sm">👥 チーム</button>
                 <button onClick={()=>setShowAnalyticsHub(true)} className="whitespace-nowrap shrink-0 bg-cyan-600 text-white px-3 py-1.5 rounded-lg text-[11px] font-bold shadow-sm">📊 分析ハブ</button>
@@ -1621,6 +1638,7 @@ import { autoPositions, buildAdvanceChoices, buildAdvanceEvents, previewAdvanceR
                   <button onClick={openOrderSettings} className="bg-white hover:bg-slate-50 text-slate-700 px-2 py-1.5 rounded-lg text-[11px] font-bold border border-slate-300 shadow-sm">⚙️ オーダー</button>
                   <button onClick={()=>openSubstitutionModal()} className="bg-blue-50 hover:bg-blue-100 text-blue-700 px-2 py-1.5 rounded-lg text-[11px] font-bold border border-blue-200 shadow-sm">🔄 交代</button>
                   <button onClick={()=>setShowRecordEditor(true)} className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-2 py-1.5 rounded-lg text-[11px] font-bold border border-indigo-200 shadow-sm">📝 記録修正</button>
+                  <button onClick={recalcFromRecords} title="アウト数・走者・得点を記録から計算し直す" className="bg-white hover:bg-slate-50 text-slate-700 px-2 py-1.5 rounded-lg text-[11px] font-bold border border-slate-300 shadow-sm">🔄 再計算</button>
                   <button onClick={()=>{ setEditingTeamIndex(null); setShowTeamManager(true); }} className="bg-white hover:bg-slate-50 text-slate-700 px-2 py-1.5 rounded-lg text-[11px] font-bold border border-slate-300 shadow-sm">👥 チーム</button>
                   <button onClick={()=>setShowArchiveModal(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-1.5 rounded-lg text-[11px] font-bold shadow-sm">📂 保存/読込</button>
                   <button onClick={()=>setShowAnalyticsHub(true)} className="bg-cyan-600 hover:bg-cyan-700 text-white px-2 py-1.5 rounded-lg text-[11px] font-bold shadow-sm">📊 分析ハブ</button>
