@@ -8,6 +8,7 @@ import * as storage from './storage.js';
 import { asPlayerObj, findDuplicateNameIndices, mergeRosterPlayers, renamePlayersInGame, detectLineupRenames } from './teamUtils.js';
 import { renumberPitchNumbers, reassignPitchBatter } from './gameUtils.js';
 import { insertSubstitution, applySubstitutionToLineup, lineupSnapshotAt, findPitcherAt, buildSubstitutionEventText, dropBenchEntry, STARTING_SLOTS } from './substitutionUtils.js';
+import { getDhState, validateDhLineup, resolveDhCancellation, clearPitcherSlot, DH_CANCEL_TYPE, DH_POS } from './dhRules.js';
 import AnalyticsHub from './components/AnalyticsHub.jsx';
 import { normalizeArchive } from './analyticsData.js';
 import { isScorerGdf, convertScorerGame } from './scorerImport.js';
@@ -781,17 +782,25 @@ import { autoPositions, buildAdvanceChoices, buildAdvanceEvents, previewAdvanceR
         return lineupSnapshotAt(pitches, subData.insertIndex, base, subData.team);
       }, [lineups, pitches, subData.team, subData.insertIndex]);
 
+      // 交代モーダルが対象とするチームの指名打者制の状態(DH解除の可否と既定値に使う)
+      const subDhState = useMemo(() => getDhState(subLineup), [subLineup]);
+
       // 選手交代実行
       const handleSubstitution = () => {
         const { team, type, order, newName, newPos, newThrows, newBats, shiftOrder, shiftNewPos, insertIndex } = subData;
         // 位置変更は選手が入れ替わらず守備位置だけを動かす(入る選手の入力は不要)
         const positionOnly = type === POSITION_CHANGE_TYPE;
+        // DH解除は「控/投」の投手を打順へ入れる交代。入る選手は投手で固定する
+        const isDhCancel = type === DH_CANCEL_TYPE;
         const targetIndex = order - 1;
         const baseLineup = subLineup;
         const oldPlayer = baseLineup[targetIndex] || { name: '不明' };
         if (positionOnly) {
           if (!oldPlayer.name || isPlaceholderName(oldPlayer.name)) { showToast('動かす選手を選んでください', 'error'); return; }
           if (oldPlayer.pos === newPos && !shiftOrder) { showToast('今と違う守備位置を選んでください', 'error'); return; }
+        } else if (isDhCancel) {
+          if (!getDhState(baseLineup).active) { showToast('このチームは指名打者制を使っていません', 'error'); return; }
+          if (!newName.trim()) { showToast('「控/投」に投手を入れてください', 'error'); return; }
         } else if (!newName.trim()) { showToast('新しい選手名を入力してください', 'error'); return; }
         recordAction();
 
@@ -801,6 +810,13 @@ import { autoPositions, buildAdvanceChoices, buildAdvanceEvents, previewAdvanceR
           ? { name: oldPlayer.name, pos: newPos, throws: oldPlayer.throws || newThrows, bats: oldPlayer.bats || newBats }
           : { name: newName.trim(), pos: newPos, throws: newThrows, bats: newBats };
 
+        // 指名打者制の後始末: DH解除なら投手を「控/投」から外し、
+        // それ以外の交代でも打順に投手が入ったなら規則どおり解除する
+        const finishDh = (before, after) => {
+          if (isDhCancel) return { lineup: clearPitcherSlot(after) };
+          return resolveDhCancellation(before, after) || { lineup: after };
+        };
+
         if (insertIndex !== null && insertIndex !== undefined) {
           // さかのぼって挿入: 交代イベントを差し込み、それ以降の記録の選手名も書き換える
           const oldPitcher = findPitcherAt(pitches, insertIndex, team, lineups[team].find(p => p.pos === '投' || p.pos === '1' || p.pos === '①'));
@@ -809,14 +825,34 @@ import { autoPositions, buildAdvanceChoices, buildAdvanceEvents, previewAdvanceR
             oldPlayer: { name: oldPlayer.name, pos: oldPlayer.pos },
             newPlayer, shift, oldPitcherName: oldPitcher?.name || null, positionOnly
           });
-          setPitches(renumberPitchNumbers(res.records));
+          // その場面のオーダーで指名打者制が解除されるなら、続けて解除の交代も挿入する
+          const snapshotAfter = baseLineup.map((p, i) => (
+            i === targetIndex ? { ...p, ...newPlayer } : (shift && i === shift.order - 1 ? { ...p, pos: shiftNewPos } : p)
+          ));
+          const dhCancel = isDhCancel ? null : resolveDhCancellation(baseLineup, snapshotAfter);
+          let records = res.records;
+          let dhChanged = 0;
+          if (dhCancel?.eventText && dhCancel.incoming) {
+            const res2 = insertSubstitution(records, insertIndex + 1, {
+              side: team, type: DH_CANCEL_TYPE, order: dhCancel.order,
+              oldPlayer: { name: dhCancel.retired.name, pos: dhCancel.retired.pos },
+              newPlayer: dhCancel.incoming, shift: null, oldPitcherName: null, positionOnly: dhCancel.positionOnly
+            });
+            records = res2.records;
+            dhChanged = res2.battingUpdated + res2.pitchingUpdated;
+          }
+          setPitches(renumberPitchNumbers(records));
           // 現在のオーダーにまだ退いた選手が残っていれば(=以降に別の交代が無ければ)ここも差し替える
           const applied = applySubstitutionToLineup(lineups[team], { order, oldPlayer, newPlayer, shift });
-          if (applied.applied) setLineups(prev => ({ ...prev, [team]: dropBenchEntry(applied.lineup, newPlayer.name) }));
+          if (applied.applied) {
+            const settled = finishDh(lineups[team], applied.lineup).lineup;
+            setLineups(prev => ({ ...prev, [team]: dropBenchEntry(settled, newPlayer.name) }));
+          }
           setShowSubstitutionModal(false);
-          const changed = res.battingUpdated + res.pitchingUpdated;
+          const changed = res.battingUpdated + res.pitchingUpdated + dhChanged;
           const label = positionOnly ? `${oldPlayer.name} ${oldPlayer.pos || '?'}→${newPos}` : newPlayer.name;
-          showToast(changed > 0 ? `${type}: ${label} を挿入し、以降の記録${changed}件を書き換えました` : `${type}: ${label} を挿入しました`);
+          const dhNote = dhCancel ? ` / ${dhCancel.notice}` : '';
+          showToast((changed > 0 ? `${type}: ${label} を挿入し、以降の記録${changed}件を書き換えました` : `${type}: ${label} を挿入しました`) + dhNote);
           return;
         }
 
@@ -825,8 +861,10 @@ import { autoPositions, buildAdvanceChoices, buildAdvanceEvents, previewAdvanceR
         currentLineup[targetIndex] = { ...oldPlayer, ...newPlayer };
         // ポジション移動がある場合（例: ショートがサードへ）
         if (shift) currentLineup[shift.order - 1] = { ...currentLineup[shift.order - 1], pos: shiftNewPos };
+        const dhCancel = isDhCancel ? null : resolveDhCancellation(lineups[team], currentLineup);
+        const settledLineup = isDhCancel ? clearPitcherSlot(currentLineup) : (dhCancel?.lineup || currentLineup);
         // 控え欄から出場した選手はオーダーに二重で並ばないよう控え欄から外す
-        setLineups(prev => ({ ...prev, [team]: dropBenchEntry(currentLineup, newPlayer.name) }));
+        setLineups(prev => ({ ...prev, [team]: dropBenchEntry(settledLineup, newPlayer.name) }));
 
         // イベントとして履歴に記録
         const eventText = buildSubstitutionEventText({ order, oldPos: oldPlayer.pos, oldName: oldPlayer.name, newPos, newName: newPlayer.name, type, shift, positionOnly });
@@ -834,16 +872,20 @@ import { autoPositions, buildAdvanceChoices, buildAdvanceEvents, previewAdvanceR
         const dummyPitcher = lineups[gameState.isTop ? 'bottom' : 'top'].find(p => p.pos === '投' || p.pos === '1' || p.pos === '①') || { name: '投手未設定', throws: '右' };
         const dummyBatterIndex = (gameState.isTop ? gameState.batterTop : gameState.batterBottom) - 1;
         const dummyBatter = lineups[gameState.isTop ? 'top' : 'bottom'][dummyBatterIndex] || { name: '打者未設定', bats: '右' };
-
-        setPitches(prev => [...prev, {
-          course: null, type: '-', result: eventText, inning: gameState.inning, isTop: gameState.isTop,
+        const makeEvent = (text) => ({
+          course: null, type: '-', result: text, inning: gameState.inning, isTop: gameState.isTop,
           batter: dummyBatterIndex + 1, pitchNumber: '-', pitcherName: dummyPitcher.name, pitcherThrows: dummyPitcher.throws,
           batterName: dummyBatter.name, batterBats: dummyBatter.bats, isEvent: true,
           runners: { ...gameState.runners }, outs: gameState.outs
-        }]);
+        });
+
+        // 指名打者制が解除された場合は、その入れ替えも別の交代記録として残す
+        const eventTexts = [eventText, ...(dhCancel?.eventText ? [dhCancel.eventText] : [])];
+        setPitches(prev => [...prev, ...eventTexts.map(makeEvent)]);
 
         setShowSubstitutionModal(false);
-        showToast(positionOnly ? `${type}: ${oldPlayer.name} ${oldPlayer.pos || '?'}→${newPos}` : `${type}: ${newPlayer.name} を登録しました`);
+        const doneText = positionOnly ? `${type}: ${oldPlayer.name} ${oldPlayer.pos || '?'}→${newPos}` : `${type}: ${newPlayer.name} を登録しました`;
+        showToast(doneText + (dhCancel ? ` / ${dhCancel.notice}` : ''));
       };
 
       const handleEditPitchClick = (pitch) => { const globalIndex = pitches.indexOf(pitch); if (globalIndex !== -1) { setEditingPitchIndex(globalIndex); setEditPitchData({ ...pitch, runners: pitch.runners || { first: false, second: false, third: false } }); } };
@@ -1403,6 +1445,32 @@ import { autoPositions, buildAdvanceChoices, buildAdvanceEvents, previewAdvanceR
       const currentAtBatPitches = pitches.filter(p => p.inning === gameState.inning && p.isTop === gameState.isTop && p.batter === currentBatterIndex + 1);
 
       const posOptions = ['未','投','捕','一','二','三','遊','左','中','右','指','打','走','控'];
+      // オーダー設定で指名打者制の使用状況と設定ミスを知らせるパネル
+      const dhPanel = (side) => {
+        const lineup = lineups[side] || [];
+        const state = getDhState(lineup);
+        const warnings = validateDhLineup(lineup);
+        const pitcherSlot = lineup[STARTING_SLOTS - 1] || {};
+        return (
+          <div className={`mb-2 rounded-xl border px-2.5 py-2 ${state.active ? 'bg-indigo-50 border-indigo-200' : 'bg-white/70 border-slate-200'}`}>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className={`text-[9px] font-black rounded px-1.5 py-0.5 ${state.active ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-500'}`}>DH</span>
+              <span className="text-[10px] font-black text-slate-700">{state.active ? '指名打者制' : '指名打者なし'}</span>
+              <span className="text-[10px] font-bold text-slate-500">
+                {state.active
+                  ? `${state.dhOrder}番 ${state.dh?.name || '未設定'}／投手 ${pitcherSlot.name || '未設定'}（打席に立たない）`
+                  : state.pitcherOrder ? `投手 ${state.pitcher?.name || '未設定'} が${state.pitcherOrder === STARTING_SLOTS ? '控/投' : `${state.pitcherOrder}番`}で打席に立ちます` : ''}
+              </span>
+            </div>
+            <div className="text-[9px] font-bold text-slate-400 mt-1">
+              {state.active
+                ? '守備を「指」にした打順が指名打者。投手は「控/投」に入れます。出場中の野手が投手になるなど解除されると、投手が指名打者の打順に入ります'
+                : '打順の守備を「指」にすると指名打者制になります（投手は「控/投」へ）'}
+            </div>
+            {warnings.map((w, i) => <div key={i} className="text-[10px] font-bold text-rose-600 mt-1">⚠️ {w}</div>)}
+          </div>
+        );
+      };
       const throwBatOptions = ['右投右打','右投左打','右投両打','左投右打','左投左打','左投両打'];
       const parseThrowBat = (bats, throws) => `${throws || '右'}投${bats || '右'}打`;
       const splitThrowBat = (val) => { const m = val.match(/^(右|左)投(右|左|両)打$/); return m ? { bats: m[2], throws: m[1] } : { bats: '右', throws: '右' }; };
@@ -2130,6 +2198,10 @@ import { autoPositions, buildAdvanceChoices, buildAdvanceEvents, previewAdvanceR
             const isRetro = retroIndex !== null && retroIndex !== undefined;
             const retroTarget = isRetro ? pitches[retroIndex] : null;
             const isPosChange = subData.type === POSITION_CHANGE_TYPE;
+            // 指名打者制を使っているチームだけ「DH解除」を選べる
+            const isDhCancel = subData.type === DH_CANCEL_TYPE;
+            const subTypes = ['代打', '代走', '守備', '投手', POSITION_CHANGE_TYPE, ...(subDhState.active ? [DH_CANCEL_TYPE] : [])];
+            const dhPitcher = subDhState.active ? (subLineup[STARTING_SLOTS - 1] || {}) : null;
             return (
             <div className="fixed inset-0 bg-slate-900/80 z-[300] flex items-center justify-center p-4 backdrop-blur-sm">
               <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col max-h-[92vh] border border-slate-200">
@@ -2155,12 +2227,18 @@ import { autoPositions, buildAdvanceChoices, buildAdvanceEvents, previewAdvanceR
                   </div>
                   {/* 交代タイプ */}
                   <div className="grid grid-cols-5 gap-1.5">
-                    {['代打', '代走', '守備', '投手', POSITION_CHANGE_TYPE].map(t => (
+                    {subTypes.map(t => (
                       <button key={t} onClick={() => {
                         // 位置変更はその打順の選手をそのまま動かすので、今のポジションを初期値にする
                         if(t === POSITION_CHANGE_TYPE) {
                           const cur = subLineup[subData.order-1] || {};
                           setSubData({...subData, type: t, newPos: cur.pos || '未', newName: cur.name || '', newThrows: cur.throws || '右', newBats: cur.bats || '右', shiftOrder: null, shiftNewPos: ''});
+                          return;
+                        }
+                        // DH解除は「控/投」の投手を打順へ入れる。既定は指名打者の打順(規則どおり)
+                        if(t === DH_CANCEL_TYPE) {
+                          const p = subLineup[STARTING_SLOTS - 1] || {};
+                          setSubData({...subData, type: t, order: subDhState.dhOrder || subData.order, newPos: '投', newName: p.name || '', newThrows: p.throws || '右', newBats: p.bats || '右', shiftOrder: null, shiftNewPos: ''});
                           return;
                         }
                         let p = '未'; if(t==='代打') p='打'; if(t==='代走') p='走'; if(t==='投手') p='投';
@@ -2174,12 +2252,26 @@ import { autoPositions, buildAdvanceChoices, buildAdvanceEvents, previewAdvanceR
                       }} className={`py-2 rounded-xl text-[11px] font-bold border-2 ${subData.type === t ? 'border-slate-800 bg-slate-800 text-white' : 'border-slate-200 bg-white text-slate-600'}`}>{t}</button>
                     ))}
                   </div>
+                  {/* 指名打者制の状態(投手が打席に立たないことの確認と、解除時の入れ替え先) */}
+                  {subDhState.active && (
+                    <div className={`rounded-xl p-3 border ${isDhCancel ? 'bg-indigo-50 border-indigo-200' : 'bg-slate-50 border-slate-200'}`}>
+                      <div className="text-[10px] font-black text-indigo-700 mb-1">🅳🅷 指名打者制</div>
+                      <div className="text-[11px] font-bold text-slate-600">
+                        指名打者 {subDhState.dhOrder}番 {subDhState.dh?.name || '未設定'} ／ 投手 {dhPitcher?.name || '未設定'}（控/投・打席に立たない）
+                      </div>
+                      {isDhCancel && (
+                        <div className="text-[10px] font-bold text-indigo-600 mt-1">
+                          ※投手 {dhPitcher?.name || '?'} が{subData.order}番の打順に入り、{subLineup[subData.order-1]?.name || '?'} は退きます
+                        </div>
+                      )}
+                    </div>
+                  )}
                   {/* 打順選択と退く選手 */}
                   <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
                     <label className="text-[10px] font-bold text-slate-500 mb-2 block">対象の選手（{isPosChange ? '動かす選手' : '退く選手'}）</label>
                     {/* 守備位置ショートカット */}
                     <div className="flex flex-wrap gap-1 mb-2">
-                      {['投','捕','一','二','三','遊','左','中','右'].map(pos => {
+                      {['投','捕','一','二','三','遊','左','中','右',DH_POS].map(pos => {
                         const idx = subLineup.findIndex(p => p.pos === pos);
                         const active = idx !== -1 && (idx + 1) === subData.order;
                         return (
@@ -2202,7 +2294,15 @@ import { autoPositions, buildAdvanceChoices, buildAdvanceEvents, previewAdvanceR
                   </div>
                   {/* 新しい選手(位置変更のときは選手を入れ替えないので入力しない) */}
                   <div className="flex flex-col gap-2">
-                    <label className="text-[10px] font-bold text-slate-500 block">{isPosChange ? '新しい守備位置' : '入る選手'}</label>
+                    <label className="text-[10px] font-bold text-slate-500 block">{isPosChange ? '新しい守備位置' : isDhCancel ? '打順に入る投手' : '入る選手'}</label>
+                    {isDhCancel && (
+                      <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-3 flex items-center gap-2 text-sm">
+                        <span className="text-[10px] font-black text-indigo-500 shrink-0">控/投</span>
+                        <span className="font-bold truncate">{dhPitcher?.name || '未設定'}</span>
+                        <span className="text-slate-400 shrink-0">→</span>
+                        <span className="shrink-0 bg-indigo-600 text-white text-[10px] font-black rounded px-1.5 py-0.5">{subData.order}番 {subData.newPos}</span>
+                      </div>
+                    )}
                     {isPosChange && (
                       <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex items-center gap-2 text-sm">
                         <span className="text-[10px] font-black text-slate-400 shrink-0">動かす</span>
@@ -2216,7 +2316,7 @@ import { autoPositions, buildAdvanceChoices, buildAdvanceEvents, previewAdvanceR
                       {getRosterPlayers(subData.team === 'top' ? gameInfo.teamTop : gameInfo.teamBottom).map((pl, idx) => <option key={idx} value={pl.name} />)}
                     </datalist>
                     {/* 控え選手・登録選手からワンタップで選ぶ(出場中の選手も選択できる) */}
-                    {!isPosChange && subCandidates.length > 0 && (
+                    {!isPosChange && !isDhCancel && subCandidates.length > 0 && (
                       <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200">
                         <div className="text-[10px] font-bold text-slate-400 mb-1.5">控え・登録選手から選ぶ</div>
                         <div className="flex flex-wrap gap-1">
@@ -2234,11 +2334,11 @@ import { autoPositions, buildAdvanceChoices, buildAdvanceEvents, previewAdvanceR
                         </div>
                       </div>
                     )}
-                    <div className={`flex gap-1.5 ${isPosChange ? 'hidden' : ''}`}>
+                    <div className={`flex gap-1.5 ${isPosChange || isDhCancel ? 'hidden' : ''}`}>
                       <input type="text" list="sub-roster-list" autoComplete="off" value={subData.newName} onChange={e => { const pl = getRosterPlayers(subData.team === 'top' ? gameInfo.teamTop : gameInfo.teamBottom).find(r => r.name === e.target.value); setSubData({...subData, newName: e.target.value, ...(pl ? {newThrows: pl.throws||'右', newBats: pl.bats||'右'} : {})}); }} placeholder="新しい選手名" className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm font-bold" />
                       {subData.newName && <button type="button" onClick={() => setSubData({...subData, newName: ''})} className="text-slate-300 hover:text-slate-500 font-bold text-sm px-2 border border-slate-300 rounded-lg bg-white">×</button>}
                     </div>
-                    {!isPosChange && subData.newName && findRegisteredTeam(subData.team === 'top' ? gameInfo.teamTop : gameInfo.teamBottom) && !getRosterPlayers(subData.team === 'top' ? gameInfo.teamTop : gameInfo.teamBottom).some(pl => pl.name === subData.newName) && (
+                    {!isPosChange && !isDhCancel && subData.newName && findRegisteredTeam(subData.team === 'top' ? gameInfo.teamTop : gameInfo.teamBottom) && !getRosterPlayers(subData.team === 'top' ? gameInfo.teamTop : gameInfo.teamBottom).some(pl => pl.name === subData.newName) && (
                       <button type="button" onClick={() => addPlayerToTeam(subData.team === 'top' ? gameInfo.teamTop : gameInfo.teamBottom, subData.newName, subData.newThrows||'右', subData.newBats||'右')} className="text-[11px] bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg px-3 py-1.5 font-bold self-start">＋ チームに追加登録</button>
                     )}
                     {(subData.type === '守備' || isPosChange) ? (
@@ -2279,7 +2379,7 @@ import { autoPositions, buildAdvanceChoices, buildAdvanceEvents, previewAdvanceR
                         <select value={subData.newPos} onChange={e=>setSubData({...subData, newPos: e.target.value})} className="flex-1 bg-white border border-slate-300 rounded-lg px-2 py-2 text-xs font-bold">
                           {posOptions.map(po => <option key={po} value={po}>{po}</option>)}
                         </select>
-                        <select value={parseThrowBat(subData.newBats, subData.newThrows)} onChange={e => { const {bats, throws} = splitThrowBat(e.target.value); setSubData({...subData, newBats: bats, newThrows: throws}); }} className="flex-[1.5] bg-white border border-slate-300 rounded-lg px-2 py-2 text-xs font-bold">
+                        <select disabled={isDhCancel} value={parseThrowBat(subData.newBats, subData.newThrows)} onChange={e => { const {bats, throws} = splitThrowBat(e.target.value); setSubData({...subData, newBats: bats, newThrows: throws}); }} className={`flex-[1.5] border border-slate-300 rounded-lg px-2 py-2 text-xs font-bold ${isDhCancel ? 'bg-slate-100 text-slate-400' : 'bg-white'}`}>
                           {throwBatOptions.map(o => <option key={o} value={o}>{o}</option>)}
                         </select>
                       </div>
@@ -2337,6 +2437,7 @@ import { autoPositions, buildAdvanceChoices, buildAdvanceEvents, previewAdvanceR
                             {registeredTeams.map(t => <option key={t.name} value={t.name}>{t.name}（{(t.players||[]).length}人）</option>)}
                           </select>
                         )}
+                        {dhPanel('top')}
                         <div className="text-[9px] font-bold text-slate-400 flex items-center gap-1 mb-1 px-1">
                           <span className="w-6 text-center">打順</span><span className="w-9 text-center">守備</span><span className="flex-1">氏名</span><span className="w-[70px] text-center">投打</span>
                         </div>
@@ -2381,6 +2482,7 @@ import { autoPositions, buildAdvanceChoices, buildAdvanceEvents, previewAdvanceR
                             {registeredTeams.map(t => <option key={t.name} value={t.name}>{t.name}（{(t.players||[]).length}人）</option>)}
                           </select>
                         )}
+                        {dhPanel('bottom')}
                         <div className="text-[9px] font-bold text-slate-400 flex items-center gap-1 mb-1 px-1">
                           <span className="w-6 text-center">打順</span><span className="w-9 text-center">守備</span><span className="flex-1">氏名</span><span className="w-[70px] text-center">投打</span>
                         </div>
