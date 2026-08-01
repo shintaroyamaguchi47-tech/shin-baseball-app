@@ -591,6 +591,14 @@ import { autoPositions, buildAdvanceChoices, buildAdvanceEvents, previewAdvanceR
         setScoreEdit(null);
       };
 
+      // 打席結果(打撃結果・振り逃げ)を書き込む対象の投球記録。
+      // 打球中に走者アウト・進塁を記録すると配列の末尾はそのイベント記録になるため、
+      // 末尾ではなく「最後の投球記録」を探す。末尾を上書きすると走者の記録が消えてしまう。
+      const lastPitchIndex = (records) => {
+        for (let i = records.length - 1; i >= 0; i--) { if (!records[i].isEvent) return i; }
+        return -1;
+      };
+
       const handleAdvanceAndNextBatter = (eventType, addedOuts = 0) => {
         setGameState(prev => advanceGameState(prev, eventType, addedOuts));
         setShowInPlayResult(false); setSelectedPosition(null); setSelectedHitCoord(null); setShowErrorTypeSelect(false);
@@ -632,8 +640,8 @@ import { autoPositions, buildAdvanceChoices, buildAdvanceEvents, previewAdvanceR
         recordAction();
         setPitches(prev => {
           const newPitches = [...prev];
-          if (newPitches.length > 0) {
-            const lastIdx = newPitches.length - 1;
+          const lastIdx = lastPitchIndex(newPitches);
+          if (lastIdx >= 0) {
             newPitches[lastIdx] = { ...newPitches[lastIdx], result: `${selectedPosition}${typeLabel}`, hitX: selectedHitCoord ? selectedHitCoord.x : newPitches[lastIdx].hitX, hitY: selectedHitCoord ? selectedHitCoord.y : newPitches[lastIdx].hitY };
           }
           return newPitches;
@@ -750,10 +758,10 @@ import { autoPositions, buildAdvanceChoices, buildAdvanceEvents, previewAdvanceR
         if (type === '三振') {
           handleAdvanceAndNextBatter('out', 1);
         } else if (type === 'セーフ') {
-          setPitches(prev => { const np = [...prev]; if (np.length > 0) np[np.length - 1] = { ...np[np.length - 1], result: '振り逃げ' }; return np; });
+          setPitches(prev => { const np = [...prev]; const i = lastPitchIndex(np); if (i >= 0) np[i] = { ...np[i], result: '振り逃げ' }; return np; });
           handleAdvanceAndNextBatter('error', 0);
         } else {
-          setPitches(prev => { const np = [...prev]; if (np.length > 0) np[np.length - 1] = { ...np[np.length - 1], result: '振り逃げアウト' }; return np; });
+          setPitches(prev => { const np = [...prev]; const i = lastPitchIndex(np); if (i >= 0) np[i] = { ...np[i], result: '振り逃げアウト' }; return np; });
           handleAdvanceAndNextBatter('out', 1);
         }
       };
