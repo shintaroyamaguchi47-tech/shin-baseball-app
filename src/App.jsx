@@ -3,7 +3,7 @@ import SprayChart from './components/SprayChart.jsx';
 import AnalystReport from './components/AnalystReport.jsx';
 import PlayByPlayReport from './components/PlayByPlayReport.jsx';
 import { buildAnalystInsights } from './analystInsights.js';
-import { buildPlayByPlayReport } from './playByPlay.js';
+import { buildPlayByPlayReport, outsAddedFor } from './playByPlay.js';
 import * as storage from './storage.js';
 import { asPlayerObj, findDuplicateNameIndices, mergeRosterPlayers, renamePlayersInGame, detectLineupRenames } from './teamUtils.js';
 import { renumberPitchNumbers, reassignPitchBatter } from './gameUtils.js';
@@ -145,7 +145,9 @@ import { autoPositions, buildAdvanceChoices, buildAdvanceEvents, previewAdvanceR
           else if (['ファウル','バントファウル'].includes(res)) state = state.strikes < 2 ? { ...state, strikes: state.strikes + 1 } : state;
           else if (res === 'スリーバント失敗' || res === '三振' || res === '振り逃げアウト') state = advanceGameState(state, 'out', 1);
           else if (res === '振り逃げ') state = advanceGameState(state, 'error', 0);
-          else if (!res?.startsWith('牽制')) state = advanceGameState(state, resultToEventType(res), resultToEventType(res) === 'out' ? 1 : 0);
+          // 打者アウトの数は結果テキストから判定する(併殺打=2、犠打/犠飛=1、
+          // 「ライトゴロ」「右ゴロ」など守備位置の表記ゆれも1アウト)
+          else if (!res?.startsWith('牽制')) state = advanceGameState(state, resultToEventType(res), outsAddedFor(res));
         });
         return normalizeGameState(state);
       };

@@ -31,9 +31,23 @@ const SUFFIX_LABEL = {
   '安+エラー': '安打(相手失策)', '二塁打+エラー': '二塁打(相手失策)', '三塁打+エラー': '三塁打(相手失策)',
 };
 
+// 守備位置の略記(スコアブック様式の漢字1字)→正式名。
+// 「右ゴロ」「二ゴロ」のように手入力・旧記録で略記された結果も、
+// 「ライトゴロ」「セカンドゴロ」と同じ打球結果として扱う。
+const FIELD_ABBR = {
+  '投': 'ピッチャー', '捕': 'キャッチャー', '一': 'ファースト', '二': 'セカンド', '三': 'サード',
+  '遊': 'ショート', '左': 'レフト', '中': 'センター', '右': 'ライト',
+};
+// 略記は「三振」「二塁打」のように守備位置と紛らわしいため、
+// 打席結果として定義された接尾辞と完全に一致したときだけ打球結果とみなす。
+const RESULT_SUFFIXES = new Set(Object.keys(SUFFIX_LABEL));
+
 function parseFieldResult(result) {
   if (!result) return null;
   for (const pos of FIELD_POS) { if (result.startsWith(pos)) return { fielder: pos, suffix: result.slice(pos.length) }; }
+  const fielder = FIELD_ABBR[result[0]];
+  const suffix = result.slice(1);
+  if (fielder && RESULT_SUFFIXES.has(suffix)) return { fielder, suffix };
   return null;
 }
 
@@ -66,14 +80,17 @@ function classifyEventType(finalLabel) {
   return resultToEventType(finalLabel);
 }
 
+// 打球結果がまだ選ばれていない記録(「打った！」直後の1球)。
+// 打者アウトかどうかが決まっていないため、アウトには数えない。
+const PENDING_RESULTS = new Set(['インプレー', 'バント']);
+
+// 打席結果1件で成立する打者アウトの数。
+// 守備位置の表記(「ライトゴロ」「右ゴロ」)や接尾辞の想定漏れに左右されないよう、
+// 打者がアウトになる打席(out/犠打/犠飛)は必ず1アウトとして数える。
 function outsAddedFor(finalLabel) {
-  if (['三振', 'スリーバント失敗', '振り逃げアウト'].includes(finalLabel)) return 1;
-  const pf = parseFieldResult(finalLabel);
-  if (pf) {
-    if (pf.suffix === '併殺打') return 2;
-    if (['ゴロ', '飛', '邪飛', '直飛', '犠打', '犠飛'].includes(pf.suffix)) return 1;
-  }
-  return 0;
+  if (!finalLabel || isIncompletePA(finalLabel) || PENDING_RESULTS.has(finalLabel)) return 0;
+  if (finalLabel.includes('併殺')) return 2;
+  return ['out', 'sac_bunt', 'sac_fly'].includes(classifyEventType(finalLabel)) ? 1 : 0;
 }
 
 const getBallFlight = (res) => res.includes('本塁打') ? 'hr'
@@ -344,4 +361,4 @@ export function buildPlayByPlayReport(pitches) {
   return innings;
 }
 
-export { circledPos, parseFieldResult, isIncompletePA };
+export { circledPos, parseFieldResult, isIncompletePA, outsAddedFor };

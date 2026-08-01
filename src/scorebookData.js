@@ -9,7 +9,7 @@
 // 実際のスコアブックの書き方に合わせるため)。
 // ============================================================
 
-import { buildPlayByPlayReport, parseFieldResult, isIncompletePA } from './playByPlay.js';
+import { buildPlayByPlayReport, parseFieldResult, isIncompletePA, outsAddedFor } from './playByPlay.js';
 
 const POS_NUM = {
   'ピッチャー': 1, 'キャッチャー': 2, 'ファースト': 3, 'セカンド': 4, 'サード': 5,
@@ -168,6 +168,8 @@ function newCell(play) {
     flight: play.flight || ballFlight(play.finalLabel),
     fielder: pf ? pf.fielder : null,
     isBatterOut: play.isOut,
+    // この打席で成立した打者アウトの数(併殺打=2)。投球回の集計に使う
+    batterOuts: outsAddedFor(play.finalLabel),
     isHit: play.isHit,
     isBB: play.isBB,
     isError: play.isError,
@@ -442,13 +444,13 @@ export function buildScorebookData(pitches, lineups, gameInfo, gameState) {
       if (c.finalLabel === '四球') st.bb++;
       if (c.finalLabel === '死球') st.hbp++;
       if (['三振', 'スリーバント失敗'].includes(c.finalLabel)) st.k++;
-      if (c.isBatterOut || c.outOrderInInning) st.outs++;
+      st.outs += c.batterOuts;
       if (c.scored) st.runs++;
       c.advancementNotes.forEach((n) => { if (n.text?.includes('暴投')) st.wildPitches++; if (n.text?.includes('ボーク')) st.balks++; });
       if (c.outOnBasesReason && c.outOnBasesReason.includes('走塁死')) { /* 走者自身のアウトはbattersFacedに含めない(既にst.outsへ加算済み) */ }
     });
     // 走者アウト(盗塁死/牽制死等)は打者としての投手成績には計上しないため、
-    // st.outsは「打者由来のアウト」のみを既に反映している(上のc.isBatterOut判定)
+    // st.outsは「打者由来のアウト」のみを既に反映している(上のc.batterOuts加算)
     const pitcherStats = pitcherOrder.map((n) => pitcherMap.get(n));
 
     const extraBaseHits = { doubles: [], triples: [], homeruns: [] };
