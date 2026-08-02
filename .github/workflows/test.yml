@@ -1,0 +1,26 @@
+name: Test
+
+# マージ前にテストとビルドを確認する。
+# main へのpush時は deploy.yml が同じ内容を実行するため、ここではPRだけを対象にする。
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
