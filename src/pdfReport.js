@@ -13,6 +13,25 @@
     //   jp() … 語の途中では折らず、どうしても入らないときだけ折る(文節が空白で区切られた記録文)
     function nw(s) { return '<span class="nw">'+esc(s)+'</span>'; }
     function jp(s) { return '<span class="jp">'+esc(s)+'</span>'; }
+    // 記録文(走者の進塁・選手交代)を「折り返してよい位置」で区切ったまとまりに分解する。
+    // 交代の記録は [退]/[入]/[移] が意味の切れ目なので、そこだけを折り返し位置にする。
+    // 例: 選手交代: [退]7番/右 宮崎幹太 ➡️ [入]右 望月唯愛 (守備)
+    //     → ['選手交代:', '[退]7番/右 宮崎幹太 ➡️', '[入]右 望月唯愛 (守備)']
+    // 走者の記録(「1塁走者 盗塁で2塁へ」)は切れ目がないので丸ごと1つのまとまりになる。
+    function recordChunks(text) {
+      var out = [];
+      String(text).split(/\s+/).forEach(function(t){
+        if (!t) return;
+        if (!out.length || /^[\[［]/.test(t)) out.push(t);
+        else out[out.length-1] += ' ' + t;
+      });
+      return out;
+    }
+    // 記録文1件を1行として組み立てる(折り返しは recordChunks の区切りでのみ起きる)。
+    // ただし自由入力の長い記録は表の幅を壊すため、長いまとまりだけは文節(空白)で折り返せるようにする。
+    function recordLineHtml(text) {
+      return recordChunks(text).map(function(c){ return c.length <= 22 ? nw(c) : jp(c); }).join(' ');
+    }
     function heatmapSvg(d, mx, color, label, sz) {
       sz = sz || 55;
       var GS=7, cs=sz/GS;
@@ -158,17 +177,19 @@
       return { text:result || '-', color:'#475569' };
     }
     function countDistHtml(counts, title) {
-      var h='<div style="background:#f8fafc;border:1px solid #cbd5e1;border-radius:7px;padding:5px 4px;flex:1;min-width:0;"><div style="font-size:10px;font-weight:bold;text-align:center;margin-bottom:5px;border-bottom:1px solid #cbd5e1;padding-bottom:4px;">'+esc(title)+'</div>';
+      // 球種名(「ストレート」「スライダー」)が「ストレー/ト」「スライダ/ー」と割れないよう、
+      // 列は球種名がそのまま入る幅を最低限確保する(8px×5文字 + 内側の余白)。
+      var h='<div style="background:#f8fafc;border:1px solid #cbd5e1;border-radius:7px;padding:5px 4px;flex:1 1 auto;"><div style="font-size:10px;font-weight:bold;text-align:center;margin-bottom:5px;border-bottom:1px solid #cbd5e1;padding-bottom:4px;">'+esc(title)+'</div>';
       h+='<div style="display:flex;gap:3px;">';
       ['ahead','even','behind'].forEach(function(cs){
         var label=cs==='ahead'?'有利':cs==='even'?'平行':'不利';
         var d=counts[cs]||{total:0,strikes:0,types:{}};
         var sPct=d.total>0?Math.round((d.strikes/d.total)*100):0;
-        h+='<div style="flex:1;min-width:0;background:#ffffff;padding:4px 2px;border-radius:5px;border:1px solid #e2e8f0;"><div style="font-size:9px;font-weight:bold;text-align:center;margin-bottom:4px;line-height:1.3;">'+label+'<br>S:'+sPct+'%</div>';
+        h+='<div style="flex:1 1 auto;min-width:48px;background:#ffffff;padding:4px 2px;border-radius:5px;border:1px solid #e2e8f0;"><div style="font-size:9px;font-weight:bold;text-align:center;margin-bottom:4px;line-height:1.3;">'+label+'<br>S:'+sPct+'%</div>';
         if(d.total>0){
             Object.entries(d.types).sort(function(a,b){return b[1]-a[1];}).forEach(function(e){
                 var pct=Math.round((e[1]/d.total)*100);
-                h+='<div style="margin:2px 0;font-size:8px;"><div style="color:#334155;line-height:1.3;word-break:keep-all;line-break:strict;">'+esc(e[0])+'</div><div style="display:flex;align-items:center;gap:2px;"><div style="flex:1;height:4px;background:#e2e8f0;border-radius:2px;"><div style="width:'+pct+'%;height:100%;background:#3b82f6;border-radius:2px;"></div></div><span style="flex-shrink:0;font-size:7px;color:#475569;">'+pct+'%</span></div></div>';
+                h+='<div style="margin:2px 0;font-size:8px;"><div class="nw" style="color:#334155;line-height:1.3;">'+esc(e[0])+'</div><div style="display:flex;align-items:center;gap:2px;"><div style="flex:1;height:4px;background:#e2e8f0;border-radius:2px;"><div style="width:'+pct+'%;height:100%;background:#3b82f6;border-radius:2px;"></div></div><span style="flex-shrink:0;font-size:7px;color:#475569;">'+pct+'%</span></div></div>';
             });
         }else{h+='<div style="text-align:center;font-size:9px;color:#94a3b8;">-</div>';}
         h+='</div>';
@@ -384,20 +405,28 @@
           var isHit=['安','塁打','本塁打'].some(function(w){return res.indexOf(w)>=0;});
           var isBB=['四球','死球'].some(function(w){return res.indexOf(w)>=0;});
           var color=isHit?'#1d4ed8':isBB?'#059669':'#334155';
-          // 走者の記録は「1塁走者 盗塁で2塁へ」のように1件ずつが意味のまとまり。
-          // まとめて1つの文字列にすると「2塁」と「へ」の間などで折り返されるため、
-          // 1件ずつ .jp で包み、折り返しは記録と記録の区切り(/)でだけ起きるようにする。
+          // 走者の記録・選手交代は1件ずつが意味のまとまり。打席結果の後ろに続けて流すと
+          // 「1塁走者 / 盗塁で2塁へ」のようにまとまりの途中で折り返されるため、
+          // 1件を必ず1行として並べる(スラッシュで併記された交代も1件として分ける)。
           var ev='';
           if (ab.events && ab.events.length) {
-            ev=' <span style="color:#d97706;font-size:9px;font-weight:normal;">'
-              +ab.events.map(jp).join('<span style="color:#fcd34d;"> / </span>')
-              +'</span>';
+            var lines=[];
+            ab.events.forEach(function(e){
+              String(e).split(' / ').forEach(function(part){
+                var t=part.trim(); if(t) lines.push(t);
+              });
+            });
+            ev=lines.map(function(t){
+              return '<div class="pbp-ev"><span class="pbp-mark">・</span>'+recordLineHtml(t)+'</div>';
+            }).join('');
           }
           b+='<tr style="background:'+(i%2?'#f8fafc':'#fff')+';border-bottom:1px solid #f1f5f9;">'
-            +'<td style="padding:3px 5px;color:#94a3b8;text-align:right;width:16px;">'+ab.batter+'</td>'
-            +'<td style="padding:3px 5px;font-weight:bold;white-space:nowrap;">'+esc(ab.batterName||'')+'</td>'
-            +'<td style="padding:3px 5px;color:#64748b;text-align:right;width:30px;white-space:nowrap;">'+ab.pitchCount+'球</td>'
-            +'<td class="jp" style="padding:3px 5px;font-weight:bold;color:'+color+';">'+jp(res||'-')+ev+'</td>'
+            +'<td style="padding:3px 5px;color:#94a3b8;text-align:right;width:16px;vertical-align:top;">'+ab.batter+'</td>'
+            +'<td style="padding:3px 5px;font-weight:bold;white-space:nowrap;vertical-align:top;">'+esc(ab.batterName||'')+'</td>'
+            +'<td style="padding:3px 5px;color:#64748b;text-align:right;width:30px;white-space:nowrap;vertical-align:top;">'+ab.pitchCount+'球</td>'
+            +'<td style="padding:3px 5px;vertical-align:top;">'
+              +'<div class="jp" style="font-weight:bold;color:'+color+';">'+jp(res||'-')+'</div>'+ev
+            +'</td>'
             +'</tr>';
         });
         b+='</table>';
@@ -464,6 +493,9 @@
       // .nw=折り返し禁止 / .jp=語中では折らず、収まらないときだけ折る(1文字だけ次行に残す不格好な改行を防ぐ)
       +'.nw{white-space:nowrap;}'
       +'.jp{word-break:keep-all;overflow-wrap:break-word;line-break:strict;}'
+      // 記録文は1件1行。行に収まらないときは「・」の右に折り返しを揃える(ぶら下げインデント)
+      +'.pbp-ev{font-size:9px;font-weight:normal;color:#d97706;line-height:1.5;padding-left:9px;text-indent:-9px;margin-top:1px;}'
+      +'.pbp-mark{color:#fbbf24;}'
       +'.report-section{margin:0 0 12px;}'
       +'.report-heading{break-after:avoid;page-break-after:avoid;}'
       +'@media print{body{background:#fff !important;}'
