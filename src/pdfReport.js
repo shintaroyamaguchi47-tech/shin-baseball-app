@@ -198,7 +198,7 @@
     function countDistHtml(counts, title) {
       // 球種名(「ストレート」「スライダー」)が「ストレー/ト」「スライダ/ー」と割れないよう、
       // 列は球種名がそのまま入る幅を最低限確保する(8px×5文字 + 内側の余白)。
-      var h='<div style="background:#f8fafc;border:1px solid #cbd5e1;border-radius:7px;padding:5px 4px;flex:1 1 auto;"><div style="font-size:10px;font-weight:bold;text-align:center;margin-bottom:5px;border-bottom:1px solid #cbd5e1;padding-bottom:4px;">'+esc(title)+'</div>';
+      var h='<div style="background:#f8fafc;border:1px solid #cbd5e1;border-radius:7px;padding:5px 4px;flex:1 1 0;min-width:0;"><div style="font-size:10px;font-weight:bold;text-align:center;margin-bottom:5px;border-bottom:1px solid #cbd5e1;padding-bottom:4px;">'+esc(title)+'</div>';
       h+='<div style="display:flex;gap:3px;">';
       ['ahead','even','behind'].forEach(function(cs){
         var label=cs==='ahead'?'有利':cs==='even'?'平行':'不利';
@@ -227,10 +227,12 @@
         h+='<div style="flex:1;background:#f8fafc;padding:6px 10px;border-radius:7px;text-align:center;"><div style="font-size:10px;color:#64748b;">Whiff%</div><div style="font-size:22px;font-weight:bold;color:#ef4444;">'+p.whiff+'%</div></div>';
         h+='<div style="flex:1;background:#f8fafc;padding:6px 10px;border-radius:7px;text-align:center;"><div style="font-size:10px;color:#64748b;">初球S率</div><div style="font-size:22px;font-weight:bold;color:#0ea5e9;">'+p.fStrikePct+'%</div></div>';
         h+='</div>';
-        // スプリット表 + カウント別配球を横並び
-        h+='<div style="display:flex;gap:8px;margin-bottom:8px;break-inside:avoid;page-break-inside:avoid;">';
-        // スプリット表(左)は中身が縦積みにならない幅を確保し、残りをカウント別配球(右)に回す
-        h+='<div style="flex:0 1 auto;min-width:0;">';
+        // スプリット表とカウント別配球は「縦に積む」。
+        // 横並びにすると、どちらも最小幅を確保できずに互いを押しつぶし、
+        // スプリット表の右端(被打率・K%・BB%)がカウント別配球の下に隠れたり、
+        // 「対左」が紙面の右端からはみ出したりしていた。紙面には十分な余白があるので、
+        // それぞれ幅いっぱいの段として並べる。
+        h+='<div style="margin-bottom:8px;break-inside:avoid;page-break-inside:avoid;">';
         function splitRow(label, sp, bg) {
           return '<tr style="background:'+bg+';border-bottom:1px solid #e2e8f0;">'
             +'<td class="nw" style="padding:4px 6px;font-weight:bold;font-size:10px;">'+esc(label)+'</td>'
@@ -252,20 +254,19 @@
           +'<th class="nw" style="padding:4px 6px;text-align:right;font-size:10px;">BB%</th>'
           +'</tr>';
         h+='<div style="font-size:11px;font-weight:bold;margin-bottom:4px;color:#475569;">スプリット</div>';
-        h+='<table style="width:auto;border-collapse:collapse;border:1px solid #e2e8f0;"><thead>'+splitTh+'</thead><tbody>';
+        h+='<table style="width:100%;border-collapse:collapse;border:1px solid #e2e8f0;table-layout:auto;"><thead>'+splitTh+'</thead><tbody>';
         h+=splitRow('対右', p.sideStats.right, '#fff');
         h+=splitRow('対左', p.sideStats.left, '#f8fafc');
         h+=splitRow('上位1-5', p.orderStats.top, '#fff');
         h+=splitRow('下位6-9', p.orderStats.bottom, '#f8fafc');
         h+='</tbody></table></div>';
-        // カウント別配球(右)
-        h+='<div style="flex:1 1 auto;min-width:0;">';
+        // カウント別配球(スプリット表の下段。対右・対左で紙面を半分ずつ使う)
+        h+='<div style="margin-bottom:8px;break-inside:avoid;page-break-inside:avoid;">';
         h+='<div style="font-size:11px;font-weight:bold;margin-bottom:4px;color:#475569;">カウント別配球</div>';
-        h+='<div style="display:flex;gap:6px;">';
+        h+='<div style="display:flex;gap:8px;">';
         h+=countDistHtml(p.counts.vsRight, '対右');
         h+=countDistHtml(p.counts.vsLeft, '対左');
         h+='</div></div>';
-        h+='</div>';
         // 球種別ヒートマップ（マトリクス: 行=球種, 列=カウント）
         h+='<div style="font-size:11px;font-weight:bold;margin-bottom:6px;color:#475569;">球種別ヒートマップ</div>';
         var sortedTypedHm = Object.entries(p.pitchTypeHeatmaps||{}).sort(function(a,b){var ta=0,tb=0;Object.values(a[1].all||{}).forEach(function(v){ta+=v;});Object.values(b[1].all||{}).forEach(function(v){tb+=v;});return tb-ta;}).filter(function(e){var cnt=0;Object.values(e[1].all||{}).forEach(function(v){cnt+=v;});return cnt>0;});

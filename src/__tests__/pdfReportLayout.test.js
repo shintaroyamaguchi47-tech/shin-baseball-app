@@ -36,6 +36,39 @@ function eventLines(html) {
 }
 const textOf = (s) => s.replace(/<[^>]*>/g, '');
 
+// 投手詳細だけを含むレポートを生成する
+function pitcherReportHtml() {
+  const sp = { PA: 1, total: 5, sPct: 60, AVG: '.000', KPct: 0, BBPct: 0 };
+  const pitcher = {
+    name: '投手A', total: 10, csw: 30, whiff: 20, fStrikePct: 50,
+    sideStats: { right: sp, left: sp },
+    orderStats: { top: sp, bottom: sp },
+    counts: {
+      vsRight: { ahead: { total: 2, strikes: 1, types: { 'ストレート': 1, 'スライダー': 1 } }, even: { total: 0, strikes: 0, types: {} }, behind: { total: 0, strikes: 0, types: {} } },
+      vsLeft: { ahead: { total: 0, strikes: 0, types: {} }, even: { total: 0, strikes: 0, types: {} }, behind: { total: 0, strikes: 0, types: {} } },
+    },
+    pitchTypeHeatmaps: {},
+  };
+  let html = '';
+  const fakeWin = { document: { write: (s) => { html += s; }, close: () => {} }, print: () => {} };
+  const origOpen = window.open;
+  window.open = () => fakeWin;
+  try {
+    window.generatePdfReport({
+      gameInfo: { date: '2026-08-02', teamTop: 'A', teamBottom: 'B' },
+      gameState: { inning: 1, isTop: true, runs: { top: Array(9).fill(0), bottom: Array(9).fill(0) } },
+      advancedStats: { topBatting: emptyBatting, bottomBatting: emptyBatting, pitchingTop: { pitchers: [pitcher] }, pitchingBottom: { pitchers: [] } },
+      analystInsights: { hasData: false },
+      pitches: [],
+      hitsAndErrors: { top: { hits: 0, errors: 0 }, bottom: { hits: 0, errors: 0 } },
+      playByPlay: [],
+    });
+  } finally {
+    window.open = origOpen;
+  }
+  return html;
+}
+
 describe('試合分析レポートPDFの紙面', () => {
   let lines;
   beforeAll(() => {
@@ -121,34 +154,26 @@ describe('試合分析レポートPDFの紙面', () => {
   });
 
   it('球種名は縦に割れないよう折り返しを禁止する', () => {
-    const pitcher = {
-      name: '投手A', total: 10, csw: 30, whiff: 20, fStrikePct: 50,
-      sideStats: { right: { PA: 1, total: 5, sPct: 60, AVG: '.000', KPct: 0, BBPct: 0 }, left: { PA: 1, total: 5, sPct: 60, AVG: '.000', KPct: 0, BBPct: 0 } },
-      orderStats: { top: { PA: 1, total: 5, sPct: 60, AVG: '.000', KPct: 0, BBPct: 0 }, bottom: { PA: 1, total: 5, sPct: 60, AVG: '.000', KPct: 0, BBPct: 0 } },
-      counts: {
-        vsRight: { ahead: { total: 2, strikes: 1, types: { 'ストレート': 1, 'スライダー': 1 } }, even: { total: 0, strikes: 0, types: {} }, behind: { total: 0, strikes: 0, types: {} } },
-        vsLeft: { ahead: { total: 0, strikes: 0, types: {} }, even: { total: 0, strikes: 0, types: {} }, behind: { total: 0, strikes: 0, types: {} } },
-      },
-      pitchTypeHeatmaps: {},
-    };
-    let html = '';
-    const fakeWin = { document: { write: (s) => { html += s; }, close: () => {} }, print: () => {} };
-    const origOpen = window.open;
-    window.open = () => fakeWin;
-    try {
-      window.generatePdfReport({
-        gameInfo: { date: '2026-08-02', teamTop: 'A', teamBottom: 'B' },
-        gameState: { inning: 1, isTop: true, runs: { top: Array(9).fill(0), bottom: Array(9).fill(0) } },
-        advancedStats: { topBatting: emptyBatting, bottomBatting: emptyBatting, pitchingTop: { pitchers: [pitcher] }, pitchingBottom: { pitchers: [] } },
-        analystInsights: { hasData: false },
-        pitches: [],
-        hitsAndErrors: { top: { hits: 0, errors: 0 }, bottom: { hits: 0, errors: 0 } },
-        playByPlay: [],
-      });
-    } finally {
-      window.open = origOpen;
-    }
+    const html = pitcherReportHtml();
     expect(html).toContain('<div class="nw" style="color:#334155;line-height:1.3;">ストレート</div>');
     expect(html).toContain('<div class="nw" style="color:#334155;line-height:1.3;">スライダー</div>');
+  });
+
+  it('スプリット表とカウント別配球は横並びにせず、幅いっぱいの段として縦に積む', () => {
+    // 横並びだと互いに最小幅を割り込み、スプリット表の右端(K%・BB%)が
+    // カウント別配球の下に隠れ、「対左」が紙面の右端からはみ出していた。
+    const html = pitcherReportHtml();
+    const section = html.slice(html.indexOf('<section class="report-section pitcher-section'));
+    const splitIdx = section.indexOf('>スプリット<');
+    const countIdx = section.indexOf('>カウント別配球<');
+    // 見出しが並ぶ順序は スプリット → カウント別配球
+    expect(splitIdx).toBeGreaterThan(-1);
+    expect(countIdx).toBeGreaterThan(splitIdx);
+    // スプリット表は紙面の幅いっぱいを使う(縮められて列が隠れない)
+    expect(section).toContain('<table style="width:100%;border-collapse:collapse;border:1px solid #e2e8f0;table-layout:auto;">');
+    // 2つの見出しの間に、両者を横並びにするflexコンテナが挟まっていない
+    expect(section.slice(splitIdx, countIdx)).not.toContain('display:flex');
+    // 対右・対左は等幅で紙面を半分ずつ使う(内容量の差で片方がはみ出さない)
+    expect(section).toContain('flex:1 1 0;min-width:0;');
   });
 });
