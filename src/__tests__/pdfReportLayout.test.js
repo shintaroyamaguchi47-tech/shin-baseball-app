@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
-// 試合分析レポートPDFの改行位置の回帰テスト。
-// 走者の記録や選手交代が「1塁走者 / 盗塁で2塁へ」のように意味の途中で折り返されていたため、
-// 1件=1行で並べ、[退]/[入]/[移] の区切りでのみ折り返すようにした。
+// 試合分析レポートPDFの紙面(改行位置・改ページ位置)の回帰テスト。
+//  - 改行: 走者の記録や選手交代が「1塁走者 / 盗塁で2塁へ」のように意味の途中で折り返されていたため、
+//          1件=1行で並べ、[退]/[入]/[移] の区切りでのみ折り返すようにした。
+//  - 改ページ: カードをflexコンテナに並べると印刷時の break-inside:avoid が効かないブラウザがあり、
+//              見出しだけページ末尾に取り残されていたため、分割禁止が確実に効く表の行に並べ替えた。
 import { describe, it, expect, beforeAll } from 'vitest';
 import '../pdfReport.js';
 
@@ -34,7 +36,7 @@ function eventLines(html) {
 }
 const textOf = (s) => s.replace(/<[^>]*>/g, '');
 
-describe('試合分析レポートPDFの改行', () => {
+describe('試合分析レポートPDFの紙面', () => {
   let lines;
   beforeAll(() => {
     lines = eventLines(reportHtml([{
@@ -73,6 +75,49 @@ describe('試合分析レポートPDFの改行', () => {
     const html = reportHtml([{ batter: 1, batterName: 'テスト太郎', pitcherName: '投手A', pitchCount: 4, result: '四球', events: ['1塁走者 盗塁で2塁へ'], pitches: [] }]);
     // 打席結果のすぐ後ろに記録が続かず、記録は独立した行(div)になっている
     expect(html).toMatch(/四球<\/span><\/div><div class="pbp-ev">/);
+  });
+
+  it('テキスト速報のイニングは分割禁止の表の行に並べる', () => {
+    const html = reportHtml([{ batter: 1, batterName: 'テスト太郎', pitcherName: '投手A', pitchCount: 4, result: '四球', events: [], pitches: [] }]);
+    expect(html).toContain('<tr class="pbr">');
+    expect(html).toContain('.bdr,.pbr,');
+  });
+
+  it('打者詳細のカードは1行=1カード(2打席以下は2枚)の分割禁止の行に並べる', () => {
+    const atBat = (inning) => ({ inning, isTop: true, result: 'ライト飛', pitches: [{ course: 24, type: 'ストレート', result: 'ストライク' }], sprayHit: null });
+    const player = (order, name, nAb) => ({
+      order, name, pos: '右', bats: '右', throws: '右', AB: nAb, H: 0, BB_HBP: 0, PA: nAb, K: 0,
+      AVG: '.000', OPS: '.000', KPct: 0, results: [], atBats: Array.from({ length: nAb }, (_, i) => atBat(i + 1)),
+    });
+    const batting = {
+      team: { AVG: '.000', OPS: '.000', KPct: 0, BBPct: 0, sprayHits: [] },
+      players: [player(1, '山下', 2), player(2, '安野', 2), player(3, '郡司', 3)],
+    };
+    let html = '';
+    const fakeWin = { document: { write: (s) => { html += s; }, close: () => {} }, print: () => {} };
+    const origOpen = window.open;
+    window.open = () => fakeWin;
+    try {
+      window.generatePdfReport({
+        gameInfo: { date: '2026-08-02', teamTop: 'A', teamBottom: 'B' },
+        gameState: { inning: 1, isTop: true, runs: { top: Array(9).fill(0), bottom: Array(9).fill(0) } },
+        advancedStats: { topBatting: batting, bottomBatting: emptyBatting, pitchingTop: { pitchers: [] }, pitchingBottom: { pitchers: [] } },
+        analystInsights: { hasData: false },
+        pitches: [],
+        hitsAndErrors: { top: { hits: 0, errors: 0 }, bottom: { hits: 0, errors: 0 } },
+        playByPlay: [],
+      });
+    } finally {
+      window.open = origOpen;
+    }
+    const rows = [...html.matchAll(/<tr class="bdr">([\s\S]*?)<\/tr>/g)].map((m) => m[1]);
+    expect(rows).toHaveLength(2);
+    // 2打席の山下と安野は横並び、3打席の郡司は1人で1行
+    expect(rows[0].match(/<td /g)).toHaveLength(2);
+    expect(rows[0]).toContain('1番 山下');
+    expect(rows[0]).toContain('2番 安野');
+    expect(rows[1]).toContain('colspan="2"');
+    expect(rows[1]).toContain('3番 郡司');
   });
 
   it('球種名は縦に割れないよう折り返しを禁止する', () => {

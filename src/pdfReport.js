@@ -110,8 +110,7 @@
       // 配球図を大きく取るため1人1行を基本にしつつ、2打席以下の選手は半分の幅にして横に並べ、
       // ページ内の余白を減らす。カード単位で分割禁止にし、ページをまたがないようにする
       function batterCard(p){
-        var wide=(p.atBats||[]).length>2;
-        var c='<div class="bdc" style="'+(wide?'width:100%;':'flex:1 1 calc(50% - 4px);min-width:320px;')+'background:#ffffff;border:1px solid #cbd5e1;border-radius:6px;padding:6px 8px;box-sizing:border-box;">';
+        var c='<div class="bdc" style="width:100%;background:#ffffff;border:1px solid #cbd5e1;border-radius:6px;padding:6px 8px;box-sizing:border-box;">';
         c+='<div style="font-size:11px;font-weight:bold;border-bottom:1px solid #e2e8f0;padding-bottom:3px;margin-bottom:5px;line-height:1.5;">'
           +'<span style="white-space:nowrap;">'+p.order+'番 '+esc(p.name)+'</span>'
           +' <span style="font-size:10px;color:#0ea5e9;white-space:nowrap;">AVG:'+p.AVG+' OPS:'+p.OPS+'</span>'
@@ -132,9 +131,29 @@
         c+='</div></div>';
         return c;
       }
-      h+='<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:flex-start;">';
-      players.forEach(function(p){ h+=batterCard(p); });
-      h+='</div></section>';
+      // カードはflexコンテナに並べず、1行=1カード(2打席以下の選手は2枚)のテーブルにする。
+      // flexアイテムの break-inside:avoid は印刷時に無視するブラウザ(Safari系)があり、
+      // 見出しだけがページ末尾に取り残されて中身が次ページ、という割れ方をしていた。
+      // 分割禁止がどのブラウザでも確実に効くのは表の行(tr)なので、行単位で並べる。
+      var rows=[];
+      for (var ri=0; ri<players.length; ri++) {
+        var cur=players[ri], next=players[ri+1];
+        var isNarrow=function(pl){ return (pl.atBats||[]).length<=2; };
+        if (isNarrow(cur) && next && isNarrow(next)) { rows.push([cur, next]); ri++; }
+        else rows.push([cur]);
+      }
+      h+='<table style="width:100%;table-layout:fixed;border-collapse:separate;border-spacing:0 6px;">';
+      rows.forEach(function(r){
+        h+='<tr class="bdr">';
+        if (r.length===2) {
+          h+='<td style="width:50%;vertical-align:top;padding-right:3px;">'+batterCard(r[0])+'</td>'
+            +'<td style="width:50%;vertical-align:top;padding-left:3px;">'+batterCard(r[1])+'</td>';
+        } else {
+          h+='<td colspan="2" style="vertical-align:top;">'+batterCard(r[0])+'</td>';
+        }
+        h+='</tr>';
+      });
+      h+='</table></section>';
       return h;
     }
     function atBatZoneSvg(abPitches, cellSize) {
@@ -441,14 +460,17 @@
       var innNums = Object.keys(byInning).map(Number).sort(function(a,b){return a-b;});
       // テキスト速報は表紙(スコア・チーム比較)の続きに流す(改ページしない)
       var h='<section class="report-section"><h3 class="report-heading" style="margin:0 0 8px;font-size:15px;font-weight:bold;color:#1e293b;border-bottom:2px solid #e2e8f0;padding-bottom:3px;">テキスト速報</h3>';
+      // イニングの行もflexではなく表の行にする(打者詳細のカードと同じ理由:
+      // 印刷時の分割禁止が確実に効くのは tr のため)。
+      h+='<table style="width:100%;table-layout:fixed;border-collapse:separate;border-spacing:0 3px;">';
       innNums.forEach(function(n){
         var pair = byInning[n];
-        h+='<div style="display:flex;gap:8px;margin-bottom:6px;break-inside:avoid;page-break-inside:avoid;align-items:flex-start;">';
-        h+='<div style="flex:1;min-width:0;">'+(pair.top ? innBlock(pair.top) : '')+'</div>';
-        h+='<div style="flex:1;min-width:0;">'+(pair.bottom ? innBlock(pair.bottom) : '')+'</div>';
-        h+='</div>';
+        h+='<tr class="pbr">'
+          +'<td style="width:50%;vertical-align:top;padding-right:4px;">'+(pair.top ? innBlock(pair.top) : '')+'</td>'
+          +'<td style="width:50%;vertical-align:top;padding-left:4px;">'+(pair.bottom ? innBlock(pair.bottom) : '')+'</td>'
+          +'</tr>';
       });
-      h+='</section>';
+      h+='</table></section>';
       return h;
     }
     function narrativeHtml(a){
@@ -503,7 +525,8 @@
       +'.report-section{break-inside:auto;page-break-inside:auto;padding-top:0;}'
       +'.page-break{break-before:page;page-break-before:always;}'
       +'.report-heading{break-after:avoid;page-break-after:avoid;orphans:3;widows:3;}'
-      +'.bdc,.abc,.bif,.pitcher-section table,.pitcher-section [style*="display:flex"]{break-inside:avoid;page-break-inside:avoid;}'
+      // .bdr=打者詳細カードの行 / .pbr=テキスト速報のイニングの行(どちらもページで割らない)
+      +'.bdr,.pbr,.bdc,.abc,.bif,.pitcher-section table,.pitcher-section [style*="display:flex"]{break-inside:avoid;page-break-inside:avoid;}'
       +'.no-print{display:none !important;}}'
       +'table{page-break-inside:auto;}tr{page-break-inside:avoid;}'
       +'h1,h3{break-after:avoid;page-break-after:avoid;}';
