@@ -16,12 +16,30 @@ npm run preview  # ビルド結果のプレビュー
 
 - **Vite + React 18 + Tailwind CSS v3** — すべてローカルにバンドルされ、オフラインで動作します(CDN依存なし)
 - `src/App.jsx` — アプリ本体(画面・状態管理)
+- `src/gameState.js` — イニング・アウト・カウント・走者・得点を進めるルールエンジン(純粋関数)
 - `src/analystInsights.js` — アナリスト指標の算出ロジック
 - `src/dhRules.js` — 指名打者(DH)制の判定と解除のルール
+- `src/storage.js` — 保存層。容量超過や書き込み失敗を検知して画面へ伝える(下記)
 - `src/pdfReport.js` — PDF(印刷用HTML)レポート生成
 - `src/scorebookReport.js` — スコアブックPDF(印刷用HTML)生成。紙面の組版まで自前で行う(下記)
-- `src/components/` — SprayChart(スプレーチャート)、AnalystReport(アナリスト分析画面)
+- `src/components/` — SprayChart(スプレーチャート)、AnalystReport(アナリスト分析)、PostGameReport(試合分析レポート)、CumulativeStatsModal(累計成績)
 - データは localStorage(`baseball_*_v2` キー)に自動保存されます
+
+### 保存容量について
+
+localStorage の上限は多くのブラウザで5MB前後です。アーカイブが増えて上限に近づくと画面上部に警告を出し、
+書き出しと古い試合の削除を促します。上限に達しても入力操作は落ちず、記録を続けられます(`src/storage.js`)。
+
+## オフライン利用(PWA)
+
+ブラウザの「ホーム画面に追加」でアプリとして起動でき、圏外のグラウンドでも記録を続けられます。
+
+- `public/manifest.webmanifest` — アプリ名・アイコン・起動方法。サブパス配信に合わせて `start_url` と `scope` は相対パス
+- `sw.js` — ビルド時に自動生成される Service Worker。資産名にハッシュが入るため、一覧は `vite.config.js` のプラグインが組み立てる
+- `src/registerServiceWorker.js` — 登録処理。開発サーバーと iOS ネイティブ版では登録しない
+- `scripts/generate-icons.py` — PWA用アイコンの生成(標準ライブラリのみ)。作り直すときは `python3 scripts/generate-icons.py`
+
+新しい版は、アプリを一度すべて閉じて開き直したときに反映されます(試合中に資産が入れ替わらないようにするため)。
 
 ## フェーズ1: 累計分析基盤
 
