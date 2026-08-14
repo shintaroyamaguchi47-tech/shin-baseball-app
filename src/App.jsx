@@ -14,142 +14,15 @@ import { normalizeArchive } from './analyticsData.js';
 import { isScorerGdf, convertScorerGame } from './scorerImport.js';
 import { buildScorebookData } from './scorebookData.js';
 import { autoPositions, buildAdvanceChoices, buildAdvanceEvents, previewAdvanceResult, isAdjustableEventType, isEarnedAdvanceReason, describeRunners } from './runnerAdvance.js';
+import { makeInitialGameState, makeInitialLineups, ensureRunArray, normalizeGameState, advanceGameState, resultToEventType, applyRunnerEventToState, rebuildGameStateFromPitches } from './gameState.js';
+import PostGameReport from './components/PostGameReport.jsx';
+import CumulativeStatsModal from './components/CumulativeStatsModal.jsx';
 
     function App() {
-      const makeInitialGameState = () => ({ inning: 1, isTop: true, outs: 0, balls: 0, strikes: 0, batterTop: 1, batterBottom: 1, runners: { first: false, second: false, third: false }, runs: { top: [0,0,0,0,0,0,0,0,0], bottom: [0,0,0,0,0,0,0,0,0] }, earnedRuns: { top: [0,0,0,0,0,0,0,0,0], bottom: [0,0,0,0,0,0,0,0,0] } });
-      const makeInitialLineups = () => ({
-        top: Array.from({length: 10}, (_,i)=>({ order: i<9 ? i+1 : '投', name: i<9 ? `先攻${i+1}番` : `先発投手`, pos: i===9?'投':'未', throws: '右', bats: '右' })),
-        bottom: Array.from({length: 10}, (_,i)=>({ order: i<9 ? i+1 : '投', name: i<9 ? `後攻${i+1}番` : `先発投手`, pos: i===9?'投':'未', throws: '右', bats: '右' }))
-      });
       const loadStored = (key, fallback) => {
         const saved = storage.getItem(key);
         if (!saved) return fallback;
         try { return JSON.parse(saved); } catch(e) { return fallback; }
-      };
-      const ensureRunArray = (arr, inning) => {
-        const runs = Array.isArray(arr) ? arr.map(v => Number.isFinite(Number(v)) ? Number(v) : 0) : [];
-        while (runs.length < Math.max(9, inning)) runs.push(0);
-        return runs;
-      };
-      const normalizeGameState = (state) => {
-        const base = makeInitialGameState();
-        const merged = { ...base, ...(state || {}) };
-        const inning = Math.max(1, merged.inning || 1);
-        return {
-          ...merged,
-          inning,
-          runs: {
-            top: ensureRunArray(merged.runs?.top, inning),
-            bottom: ensureRunArray(merged.runs?.bottom, inning)
-          },
-          earnedRuns: {
-            // 旧データには自責点がないため得点を初期値として移行し、スコア修正画面で訂正できる
-            top: ensureRunArray(merged.earnedRuns?.top || merged.runs?.top, inning),
-            bottom: ensureRunArray(merged.earnedRuns?.bottom || merged.runs?.bottom, inning)
-          },
-          runners: { ...base.runners, ...(merged.runners || {}) }
-        };
-      };
-      const advanceGameState = (prev, eventType, addedOuts = 0) => {
-        const state = normalizeGameState(prev);
-        let newOuts = state.outs + addedOuts, newInning = state.inning, newIsTop = state.isTop, newBatterTop = state.batterTop, newBatterBottom = state.batterBottom;
-        let newRunners = { ...state.runners }, newRunsArray = ensureRunArray(state.runs[state.isTop ? 'top' : 'bottom'], newInning), runScored = 0;
-        if (newOuts < 3) {
-          if (eventType === 'walk' || eventType === 'other') {
-            if (newRunners.first && newRunners.second && newRunners.third) runScored = 1; else if (newRunners.first && newRunners.second) newRunners.third = true; else if (newRunners.first) newRunners.second = true; newRunners.first = true;
-          } else if (['single', 'error'].includes(eventType)) {
-            if (newRunners.third) runScored++; newRunners.third = newRunners.second; newRunners.second = newRunners.first; newRunners.first = true;
-          } else if (eventType === 'double') {
-            if (newRunners.third) runScored++; if (newRunners.second) runScored++; newRunners.third = newRunners.first; newRunners.second = true; newRunners.first = false;
-          } else if (eventType === 'triple') {
-            if (newRunners.third) runScored++; if (newRunners.second) runScored++; if (newRunners.first) runScored++; newRunners.third = true; newRunners.second = false; newRunners.first = false;
-          } else if (eventType === 'homerun') {
-            if (newRunners.third) runScored++; if (newRunners.second) runScored++; if (newRunners.first) runScored++; runScored++; newRunners = { first: false, second: false, third: false };
-          } else if (eventType === 'sac_bunt') {
-            if (newRunners.third) runScored++; newRunners.third = newRunners.second; newRunners.second = newRunners.first; newRunners.first = false;
-          } else if (eventType === 'sac_fly') {
-            if (newRunners.third) runScored++; newRunners.third = false;
-          }
-        }
-        if (runScored > 0) newRunsArray[newInning - 1] = (newRunsArray[newInning - 1] || 0) + runScored;
-        if (state.isTop) newBatterTop = newBatterTop === 9 ? 1 : newBatterTop + 1; else newBatterBottom = newBatterBottom === 9 ? 1 : newBatterBottom + 1;
-        if (newOuts >= 3) { newOuts = 0; newRunners = { first: false, second: false, third: false }; if (state.isTop) newIsTop = false; else { newIsTop = true; newInning++; } }
-        const scoringTeam = state.isTop ? 'top' : 'bottom';
-        const nextRuns = { ...state.runs, [scoringTeam]: newRunsArray };
-        const nextEarnedRuns = { ...state.earnedRuns, top: ensureRunArray(state.earnedRuns?.top, newInning), bottom: ensureRunArray(state.earnedRuns?.bottom, newInning) };
-        if (runScored > 0) nextEarnedRuns[scoringTeam][state.inning - 1] = (nextEarnedRuns[scoringTeam][state.inning - 1] || 0) + runScored;
-        nextRuns.top = ensureRunArray(nextRuns.top, newInning);
-        nextRuns.bottom = ensureRunArray(nextRuns.bottom, newInning);
-        return { ...state, outs: newOuts, balls: 0, strikes: 0, batterTop: newBatterTop, batterBottom: newBatterBottom, inning: newInning, isTop: newIsTop, runners: newRunners, runs: nextRuns, earnedRuns: nextEarnedRuns };
-      };
-      const resultToEventType = (result) => {
-        if (result.includes('本塁打')) return 'homerun';
-        if (result.includes('三塁打')) return 'triple';
-        if (result.includes('二塁打')) return 'double';
-        if (result.includes('安')) return 'single';
-        if (['エラー','敵失(エラー)','野手選択'].some(w => result.includes(w))) return 'error';
-        if (result.includes('犠打')) return 'sac_bunt';
-        if (result.includes('犠飛')) return 'sac_fly';
-        return 'out';
-      };
-      // 走者イベント記録(「2塁走者 盗塁で3塁へ」「1塁走者が牽制死」など)1件を試合状況へ反映する。
-      // 記録の再構築(rebuildGameStateFromPitches)と、打席直後の進塁補正の両方から使う。
-      const applyRunnerEventToState = (prev, resultText) => {
-        const state = normalizeGameState(prev);
-        const res = resultText || '';
-        const runnerKey = res.startsWith('1塁走者') ? 'first' : res.startsWith('2塁走者') ? 'second' : res.startsWith('3塁走者') ? 'third' : null;
-        if (!runnerKey) return state;
-        if (res.includes('が')) {
-          let newOuts = state.outs + 1, newRunners = { ...state.runners, [runnerKey]: false }, newInning = state.inning, newIsTop = state.isTop;
-          if (newOuts >= 3) { newOuts = 0; newRunners = { first: false, second: false, third: false }; if (state.isTop) newIsTop = false; else { newIsTop = true; newInning++; } }
-          return normalizeGameState({ ...state, outs: newOuts, inning: newInning, isTop: newIsTop, runners: newRunners, balls: 0, strikes: 0 });
-        }
-        if (res.includes('で')) {
-          const newRunners = { ...state.runners, [runnerKey]: false };
-          const runs = { ...state.runs };
-          const earnedRuns = { ...state.earnedRuns };
-          if (res.includes('2塁へ')) newRunners.second = true;
-          else if (res.includes('3塁へ')) newRunners.third = true;
-          else if (res.includes('本塁へ')) {
-            const team = state.isTop ? 'top' : 'bottom';
-            const arr = ensureRunArray(runs[team], state.inning); arr[state.inning - 1] = (arr[state.inning - 1] || 0) + 1; runs[team] = arr;
-            // 打球・送球間での生還は自責点に数える(盗塁・暴投など従来の理由は据え置き)
-            const reason = (res.split(' ')[1] || '').split('で')[0];
-            if (isEarnedAdvanceReason(reason)) {
-              const er = ensureRunArray(earnedRuns[team], state.inning); er[state.inning - 1] = Math.min(arr[state.inning - 1], (er[state.inning - 1] || 0) + 1); earnedRuns[team] = er;
-            }
-          }
-          return normalizeGameState({ ...state, runners: newRunners, runs, earnedRuns });
-        }
-        return state;
-      };
-      const rebuildGameStateFromPitches = (records) => {
-        let state = makeInitialGameState();
-        let lastAtBatKey = null;
-        records.forEach(p => {
-          state = normalizeGameState({ ...state, inning: p.inning || state.inning, isTop: p.isTop, ...(p.isTop ? { batterTop: p.batter || state.batterTop } : { batterBottom: p.batter || state.batterBottom }) });
-          if (!p.isEvent) {
-            // 打順修正などで途中から打者が変わった場合は新しい打席としてカウントをリセットする
-            const atBatKey = `${p.inning}-${p.isTop}-${p.batter}`;
-            if (lastAtBatKey !== null && atBatKey !== lastAtBatKey) state = { ...state, balls: 0, strikes: 0 };
-            lastAtBatKey = atBatKey;
-          }
-          if (p.isEvent) {
-            state = applyRunnerEventToState(state, p.result);
-            return;
-          }
-          const res = p.result || '';
-          if (['ボール','ウエスト'].includes(res)) state = state.balls >= 3 ? advanceGameState(state, 'walk', 0) : { ...state, balls: state.balls + 1 };
-          else if (res === '死球' || res === 'その他出塁') state = advanceGameState(state, res === 'その他出塁' ? 'other' : 'walk', 0);
-          else if (['ストライク','空振り','バント空振り'].includes(res)) state = state.strikes >= 2 ? advanceGameState(state, 'out', 1) : { ...state, strikes: state.strikes + 1 };
-          else if (['ファウル','バントファウル'].includes(res)) state = state.strikes < 2 ? { ...state, strikes: state.strikes + 1 } : state;
-          else if (res === 'スリーバント失敗' || res === '三振' || res === '振り逃げアウト') state = advanceGameState(state, 'out', 1);
-          else if (res === '振り逃げ') state = advanceGameState(state, 'error', 0);
-          // 打者アウトの数は結果テキストから判定する(併殺打=2、犠打/犠飛=1、
-          // 「ライトゴロ」「右ゴロ」など守備位置の表記ゆれも1アウト)
-          else if (!res?.startsWith('牽制')) state = advanceGameState(state, resultToEventType(res), outsAddedFor(res));
-        });
-        return normalizeGameState(state);
       };
       const [gameState, setGameState] = useState(() => {
         return normalizeGameState(loadStored('baseball_gameState_v2', makeInitialGameState()));
@@ -235,6 +108,8 @@ import { autoPositions, buildAdvanceChoices, buildAdvanceEvents, previewAdvanceR
       const [showAnalyticsHub, setShowAnalyticsHub] = useState(false);
       const [homeTeamName, setHomeTeamName] = useState(() => loadStored('baseball_homeTeam_v3', ''));
       const [playerNotes, setPlayerNotes] = useState(() => loadStored('baseball_playerNotes_v3', {}));
+      // 端末のストレージが逼迫・保存失敗したときの常設警告。消えるトーストだと試合中に見逃すため常時表示する
+      const [storageAlert, setStorageAlert] = useState(null);
 
       useEffect(() => { storage.setItem('baseball_gameState_v2', JSON.stringify(gameState)); }, [gameState]);
       useEffect(() => { storage.setItem('baseball_homeTeam_v3', JSON.stringify(homeTeamName)); }, [homeTeamName]);
@@ -247,6 +122,40 @@ import { autoPositions, buildAdvanceChoices, buildAdvanceEvents, previewAdvanceR
       useEffect(() => { storage.setItem('baseball_savedGames_v2', JSON.stringify(savedGames)); }, [savedGames]);
       useEffect(() => { storage.setItem('baseball_registeredTeams_v2', JSON.stringify(registeredTeams)); }, [registeredTeams]);
 
+      // 保存失敗・容量逼迫を storage.js から受け取る。
+      // 保存は1球ごとに走るので、同じ深刻度の警告が続くうちは状態を作り直さない。
+      useEffect(() => {
+        storage.setStorageNotifier((info) => {
+          const alert = info.type === 'near-limit'
+            ? {
+                level: 'warn',
+                title: '端末の保存容量が残りわずかです',
+                body: `使用量 約${Math.round(info.bytes / 1024 / 1024 * 10) / 10}MB（上限の${Math.round(info.ratio * 100)}%）。試合データを書き出して、古いアーカイブを削除してください。`,
+              }
+            : info.type === 'quota'
+              ? {
+                  level: 'danger',
+                  title: '保存容量がいっぱいで記録を保存できませんでした',
+                  body: info.nativeBackup
+                    ? 'アプリ内バックアップには書き込めています。すぐに試合データを書き出し、古いアーカイブを削除してください。'
+                    : 'このままではページを閉じると記録が失われます。すぐに試合データを書き出し、古いアーカイブを削除してください。',
+                }
+              : {
+                  level: 'danger',
+                  title: '記録を保存できませんでした',
+                  body: 'ブラウザのプライベートモードや保存設定が原因の可能性があります。試合データを書き出して控えを取ってください。',
+                };
+          setStorageAlert((prev) => (prev && prev.level === alert.level && prev.title === alert.title ? prev : alert));
+        });
+        return () => storage.setStorageNotifier(null);
+      }, []);
+
+      // アーカイブを削除して容量に余裕が戻ったら警告を引っ込める。
+      // 上の保存用 useEffect より後に宣言しているため、書き込み後の使用量を見る。
+      useEffect(() => {
+        if (!storageAlert) return;
+        if (!storage.refreshUsage().nearLimit) setStorageAlert(null);
+      }, [savedGames]);
 
       const showToast = (text, type = 'success') => { setToast({ text, type }); setTimeout(() => setToast(null), 3000); };
       const findRegisteredTeam = (name) => registeredTeams.find(t => t.name === name);
@@ -1545,6 +1454,22 @@ import { autoPositions, buildAdvanceChoices, buildAdvanceEvents, previewAdvanceR
       return (
         <div className="min-h-screen flex flex-col h-screen overflow-hidden bg-slate-50">
           {toast && <div className={`fixed top-6 left-1/2 transform -translate-x-1/2 px-6 py-3 rounded-full font-bold shadow-2xl z-[600] flex items-center gap-3 ${toast.type === 'error' ? 'bg-rose-600 text-white' : 'bg-slate-800 text-white border border-slate-700'}`}><span>{toast.type === 'error' ? '⚠️' : '✅'}</span>{toast.text}</div>}
+
+          {storageAlert && !printMode && (
+            <div role="alert" className={`fixed top-0 inset-x-0 z-[550] px-3 py-2.5 shadow-lg border-b-2 ${storageAlert.level === 'danger' ? 'bg-rose-600 border-rose-800 text-white' : 'bg-amber-400 border-amber-600 text-amber-950'}`}>
+              <div className="max-w-3xl mx-auto flex items-start gap-2">
+                <span className="text-lg leading-tight shrink-0">{storageAlert.level === 'danger' ? '🚨' : '⚠️'}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="font-black text-xs leading-tight">{storageAlert.title}</p>
+                  <p className="text-[11px] font-bold leading-snug mt-0.5 opacity-90">{storageAlert.body}</p>
+                </div>
+                <div className="flex flex-col gap-1 shrink-0">
+                  <button onClick={() => { setStorageAlert(null); setShowExport(true); }} className={`text-[11px] font-black px-3 py-1.5 rounded-lg ${storageAlert.level === 'danger' ? 'bg-white text-rose-700' : 'bg-amber-950 text-amber-50'}`}>書き出す</button>
+                  <button onClick={() => setStorageAlert(null)} aria-label="警告を閉じる" className="text-[11px] font-black px-3 py-1 rounded-lg border border-current opacity-70">閉じる</button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {confirmDialog && (
             <div className="fixed inset-0 bg-slate-900/60 z-[600] flex items-center justify-center p-4 backdrop-blur-sm">
@@ -3139,441 +3064,19 @@ import { autoPositions, buildAdvanceChoices, buildAdvanceEvents, previewAdvanceR
           )}
 
           {showPostGameAnalysis && advancedStats && (
-            <div className="fixed inset-0 bg-slate-900/90 z-[200] flex flex-col overflow-hidden">
-              <div className="bg-white border-b border-slate-200 p-4 flex justify-between items-center shrink-0">
-                <h2 className="text-lg font-black text-slate-800 flex items-center gap-2">🏁 試合分析レポート</h2>
-                <div className="flex gap-2">
-                  <button onClick={handlePrintDashboard} className="bg-slate-800 text-white px-4 py-2 rounded-lg text-xs font-bold shadow-sm">🖨️ 印刷 / PDF</button>
-                  <button onClick={() => setShowPostGameAnalysis(false)} className="bg-slate-100 text-slate-600 px-4 py-2 rounded-lg text-xs font-bold border border-slate-300">✕ 閉じる</button>
-                </div>
-              </div>
-              <div className="flex-1 overflow-y-auto p-4 md:p-6 bg-slate-50 modal-scroll">
-                <div className="max-w-4xl mx-auto space-y-8">
-                  {/* Score summary */}
-                  <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-                    <h3 className="text-xl font-black text-slate-800 mb-4">{gameInfo.date} — {gameInfo.teamTop} vs {gameInfo.teamBottom}</h3>
-                    <div className="text-center text-4xl font-black text-blue-700 mb-4">
-                      {gameState.runs.top.reduce((a,b)=>a+b,0)} - {gameState.runs.bottom.reduce((a,b)=>a+b,0)}
-                    </div>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
-                      <div className="bg-slate-50 p-3 rounded-xl"><div className="text-[10px] font-bold text-slate-500 uppercase">投球数</div><div className="text-2xl font-black text-slate-800">{pitches.filter(p=>!p.isEvent||p.countAsPitch).length}</div></div>
-                      <div className="bg-slate-50 p-3 rounded-xl"><div className="text-[10px] font-bold text-slate-500 uppercase">{gameInfo.teamTop} 打率</div><div className="text-2xl font-black text-blue-700">{advancedStats.topBatting.team.AVG}</div></div>
-                      <div className="bg-slate-50 p-3 rounded-xl"><div className="text-[10px] font-bold text-slate-500 uppercase">{gameInfo.teamBottom} 打率</div><div className="text-2xl font-black text-blue-700">{advancedStats.bottomBatting.team.AVG}</div></div>
-                      <div className="bg-slate-50 p-3 rounded-xl"><div className="text-[10px] font-bold text-slate-500 uppercase">H / E</div><div className="text-lg font-black text-slate-800">{hitsAndErrors.top.hits}H-{hitsAndErrors.top.errors}E / {hitsAndErrors.bottom.hits}H-{hitsAndErrors.bottom.errors}E</div></div>
-                    </div>
-                  </div>
-
-                  {/* 打席速報(実況文+カウント推移+打球図)。簡易版テキスト速報を置き換え */}
-                  <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-                    <h3 className="text-base font-black text-slate-800 mb-4">📰 打席速報</h3>
-                    <PlayByPlayReport report={playByPlayReport} gameInfo={gameInfo} defaultOpenLast scrollTarget={pbpScrollTarget} onScrolled={() => setPbpScrollTarget(null)} />
-                  </div>
-
-                  {/* Spray charts */}
-                  <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-                    <h3 className="text-base font-black text-slate-800 mb-4">🎯 チーム打球方向</h3>
-                    <div className="flex flex-wrap gap-6 justify-center">
-                      <SprayChart hits={advancedStats.topBatting.team.sprayHits} title={gameInfo.teamTop} size={200} />
-                      <SprayChart hits={advancedStats.bottomBatting.team.sprayHits} title={gameInfo.teamBottom} size={200} />
-                    </div>
-                    <div className="text-[10px] text-slate-500 text-center mt-4">青=安打 / 赤=凡打 / 橙=失策 / 紫=ファウル｜波線=ゴロ / 破線=フライ / 直線=ライナー / 太弧=HR</div>
-                  </div>
-
-                  {/* アナリスト指標 */}
-                  <AnalystReport insights={analystInsights} />
-
-                  {/* Batting tables + individual spray charts */}
-                  {[{data: advancedStats.topBatting, name: gameInfo.teamTop}, {data: advancedStats.bottomBatting, name: gameInfo.teamBottom}].map(({data, name}) => (
-                    <div key={name} className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-                      <h3 className="text-base font-black text-slate-800 mb-4">🏏 打者成績: {name}</h3>
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-xs border-collapse">
-                          <thead><tr className="bg-slate-100 border-b-2 border-slate-300">
-                            <th className="py-2 px-2 text-left">順</th><th className="py-2 px-2 text-left">選手名</th><th className="py-2 px-2 text-center">守備</th><th className="py-2 px-2 text-center">投打</th><th className="py-2 px-2 text-right">打数</th><th className="py-2 px-2 text-right">安打</th><th className="py-2 px-2 text-right">四死</th><th className="py-2 px-2 text-right text-blue-600">打率</th><th className="py-2 px-2 text-right text-amber-600">OPS</th><th className="py-2 px-2 text-right text-rose-600">K%</th><th className="py-2 px-2 text-left">結果</th>
-                          </tr></thead>
-                          <tbody>
-                            {data.players.filter(p => p.PA > 0).map((p, i) => (
-                              <tr key={i} className={`border-b border-slate-100 ${i % 2 === 0 ? '' : 'bg-slate-50'}`}>
-                                <td className="py-2 px-2 font-bold text-slate-400">{p.order}</td><td className="py-2 px-2 font-black text-slate-800">{p.name}</td>
-                                <td className="py-2 px-2 text-center text-slate-500">{p.pos || '-'}</td><td className="py-2 px-2 text-center text-slate-500 text-[10px] whitespace-nowrap">{(p.throws || '?') + '投/' + (p.bats || '?') + '打'}</td>
-                                <td className="py-2 px-2 text-right">{p.AB}</td><td className="py-2 px-2 text-right">{p.H}</td><td className="py-2 px-2 text-right">{p.BB_HBP}</td>
-                                <td className="py-2 px-2 text-right text-blue-600 font-bold">{p.AVG}</td><td className="py-2 px-2 text-right text-amber-600 font-bold">{p.OPS}</td><td className="py-2 px-2 text-right text-rose-600">{p.KPct}%</td>
-                                <td className="py-2 px-2 text-[10px] text-slate-500 max-w-[260px] align-top">
-                                  <div className="flex flex-wrap gap-1">
-                                    {p.results.length ? p.results.map((r, ri) => <span key={ri} className="inline-block px-2 py-[1px] rounded-full bg-indigo-50 text-slate-700 leading-snug">{r}</span>) : <span className="text-slate-400">-</span>}
-                                  </div>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                      {/* Per-at-bat pitch breakdown with mini strike zone */}
-                      {(() => {
-                        const ptColors = {
-                          'ストレート': '#ef4444',
-                          'スライダー': '#3b82f6',
-                          'シュート':   '#10b981',
-                          'カーブ':     '#f59e0b',
-                          '落ちる球':  '#6366f1',
-                          'シンカー':  '#06b6d4',
-                        };
-                        const cs = 11; // cell size px
-                        const svgSz = cs * 7;
-                        const renderAbZone = (abPitches) => {
-                          // group pitches by course to handle overlaps
-                          const byPos = {};
-                          abPitches.forEach((p, i) => {
-                            if (p.course !== null && p.course !== undefined) {
-                              if (!byPos[p.course]) byPos[p.course] = [];
-                              byPos[p.course].push({ ...p, seq: i + 1 });
-                            }
-                          });
-                          const r = cs / 2 - 1.2;
-                          return (
-                            <svg width={svgSz} height={svgSz} style={{display:'block'}}>
-                              {Array.from({length: 49}, (_, idx) => {
-                                const row = Math.floor(idx / 7), col = idx % 7;
-                                const isZone = row >= 2 && row <= 4 && col >= 2 && col <= 4;
-                                return (
-                                  <rect key={idx} x={col*cs} y={row*cs} width={cs-0.5} height={cs-0.5}
-                                    fill={isZone ? '#f0f9ff' : '#f8fafc'}
-                                    stroke={isZone ? '#bae6fd' : '#e2e8f0'} strokeWidth="0.4" />
-                                );
-                              })}
-                              <rect x={2*cs} y={2*cs} width={3*cs} height={3*cs} fill="none" stroke="#475569" strokeWidth="1.5" rx="0.5" />
-                              {Object.entries(byPos).map(([course, ps]) => {
-                                const cIdx = parseInt(course);
-                                const row = Math.floor(cIdx / 7), col = cIdx % 7;
-                                const baseCx = col*cs + cs/2, baseCy = row*cs + cs/2;
-                                return ps.map((p, pIdx) => {
-                                  const angle = ps.length > 1 ? (pIdx / ps.length) * Math.PI * 2 - Math.PI/2 : 0;
-                                  const dist = ps.length > 1 ? r * 0.55 : 0;
-                                  const cx = baseCx + Math.cos(angle) * dist;
-                                  const cy = baseCy + Math.sin(angle) * dist;
-                                  const color = ptColors[p.type] || '#94a3b8';
-                                  const isBall = ['ボール','ウエスト'].includes(p.result);
-                                  const isLastPitch = p.seq === abPitches.length;
-                                  return (
-                                    <g key={pIdx}>
-                                      {isLastPitch && <circle cx={cx} cy={cy} r={r+2} fill="none" stroke={color} strokeWidth="1.5" strokeDasharray="2 1" opacity="0.7" />}
-                                      <circle cx={cx} cy={cy} r={r}
-                                        fill={isBall ? 'white' : color}
-                                        stroke={color} strokeWidth={isBall ? 1.2 : 0}
-                                        opacity={0.92} />
-                                      <text x={cx} y={cy+2.2} textAnchor="middle" fontSize="5" fontWeight="900"
-                                        fill={isBall ? color : 'white'}>{p.seq}</text>
-                                    </g>
-                                  );
-                                });
-                              })}
-                            </svg>
-                          );
-                        };
-                        const getResultLabel = (result) => {
-                          if (['ボール','ウエスト'].includes(result)) return { text: 'BB/HBP', color: '#64748b' };
-                          if (result === '三振' || result === '振り逃げ') return { text: '三振', color: '#ef4444' };
-                          if (['安','塁打','本塁打'].some(w => result.includes(w))) return { text: result, color: '#1d4ed8' };
-                          return { text: result, color: '#475569' };
-                        };
-                        const playersWithABs = data.players.filter(bp => bp.PA > 0 && bp.atBats && bp.atBats.length > 0);
-                        if (!playersWithABs.length) return null;
-                        return (
-                          <div className="mt-6 border-t border-slate-200 pt-5">
-                            <h4 className="text-sm font-black text-slate-700 mb-2">📋 打席内容 <span className="text-xs font-normal text-slate-400">(配球・打球方向)</span></h4>
-                            <div className="flex flex-wrap gap-x-4 gap-y-1 mb-3 text-[10px] text-slate-500 items-center">
-                              {Object.entries(ptColors).map(([n,c]) => (
-                                <span key={n} className="flex items-center gap-1">
-                                  <svg width="10" height="10"><circle cx="5" cy="5" r="4" fill={c} /></svg>{n}
-                                </span>
-                              ))}
-                              <span className="text-slate-300 mx-1">|</span>
-                              <span>○=ボール ●=ストライク系 数字=投球順 点線=最終球</span>
-                            </div>
-                            <div className="space-y-4">
-                              {playersWithABs.map((batter, bi) => (
-                                <div key={bi} className="bg-slate-50 rounded-xl border border-slate-100 p-3">
-                                  <div className="text-xs font-black text-slate-700 mb-3">
-                                    {batter.order}番 {batter.name}
-                                    <span className="ml-2 text-slate-400 font-normal text-[10px]">{batter.AB}打数 {batter.H}安打 打率{batter.AVG}</span>
-                                  </div>
-                                  <div className="flex flex-wrap gap-3">
-                                    {batter.atBats.map((ab, abIdx) => {
-                                      const rl = getResultLabel(ab.result);
-                                      return (
-                                        <div key={abIdx} className="flex flex-col items-center gap-1" style={{minWidth: svgSz * 2 + 6, maxWidth: svgSz * 2 + 14}}>
-                                          <div className="text-[10px] text-slate-500 font-bold">{ab.inning}回{ab.isTop?'表':'裏'}</div>
-                                          <div className="flex items-start gap-1.5">
-                                            <div className="flex flex-col items-center gap-0.5">
-                                              <span className="text-[8px] font-bold text-slate-400">配球</span>
-                                              <div style={{border:'1px solid #e2e8f0',borderRadius:6,overflow:'hidden',background:'white'}}>
-                                                {renderAbZone(ab.pitches)}
-                                              </div>
-                                            </div>
-                                            <div className="flex flex-col items-center gap-0.5">
-                                              <span className="text-[8px] font-bold text-slate-400">打球方向</span>
-                                              <SprayChart hits={ab.sprayHit ? [ab.sprayHit] : []} size={svgSz} compact emptyLabel="打球なし" />
-                                            </div>
-                                          </div>
-                                          <div className="text-[10px] font-black text-center leading-snug px-1" style={{color: rl.color, maxWidth: svgSz * 2 + 8, overflowWrap: 'anywhere'}}>{rl.text}</div>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        );
-                      })()}
-
-                      <div className="mt-6">
-                        <h4 className="text-sm font-black text-slate-700 mb-3">🎯 打者別 打球方向</h4>
-                        <div className="flex flex-wrap gap-4 justify-center">
-                          {data.players.filter(p => p.sprayHits && p.sprayHits.length > 0).map((p, i) => (
-                            <SprayChart key={i} hits={p.sprayHits} title={`${p.order}番 ${p.name}`} size={160} />
-                          ))}
-                          {data.players.filter(p => p.sprayHits && p.sprayHits.length > 0).length === 0 && (
-                            <p className="text-xs text-slate-400 py-4">打球データがありません</p>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-
-                  {/* Pitching stats with charts */}
-                  {[{data: advancedStats.pitchingTop, name: gameInfo.teamTop, label: '先攻投手陣'}, {data: advancedStats.pitchingBottom, name: gameInfo.teamBottom, label: '後攻投手陣'}].map(({data, name, label}) => (
-                    <div key={label} className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-                      <h3 className="text-base font-black text-slate-800 mb-4">⚾ {label}: {name}</h3>
-                      {data.pitchers.map((p, pi) => {
-                        const pieColors = ['#3b82f6','#ef4444','#10b981','#f59e0b','#8b5cf6','#ec4899','#06b6d4','#84cc16'];
-                        const pieTotal = p.types.reduce((s,t) => s + t.total, 0);
-                        const allPitchTypes = [...new Set(p.types.map(t => t.type))];
-                        const countLabels = [{key:'ahead',label:'投手有利',color:'#3b82f6'},{key:'even',label:'並行',color:'#64748b'},{key:'behind',label:'打者有利',color:'#ef4444'}];
-                        const countDataAll = {};
-                        ['vsRight','vsLeft'].forEach(side => {
-                          countLabels.forEach(cl => {
-                            const cObj = p.counts[side][cl.key];
-                            Object.entries(cObj.types || {}).forEach(([type, cnt]) => {
-                              if (!countDataAll[cl.key]) countDataAll[cl.key] = {};
-                              countDataAll[cl.key][type] = (countDataAll[cl.key][type] || 0) + cnt;
-                            });
-                          });
-                        });
-                        const countCourseAll = {};
-                        const hmAll = {};
-                        allPitchTypes.forEach(type => { hmAll[type] = {}; });
-                        countLabels.forEach(cl => { countCourseAll[cl.key] = {}; allPitchTypes.forEach(type => { countCourseAll[cl.key][type] = {}; }); });
-                        if (p.pitchTypeHeatmaps) {
-                          Object.entries(p.pitchTypeHeatmaps).forEach(([type, hm]) => {
-                            if (!hmAll[type]) hmAll[type] = {};
-                            Object.entries(hm.all || {}).forEach(([c, cnt]) => { hmAll[type][c] = (hmAll[type][c] || 0) + cnt; });
-                            countLabels.forEach(cl => {
-                              if (!countCourseAll[cl.key][type]) countCourseAll[cl.key][type] = {};
-                              Object.entries(hm[cl.key] || {}).forEach(([c, cnt]) => { countCourseAll[cl.key][type][c] = (countCourseAll[cl.key][type][c] || 0) + cnt; });
-                            });
-                          });
-                        }
-                        const renderHeatmap = (hmData, color, size) => {
-                          const mx = Math.max(1, ...Object.values(hmData).map(Number));
-                          const cs = size === 'sm' ? 8 : 12;
-                          const ts = cs * 7;
-                          const zs = cs * 2;
-                          const zw = cs * 3;
-                          return (
-                            <svg width={ts} height={ts} viewBox={`0 0 ${ts} ${ts}`}>
-                              {Array.from({length: 49}, (_, idx) => {
-                                const row = Math.floor(idx / 7), col = idx % 7;
-                                const x = col * cs, y = row * cs;
-                                const isZone = row >= 2 && row <= 4 && col >= 2 && col <= 4;
-                                const cnt = hmData[idx] || 0;
-                                const intensity = cnt > 0 ? Math.max(0.18, cnt / mx) : 0;
-                                return <rect key={idx} x={x} y={y} width={cs - 0.5} height={cs - 0.5} rx="1"
-                                  fill={cnt > 0 ? color : (isZone ? '#f1f5f9' : '#f8fafc')}
-                                  opacity={cnt > 0 ? intensity : 1}
-                                  stroke={isZone ? '#cbd5e1' : '#e2e8f0'} strokeWidth="0.3" />;
-                              })}
-                              <rect x={zs} y={zs} width={zw} height={zw} fill="none" stroke="#64748b" strokeWidth="1" rx="0.5" />
-                              {size !== 'sm' && Array.from({length: 49}, (_, idx) => {
-                                const cnt = hmData[idx] || 0;
-                                if (cnt === 0) return null;
-                                const row = Math.floor(idx / 7), col = idx % 7;
-                                return <text key={`t${idx}`} x={col * cs + cs/2} y={row * cs + cs/2 + 2} textAnchor="middle" fontSize="5.5" fontWeight="900" fill="white">{cnt}</text>;
-                              })}
-                            </svg>
-                          );
-                        };
-                        const allCourseData = {};
-                        Object.values(hmAll).forEach(typeMap => { Object.entries(typeMap).forEach(([c, cnt]) => { allCourseData[c] = (allCourseData[c] || 0) + cnt; }); });
-                        return (
-                        <div key={pi} className="mb-8 last:mb-0 bg-slate-50 rounded-xl border border-slate-200 p-4">
-                          <div className="flex justify-between items-center mb-3">
-                            <div className="font-black text-lg text-slate-800">{p.name} <span className="text-sm text-slate-500 font-bold ml-2">{p.total}球</span></div>
-                          </div>
-                          <div className="grid grid-cols-3 gap-3 mb-4">
-                            <div className="bg-white p-3 rounded-xl border border-slate-200 text-center"><div className="text-[10px] text-slate-500 font-bold uppercase">CSW%</div><div className="text-2xl font-black text-amber-600">{p.csw}%</div></div>
-                            <div className="bg-white p-3 rounded-xl border border-slate-200 text-center"><div className="text-[10px] text-slate-500 font-bold uppercase">Whiff%</div><div className="text-2xl font-black text-rose-600">{p.whiff}%</div></div>
-                            <div className="bg-white p-3 rounded-xl border border-slate-200 text-center"><div className="text-[10px] text-slate-500 font-bold uppercase">初球S率</div><div className="text-2xl font-black text-blue-600">{p.fStrikePct}%</div></div>
-                          </div>
-
-                          {/* === SECTION: スプリット === */}
-                          {p.sideStats && (
-                            <div className="flex flex-col sm:flex-row gap-3 mb-4">
-                              {[{label:'🆚 対左右', rows:[{name:'対右', d:p.sideStats.right},{name:'対左', d:p.sideStats.left}]}, {label:'📊 打順', rows:[{name:'上位 1〜5番', d:p.orderStats.top},{name:'下位 6〜9番', d:p.orderStats.bottom}]}].map(({label, rows}) => (
-                                <div key={label} className="flex-1 bg-white rounded-xl border border-slate-200 p-3">
-                                  <div className="text-[10px] font-black text-slate-600 mb-2">{label}</div>
-                                  <table className="w-full text-[10px] border-collapse">
-                                    <thead><tr className="border-b border-slate-200 bg-slate-50">
-                                      <th className="py-1 px-1 text-left font-black text-slate-500"></th>
-                                      <th className="py-1 px-1 text-right font-black text-slate-500">打席</th>
-                                      <th className="py-1 px-1 text-right font-black text-slate-500">投球</th>
-                                      <th className="py-1 px-1 text-right font-black text-sky-600">S%</th>
-                                      <th className="py-1 px-1 text-right font-black text-blue-600">被打率</th>
-                                      <th className="py-1 px-1 text-right font-black text-rose-600">K%</th>
-                                      <th className="py-1 px-1 text-right font-black text-emerald-600">BB%</th>
-                                    </tr></thead>
-                                    <tbody>
-                                      {rows.map(({name, d}, ri) => (
-                                        <tr key={ri} className={`border-b border-slate-100 ${ri%2===1?'bg-slate-50':''}`}>
-                                          <td className="py-1 px-1 font-bold text-slate-700">{name}</td>
-                                          <td className="py-1 px-1 text-right">{d.PA}</td>
-                                          <td className="py-1 px-1 text-right">{d.total}</td>
-                                          <td className="py-1 px-1 text-right text-sky-600 font-bold">{d.sPct}%</td>
-                                          <td className="py-1 px-1 text-right text-blue-600 font-bold">{d.AVG}</td>
-                                          <td className="py-1 px-1 text-right text-rose-600 font-bold">{d.KPct}%</td>
-                                          <td className="py-1 px-1 text-right text-emerald-600 font-bold">{d.BBPct}%</td>
-                                        </tr>
-                                      ))}
-                                    </tbody>
-                                  </table>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-
-                          {/* === SECTION: 全体 === */}
-                          <div className="bg-white rounded-xl border border-slate-200 p-4 mb-4">
-                            <div className="text-xs font-black text-slate-700 mb-3">📊 全体 — 球種割合 & コース分布</div>
-                            <div className="flex flex-col sm:flex-row gap-4">
-                              {/* Left: pitch type table (numbers only) */}
-                              <div className="sm:w-48 shrink-0">
-                                <table className="w-full text-[10px] border-collapse">
-                                  <thead><tr className="border-b border-slate-200 bg-slate-50">
-                                    <th className="py-1 px-1.5 text-left font-black text-slate-600">球種</th>
-                                    <th className="py-1 px-1.5 text-right font-black text-slate-600">数</th>
-                                    <th className="py-1 px-1.5 text-right font-black text-slate-600">割合</th>
-                                    <th className="py-1 px-1.5 text-right font-black text-amber-600">CSW</th>
-                                    <th className="py-1 px-1.5 text-right font-black text-rose-600">空振</th>
-                                  </tr></thead>
-                                  <tbody>
-                                    {p.types.map((t, ti) => (
-                                      <tr key={ti} className="border-b border-slate-100">
-                                        <td className="py-1 px-1.5 font-bold"><span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full inline-block shrink-0" style={{backgroundColor: pieColors[ti % pieColors.length]}}></span>{t.type}</span></td>
-                                        <td className="py-1 px-1.5 text-right font-bold">{t.total}</td>
-                                        <td className="py-1 px-1.5 text-right font-black text-blue-600">{Math.round((t.total/(pieTotal||1))*100)}%</td>
-                                        <td className="py-1 px-1.5 text-right font-bold text-amber-600">{t.csw}%</td>
-                                        <td className="py-1 px-1.5 text-right font-bold text-rose-600">{t.whiff}%</td>
-                                      </tr>
-                                    ))}
-                                    <tr className="bg-slate-50 font-black">
-                                      <td className="py-1 px-1.5">合計</td>
-                                      <td className="py-1 px-1.5 text-right">{pieTotal}</td>
-                                      <td className="py-1 px-1.5 text-right">—</td>
-                                      <td className="py-1 px-1.5 text-right text-amber-600">{p.csw}%</td>
-                                      <td className="py-1 px-1.5 text-right text-rose-600">{p.whiff}%</td>
-                                    </tr>
-                                  </tbody>
-                                </table>
-                              </div>
-                              {/* Right: course heatmaps per pitch type */}
-                              <div className="flex-1">
-                                <div className="flex flex-wrap gap-3 justify-center">
-                                  <div className="flex flex-col items-center">
-                                    <div className="text-[9px] font-black text-slate-500 mb-1">全球種</div>
-                                    {renderHeatmap(allCourseData, '#334155', 'lg')}
-                                  </div>
-                                  {p.types.filter(t => hmAll[t.type] && Object.keys(hmAll[t.type]).length > 0).map((t, ti) => (
-                                    <div key={ti} className="flex flex-col items-center">
-                                      <div className="text-[9px] font-black mb-1" style={{color: pieColors[ti % pieColors.length]}}>{t.type}</div>
-                                      {renderHeatmap(hmAll[t.type], pieColors[ti % pieColors.length], 'lg')}
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* === SECTION: カウント別 === */}
-                          <div className="bg-white rounded-xl border border-slate-200 p-4">
-                            <div className="text-xs font-black text-slate-700 mb-3">📈 カウント別 — 球種割合 & コース分布</div>
-                            <div className="space-y-5">
-                              {countLabels.map(cl => {
-                                const cData = countDataAll[cl.key] || {};
-                                const cTotal = Object.values(cData).reduce((s,v) => s + v, 0);
-                                if (cTotal === 0) return null;
-                                const cCourseAll = {};
-                                Object.values(countCourseAll[cl.key] || {}).forEach(typeMap => { Object.entries(typeMap).forEach(([c, cnt]) => { cCourseAll[c] = (cCourseAll[c] || 0) + cnt; }); });
-                                return (
-                                  <div key={cl.key} className="border-l-4 pl-3 rounded-r-lg" style={{borderColor: cl.color}}>
-                                    <div className="flex items-center gap-2 mb-2">
-                                      <span className="text-[11px] font-black" style={{color: cl.color}}>{cl.label}</span>
-                                      <span className="text-[10px] text-slate-400 font-bold">({cTotal}球)</span>
-                                    </div>
-                                    <div className="flex flex-col sm:flex-row gap-3">
-                                      {/* Pitch type numbers */}
-                                      <div className="sm:w-36 shrink-0">
-                                        <table className="w-full text-[9px] border-collapse">
-                                          <thead><tr className="border-b border-slate-200">
-                                            <th className="py-0.5 px-1 text-left font-black text-slate-500">球種</th>
-                                            <th className="py-0.5 px-1 text-right font-black text-slate-500">数</th>
-                                            <th className="py-0.5 px-1 text-right font-black text-slate-500">割合</th>
-                                          </tr></thead>
-                                          <tbody>
-                                            {allPitchTypes.map((type, ti) => {
-                                              const cnt = cData[type] || 0;
-                                              if (cnt === 0) return null;
-                                              return (
-                                                <tr key={ti} className="border-b border-slate-50">
-                                                  <td className="py-0.5 px-1 font-bold"><span className="inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full inline-block" style={{backgroundColor: pieColors[ti % pieColors.length]}}></span>{type}</span></td>
-                                                  <td className="py-0.5 px-1 text-right">{cnt}</td>
-                                                  <td className="py-0.5 px-1 text-right font-black">{Math.round((cnt/cTotal)*100)}%</td>
-                                                </tr>
-                                              );
-                                            })}
-                                          </tbody>
-                                        </table>
-                                      </div>
-                                      {/* Course heatmaps */}
-                                      <div className="flex flex-wrap gap-2 justify-center flex-1">
-                                        <div className="flex flex-col items-center">
-                                          <div className="text-[8px] font-black text-slate-400 mb-0.5">全球種</div>
-                                          {renderHeatmap(cCourseAll, cl.color, 'sm')}
-                                        </div>
-                                        {allPitchTypes.map((type, ti) => {
-                                          const typeHm = (countCourseAll[cl.key] || {})[type] || {};
-                                          if (Object.keys(typeHm).length === 0) return null;
-                                          return (
-                                            <div key={ti} className="flex flex-col items-center">
-                                              <div className="text-[8px] font-black mb-0.5" style={{color: pieColors[ti % pieColors.length]}}>{type.slice(0,4)}</div>
-                                              {renderHeatmap(typeHm, pieColors[ti % pieColors.length], 'sm')}
-                                            </div>
-                                          );
-                                        })}
-                                      </div>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        </div>
-                        );
-                      })}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
+            <PostGameReport
+              gameInfo={gameInfo}
+              gameState={gameState}
+              pitches={pitches}
+              advancedStats={advancedStats}
+              analystInsights={analystInsights}
+              hitsAndErrors={hitsAndErrors}
+              playByPlayReport={playByPlayReport}
+              pbpScrollTarget={pbpScrollTarget}
+              onPbpScrolled={() => setPbpScrollTarget(null)}
+              onPrint={handlePrintDashboard}
+              onClose={() => setShowPostGameAnalysis(false)}
+            />
           )}
 
           {/* ============================================================ */}
@@ -3599,191 +3102,22 @@ import { autoPositions, buildAdvanceChoices, buildAdvanceEvents, previewAdvanceR
           {/* ============= MODAL: CUMULATIVE STATS (累計成績) =========== */}
           {/* ============================================================ */}
           {showCumulativeStats && (
-            <div className="fixed inset-0 bg-slate-900/70 z-[200] flex items-center justify-center p-2 md:p-4 backdrop-blur-sm">
-              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col max-h-[95vh] border border-slate-200">
-                <div className="p-4 border-b border-amber-200 bg-amber-50 flex justify-between items-center shrink-0">
-                  <div>
-                    <h2 className="text-lg font-black text-amber-800">📊 累計成績</h2>
-                    <div className="text-[11px] font-bold text-amber-700 mt-0.5">{cumulativeTeam} / {cumulativeStats.games.length}試合</div>
-                  </div>
-                  <button onClick={() => setShowCumulativeStats(false)} className="text-amber-400 hover:text-amber-800 font-bold text-xl px-2">✕</button>
-                </div>
-                <div className="px-4 py-3 border-b border-slate-200 bg-slate-50 shrink-0 flex flex-col gap-2">
-                  <div className="flex gap-2 items-center flex-wrap">
-                    <label className="text-[10px] font-bold text-slate-500">チーム</label>
-                    <select value={cumulativeTeam} onChange={e => setCumulativeTeam(e.target.value)} className="text-xs font-bold border border-slate-300 rounded px-2 py-1 bg-white">
-                      {registeredTeams.map(t => <option key={t.name} value={t.name}>{t.name}</option>)}
-                    </select>
-                    <label className="text-[10px] font-bold text-slate-500 ml-2">期間</label>
-                    <input type="date" value={cumulativeDateFrom} onChange={e => setCumulativeDateFrom(e.target.value)} className="text-xs border border-slate-300 rounded px-2 py-1 bg-white" />
-                    <span className="text-xs text-slate-400">〜</span>
-                    <input type="date" value={cumulativeDateTo} onChange={e => setCumulativeDateTo(e.target.value)} className="text-xs border border-slate-300 rounded px-2 py-1 bg-white" />
-                  </div>
-                  <div className="flex gap-1.5 flex-wrap">
-                    <button onClick={() => { setCumulativeDateFrom(''); setCumulativeDateTo(''); }} className="text-[10px] bg-white text-slate-600 border border-slate-300 px-2.5 py-1 rounded-lg font-bold">全期間</button>
-                    <button onClick={() => { const n = new Date(); const fm = `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-01`; const last = new Date(n.getFullYear(), n.getMonth()+1, 0); const tm = `${last.getFullYear()}-${String(last.getMonth()+1).padStart(2,'0')}-${String(last.getDate()).padStart(2,'0')}`; setCumulativeDateFrom(fm); setCumulativeDateTo(tm); }} className="text-[10px] bg-white text-slate-600 border border-slate-300 px-2.5 py-1 rounded-lg font-bold">今月</button>
-                    <button onClick={() => { const y = new Date().getFullYear(); setCumulativeDateFrom(`${y}-01-01`); setCumulativeDateTo(`${y}-12-31`); }} className="text-[10px] bg-white text-slate-600 border border-slate-300 px-2.5 py-1 rounded-lg font-bold">今年</button>
-                    <button onClick={() => { const y = new Date().getFullYear() - 1; setCumulativeDateFrom(`${y}-01-01`); setCumulativeDateTo(`${y}-12-31`); }} className="text-[10px] bg-white text-slate-600 border border-slate-300 px-2.5 py-1 rounded-lg font-bold">昨年</button>
-                  </div>
-                  <div className="flex gap-1.5">
-                    <button onClick={() => setCumulativeTab('batter')} className={`flex-1 py-2 rounded-lg font-black text-xs ${cumulativeTab==='batter' ? 'bg-blue-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-300'}`}>🏏 打者</button>
-                    <button onClick={() => setCumulativeTab('pitcher')} className={`flex-1 py-2 rounded-lg font-black text-xs ${cumulativeTab==='pitcher' ? 'bg-rose-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-300'}`}>⚾ 投手</button>
-                  </div>
-                </div>
-                <div className="flex-1 overflow-y-auto modal-scroll p-3">
-                  {cumulativeStats.games.length === 0 ? (
-                    <p className="text-center text-slate-400 text-sm py-12 font-bold">この期間に保存試合がありません</p>
-                  ) : cumulativeTab === 'batter' ? (
-                    cumulativeStats.batters.length === 0 ? <p className="text-center text-slate-400 text-sm py-12 font-bold">打者データなし</p> : (
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-xs border-collapse">
-                          <thead className="bg-slate-100 text-slate-600 text-[10px]">
-                            <tr>
-                              <th className="py-2 px-2 text-left">選手名</th>
-                              <th className="py-2 px-1 text-right">G</th>
-                              <th className="py-2 px-1 text-right">PA</th>
-                              <th className="py-2 px-1 text-right">AB</th>
-                              <th className="py-2 px-1 text-right">H</th>
-                              <th className="py-2 px-1 text-right">2B</th>
-                              <th className="py-2 px-1 text-right">3B</th>
-                              <th className="py-2 px-1 text-right">HR</th>
-                              <th className="py-2 px-1 text-right">四死</th>
-                              <th className="py-2 px-1 text-right">K</th>
-                              <th className="py-2 px-1 text-right text-blue-600">打率</th>
-                              <th className="py-2 px-1 text-right text-emerald-600">出塁</th>
-                              <th className="py-2 px-1 text-right text-purple-600">長打</th>
-                              <th className="py-2 px-1 text-right text-amber-600">OPS</th>
-                              <th className="py-2 px-1 text-right text-rose-600">K%</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {cumulativeStats.batters.map((b, i) => (
-                              <React.Fragment key={b.name}>
-                                <tr onClick={() => setExpandedCumKey(expandedCumKey === `b-${b.name}` ? null : `b-${b.name}`)} className={`cursor-pointer border-b border-slate-200 ${i%2===0?'bg-white':'bg-slate-50'} hover:bg-amber-50`}>
-                                  <td className="py-2 px-2 font-black">{expandedCumKey===`b-${b.name}`?'▼':'▶'} {b.name}</td>
-                                  <td className="py-2 px-1 text-right">{b.G}</td>
-                                  <td className="py-2 px-1 text-right">{b.PA}</td>
-                                  <td className="py-2 px-1 text-right">{b.AB}</td>
-                                  <td className="py-2 px-1 text-right">{b.H}</td>
-                                  <td className="py-2 px-1 text-right">{b._2B}</td>
-                                  <td className="py-2 px-1 text-right">{b._3B}</td>
-                                  <td className="py-2 px-1 text-right">{b.HR}</td>
-                                  <td className="py-2 px-1 text-right">{b.BB_HBP}</td>
-                                  <td className="py-2 px-1 text-right">{b.K}</td>
-                                  <td className="py-2 px-1 text-right font-black text-blue-600">{b.AVG}</td>
-                                  <td className="py-2 px-1 text-right font-black text-emerald-600">{b.OBP}</td>
-                                  <td className="py-2 px-1 text-right font-black text-purple-600">{b.SLG}</td>
-                                  <td className="py-2 px-1 text-right font-black text-amber-600">{b.OPS}</td>
-                                  <td className="py-2 px-1 text-right text-rose-600">{b.KPct}%</td>
-                                </tr>
-                                {expandedCumKey===`b-${b.name}` && (
-                                  <tr><td colSpan={15} className="bg-amber-50/60 p-2">
-                                    <div className="text-[10px] font-bold text-slate-500 mb-1 px-1">試合別ログ</div>
-                                    <table className="w-full text-[11px] border-collapse">
-                                      <thead className="bg-white text-slate-500 text-[10px]">
-                                        <tr><th className="py-1 px-2 text-left">日付</th><th className="py-1 px-2 text-left">対戦</th><th className="py-1 px-1 text-right">PA</th><th className="py-1 px-1 text-right">AB</th><th className="py-1 px-1 text-right">H</th><th className="py-1 px-1 text-right">四死</th><th className="py-1 px-1 text-right">K</th><th className="py-1 px-1 text-left">結果</th></tr>
-                                      </thead>
-                                      <tbody>
-                                        {b.gameLog.map((gl, gi) => (
-                                          <tr key={gi} className="border-b border-amber-100"><td className="py-1 px-2">{gl.date}</td><td className="py-1 px-2">{gl.opponent}</td><td className="py-1 px-1 text-right">{gl.PA}</td><td className="py-1 px-1 text-right">{gl.AB}</td><td className="py-1 px-1 text-right">{gl.H}</td><td className="py-1 px-1 text-right">{gl.BB_HBP}</td><td className="py-1 px-1 text-right">{gl.K}</td><td className="py-1 px-2 text-[10px]">{gl.results.join(', ')}</td></tr>
-                                        ))}
-                                      </tbody>
-                                    </table>
-                                  </td></tr>
-                                )}
-                              </React.Fragment>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )
-                  ) : (
-                    cumulativeStats.pitchers.length === 0 ? <p className="text-center text-slate-400 text-sm py-12 font-bold">投手データなし</p> : (
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-xs border-collapse">
-                          <thead className="bg-slate-100 text-slate-600 text-[10px]">
-                            <tr>
-                              <th className="py-2 px-2 text-left">投手</th>
-                              <th className="py-2 px-1 text-right">G</th>
-                              <th className="py-2 px-1 text-right">球数</th>
-                              <th className="py-2 px-1 text-right">対戦</th>
-                              <th className="py-2 px-1 text-right">H</th>
-                              <th className="py-2 px-1 text-right">K</th>
-                              <th className="py-2 px-1 text-right">BB</th>
-                              <th className="py-2 px-1 text-right text-blue-600">被打率</th>
-                              <th className="py-2 px-1 text-right text-rose-600">K%</th>
-                              <th className="py-2 px-1 text-right text-amber-600">BB%</th>
-                              <th className="py-2 px-1 text-right text-indigo-600">CSW%</th>
-                              <th className="py-2 px-1 text-right text-emerald-600">Whiff%</th>
-                              <th className="py-2 px-1 text-right">S%</th>
-                              <th className="py-2 px-1 text-right">初球S%</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {cumulativeStats.pitchers.map((p, i) => (
-                              <React.Fragment key={p.name}>
-                                <tr onClick={() => setExpandedCumKey(expandedCumKey === `p-${p.name}` ? null : `p-${p.name}`)} className={`cursor-pointer border-b border-slate-200 ${i%2===0?'bg-white':'bg-slate-50'} hover:bg-amber-50`}>
-                                  <td className="py-2 px-2 font-black">{expandedCumKey===`p-${p.name}`?'▼':'▶'} {p.name} <span className="text-[9px] text-slate-400">({p.throws}投)</span></td>
-                                  <td className="py-2 px-1 text-right">{p.G}</td>
-                                  <td className="py-2 px-1 text-right">{p.pitches}</td>
-                                  <td className="py-2 px-1 text-right">{p.PA}</td>
-                                  <td className="py-2 px-1 text-right">{p.H}</td>
-                                  <td className="py-2 px-1 text-right">{p.K}</td>
-                                  <td className="py-2 px-1 text-right">{p.BB}</td>
-                                  <td className="py-2 px-1 text-right font-black text-blue-600">{p.AVG}</td>
-                                  <td className="py-2 px-1 text-right font-black text-rose-600">{p.KPct}%</td>
-                                  <td className="py-2 px-1 text-right font-black text-amber-600">{p.BBPct}%</td>
-                                  <td className="py-2 px-1 text-right font-black text-indigo-600">{p.csw}%</td>
-                                  <td className="py-2 px-1 text-right font-black text-emerald-600">{p.whiffPct}%</td>
-                                  <td className="py-2 px-1 text-right">{p.strikePct}%</td>
-                                  <td className="py-2 px-1 text-right">{p.fStrikePct}%</td>
-                                </tr>
-                                {expandedCumKey===`p-${p.name}` && (
-                                  <tr><td colSpan={14} className="bg-amber-50/60 p-2">
-                                    {p.types.length > 0 && (
-                                      <div className="mb-3">
-                                        <div className="text-[10px] font-bold text-slate-500 mb-1 px-1">球種別</div>
-                                        <div className="flex flex-wrap gap-2">
-                                          {p.types.map(t => (
-                                            <div key={t.type} className="bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-[10px]">
-                                              <span className="font-black text-slate-700">{t.type}</span>
-                                              <span className="text-slate-400 mx-1">·</span>
-                                              <span>{t.total}球</span>
-                                              <span className="text-slate-400 mx-1">·</span>
-                                              <span className="text-indigo-600 font-bold">S {t.strikePct}%</span>
-                                              <span className="text-slate-400 mx-1">·</span>
-                                              <span className="text-emerald-600 font-bold">Whiff {t.whiffPct}%</span>
-                                            </div>
-                                          ))}
-                                        </div>
-                                      </div>
-                                    )}
-                                    <div className="text-[10px] font-bold text-slate-500 mb-1 px-1">試合別ログ</div>
-                                    <table className="w-full text-[11px] border-collapse">
-                                      <thead className="bg-white text-slate-500 text-[10px]">
-                                        <tr><th className="py-1 px-2 text-left">日付</th><th className="py-1 px-2 text-left">対戦</th><th className="py-1 px-1 text-right">球数</th><th className="py-1 px-1 text-right">対戦</th><th className="py-1 px-1 text-right">H</th><th className="py-1 px-1 text-right">K</th><th className="py-1 px-1 text-right">BB</th><th className="py-1 px-1 text-right">S%</th></tr>
-                                      </thead>
-                                      <tbody>
-                                        {p.gameLog.map((gl, gi) => (
-                                          <tr key={gi} className="border-b border-amber-100"><td className="py-1 px-2">{gl.date}</td><td className="py-1 px-2">{gl.opponent}</td><td className="py-1 px-1 text-right">{gl.pitches}</td><td className="py-1 px-1 text-right">{gl.PA}</td><td className="py-1 px-1 text-right">{gl.H}</td><td className="py-1 px-1 text-right">{gl.K}</td><td className="py-1 px-1 text-right">{gl.BB}</td><td className="py-1 px-1 text-right">{gl.pitches>0?Math.round(gl.strikes/gl.pitches*100):0}%</td></tr>
-                                        ))}
-                                      </tbody>
-                                    </table>
-                                  </td></tr>
-                                )}
-                              </React.Fragment>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )
-                  )}
-                </div>
-                <div className="p-3 border-t border-slate-200 bg-slate-50 shrink-0">
-                  <button onClick={() => setShowCumulativeStats(false)} className="w-full bg-slate-700 text-white py-2.5 rounded-xl font-bold text-sm">閉じる</button>
-                </div>
-              </div>
-            </div>
+            <CumulativeStatsModal
+              cumulativeStats={cumulativeStats}
+              registeredTeams={registeredTeams}
+              pitches={pitches}
+              cumulativeTeam={cumulativeTeam}
+              setCumulativeTeam={setCumulativeTeam}
+              cumulativeDateFrom={cumulativeDateFrom}
+              setCumulativeDateFrom={setCumulativeDateFrom}
+              cumulativeDateTo={cumulativeDateTo}
+              setCumulativeDateTo={setCumulativeDateTo}
+              cumulativeTab={cumulativeTab}
+              setCumulativeTab={setCumulativeTab}
+              expandedCumKey={expandedCumKey}
+              setExpandedCumKey={setExpandedCumKey}
+              onClose={() => setShowCumulativeStats(false)}
+            />
           )}
 
           {showImportTextModal && (
