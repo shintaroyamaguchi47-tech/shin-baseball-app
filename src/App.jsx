@@ -235,6 +235,8 @@ import { autoPositions, buildAdvanceChoices, buildAdvanceEvents, previewAdvanceR
       const [showAnalyticsHub, setShowAnalyticsHub] = useState(false);
       const [homeTeamName, setHomeTeamName] = useState(() => loadStored('baseball_homeTeam_v3', ''));
       const [playerNotes, setPlayerNotes] = useState(() => loadStored('baseball_playerNotes_v3', {}));
+      // 端末のストレージが逼迫・保存失敗したときの常設警告。消えるトーストだと試合中に見逃すため常時表示する
+      const [storageAlert, setStorageAlert] = useState(null);
 
       useEffect(() => { storage.setItem('baseball_gameState_v2', JSON.stringify(gameState)); }, [gameState]);
       useEffect(() => { storage.setItem('baseball_homeTeam_v3', JSON.stringify(homeTeamName)); }, [homeTeamName]);
@@ -247,6 +249,40 @@ import { autoPositions, buildAdvanceChoices, buildAdvanceEvents, previewAdvanceR
       useEffect(() => { storage.setItem('baseball_savedGames_v2', JSON.stringify(savedGames)); }, [savedGames]);
       useEffect(() => { storage.setItem('baseball_registeredTeams_v2', JSON.stringify(registeredTeams)); }, [registeredTeams]);
 
+      // 保存失敗・容量逼迫を storage.js から受け取る。
+      // 保存は1球ごとに走るので、同じ深刻度の警告が続くうちは状態を作り直さない。
+      useEffect(() => {
+        storage.setStorageNotifier((info) => {
+          const alert = info.type === 'near-limit'
+            ? {
+                level: 'warn',
+                title: '端末の保存容量が残りわずかです',
+                body: `使用量 約${Math.round(info.bytes / 1024 / 1024 * 10) / 10}MB（上限の${Math.round(info.ratio * 100)}%）。試合データを書き出して、古いアーカイブを削除してください。`,
+              }
+            : info.type === 'quota'
+              ? {
+                  level: 'danger',
+                  title: '保存容量がいっぱいで記録を保存できませんでした',
+                  body: info.nativeBackup
+                    ? 'アプリ内バックアップには書き込めています。すぐに試合データを書き出し、古いアーカイブを削除してください。'
+                    : 'このままではページを閉じると記録が失われます。すぐに試合データを書き出し、古いアーカイブを削除してください。',
+                }
+              : {
+                  level: 'danger',
+                  title: '記録を保存できませんでした',
+                  body: 'ブラウザのプライベートモードや保存設定が原因の可能性があります。試合データを書き出して控えを取ってください。',
+                };
+          setStorageAlert((prev) => (prev && prev.level === alert.level && prev.title === alert.title ? prev : alert));
+        });
+        return () => storage.setStorageNotifier(null);
+      }, []);
+
+      // アーカイブを削除して容量に余裕が戻ったら警告を引っ込める。
+      // 上の保存用 useEffect より後に宣言しているため、書き込み後の使用量を見る。
+      useEffect(() => {
+        if (!storageAlert) return;
+        if (!storage.refreshUsage().nearLimit) setStorageAlert(null);
+      }, [savedGames]);
 
       const showToast = (text, type = 'success') => { setToast({ text, type }); setTimeout(() => setToast(null), 3000); };
       const findRegisteredTeam = (name) => registeredTeams.find(t => t.name === name);
@@ -1545,6 +1581,22 @@ import { autoPositions, buildAdvanceChoices, buildAdvanceEvents, previewAdvanceR
       return (
         <div className="min-h-screen flex flex-col h-screen overflow-hidden bg-slate-50">
           {toast && <div className={`fixed top-6 left-1/2 transform -translate-x-1/2 px-6 py-3 rounded-full font-bold shadow-2xl z-[600] flex items-center gap-3 ${toast.type === 'error' ? 'bg-rose-600 text-white' : 'bg-slate-800 text-white border border-slate-700'}`}><span>{toast.type === 'error' ? '⚠️' : '✅'}</span>{toast.text}</div>}
+
+          {storageAlert && !printMode && (
+            <div role="alert" className={`fixed top-0 inset-x-0 z-[550] px-3 py-2.5 shadow-lg border-b-2 ${storageAlert.level === 'danger' ? 'bg-rose-600 border-rose-800 text-white' : 'bg-amber-400 border-amber-600 text-amber-950'}`}>
+              <div className="max-w-3xl mx-auto flex items-start gap-2">
+                <span className="text-lg leading-tight shrink-0">{storageAlert.level === 'danger' ? '🚨' : '⚠️'}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="font-black text-xs leading-tight">{storageAlert.title}</p>
+                  <p className="text-[11px] font-bold leading-snug mt-0.5 opacity-90">{storageAlert.body}</p>
+                </div>
+                <div className="flex flex-col gap-1 shrink-0">
+                  <button onClick={() => { setStorageAlert(null); setShowExport(true); }} className={`text-[11px] font-black px-3 py-1.5 rounded-lg ${storageAlert.level === 'danger' ? 'bg-white text-rose-700' : 'bg-amber-950 text-amber-50'}`}>書き出す</button>
+                  <button onClick={() => setStorageAlert(null)} aria-label="警告を閉じる" className="text-[11px] font-black px-3 py-1 rounded-lg border border-current opacity-70">閉じる</button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {confirmDialog && (
             <div className="fixed inset-0 bg-slate-900/60 z-[600] flex items-center justify-center p-4 backdrop-blur-sm">
