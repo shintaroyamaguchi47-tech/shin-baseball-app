@@ -10,6 +10,7 @@ export const STORAGE_KEYS = [
   'baseball_lineups_v2',
   'baseball_pitches_v2',
   'baseball_pitchView_v2',
+  'baseball_stepInput_v1',
   'baseball_askAdvanceAfterHit_v1',
   'baseball_savedGames_v2',
   'baseball_registeredTeams_v2',

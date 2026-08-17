@@ -26,6 +26,9 @@ describe('回を切り替えて記録を再開したときのアウト数', () =
 
   const click = async (label) => { await act(async () => { btn(container, label).click(); }); };
   const inplay = async (fielder, result) => {
+    // ステップ入力: 球種→コース→結果の順にタップする
+    const typeBtn = [...container.querySelectorAll('button')].find((b) => b.textContent.includes('ストレート'));
+    await act(async () => { typeBtn.click(); });
     const course = [...container.querySelector('.grid-cols-7').querySelectorAll('button')];
     await act(async () => { course[24].click(); });
     await click('打った！');
