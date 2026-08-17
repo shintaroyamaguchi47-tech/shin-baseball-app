@@ -11,6 +11,8 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const { act } = React;
 
 const btn = (root, label) => [...root.querySelectorAll('button')].find((b) => b.textContent.trim() === label);
+// 球種ボタンはアイコン+名称なので部分一致で拾う
+const pitchTypeBtn = (root, name) => [...root.querySelectorAll('button')].find((b) => b.textContent.includes(name));
 const stored = (key) => JSON.parse(localStorage.getItem(key));
 
 describe('打球中に走者アウトを記録した打席', () => {
@@ -23,7 +25,9 @@ describe('打球中に走者アウトを記録した打席', () => {
     await act(async () => { createRoot(container).render(<App />); });
   });
 
+  // ステップ入力(球種→コース→結果)を1球ぶん進める
   const pitch = async (label) => {
+    await act(async () => { pitchTypeBtn(container, 'ストレート').click(); });
     const course = [...container.querySelector('.grid-cols-7').querySelectorAll('button')];
     await act(async () => { course[24].click(); });
     await act(async () => { btn(container, label).click(); });
