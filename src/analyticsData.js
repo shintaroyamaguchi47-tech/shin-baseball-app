@@ -1,3 +1,5 @@
+import { deriveFinalLabel } from './playByPlay.js';
+
 const terminalWords = ['安', '塁打', '本塁打', '三振', '振り逃げ', '四球', '死球', '犠打', '犠飛', 'インプレー', 'ゴロ', '飛', '直', 'エラー', '野選', 'バント'];
 
 const id = (prefix, ...parts) => `${prefix}_${parts.map(v => String(v ?? '').replace(/[^\w\u3000-\u9fff-]/g, '_')).join('_')}`;
@@ -64,7 +66,8 @@ export function normalizeArchive(savedGames = [], registeredTeams = [], homeTeam
       const battingTeam = first.isTop ? game.teamTop : game.teamBottom;
       const fieldingTeam = first.isTop ? game.teamBottom : game.teamTop;
       const paId = id('pa', gameId, paIndex++);
-      const result = last?.result || current.at(-1)?.result || '';
+      // 最終球そのもの(四球なら「ボール」)ではなく、打席結果の言葉で持つ
+      const result = nonEvents.length ? deriveFinalLabel(nonEvents) : (last?.result || current.at(-1)?.result || '');
       const balls = nonEvents.filter(p => ['ボール','ウエスト'].includes(p.result)).length;
       const strikes = nonEvents.filter(p => ['ストライク','空振り','バント空振り'].includes(p.result)).length;
       const hit = isHit(result), walk = balls >= 4 || ['四球','死球'].includes(result), strikeout = strikes >= 3 || ['三振','振り逃げ','振り逃げアウト','スリーバント失敗'].includes(result);

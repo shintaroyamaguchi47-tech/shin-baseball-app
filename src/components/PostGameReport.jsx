@@ -152,8 +152,12 @@ export default function PostGameReport({
                   );
                 };
                 const getResultLabel = (result) => {
-                  if (['ボール','ウエスト'].includes(result)) return { text: 'BB/HBP', color: '#64748b' };
-                  if (result === '三振' || result === '振り逃げ') return { text: '三振', color: '#ef4444' };
+                  // 打席結果は deriveFinalLabel で「四球」「三振」に直してから渡ってくる。
+                  // 旧データ(最終球のまま保存された記録)のために素の投球結果も拾う。
+                  if (['四球','ボール','ウエスト'].includes(result)) return { text: '四球', color: '#64748b' };
+                  if (result === '死球') return { text: '死球', color: '#64748b' };
+                  if (['三振','スリーバント失敗','振り逃げアウト','ストライク','空振り'].includes(result)) return { text: '三振', color: '#ef4444' };
+                  if (result === '振り逃げ') return { text: '振り逃げ', color: '#0891b2' };
                   if (['安','塁打','本塁打'].some(w => result.includes(w))) return { text: result, color: '#1d4ed8' };
                   return { text: result, color: '#475569' };
                 };
