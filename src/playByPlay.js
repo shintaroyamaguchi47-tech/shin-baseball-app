@@ -68,6 +68,8 @@ function resultToEventType(result) {
   if (['エラー', '敵失(エラー)', '野手選択'].some(w => result.includes(w))) return 'error';
   if (result.includes('犠打')) return 'sac_bunt';
   if (result.includes('犠飛')) return 'sac_fly';
+  if (result.includes('併殺')) return 'double_play';
+  if (result.includes('ゴロ')) return 'ground_out';
   return 'out';
 }
 
@@ -90,7 +92,7 @@ const PENDING_RESULTS = new Set(['インプレー', 'バント']);
 function outsAddedFor(finalLabel) {
   if (!finalLabel || isIncompletePA(finalLabel) || PENDING_RESULTS.has(finalLabel)) return 0;
   if (finalLabel.includes('併殺')) return 2;
-  return ['out', 'sac_bunt', 'sac_fly'].includes(classifyEventType(finalLabel)) ? 1 : 0;
+  return ['out', 'ground_out', 'sac_bunt', 'sac_fly'].includes(classifyEventType(finalLabel)) ? 1 : 0;
 }
 
 const getBallFlight = (res) => res.includes('本塁打') ? 'hr'
@@ -118,10 +120,13 @@ function deriveFinalLabel(nonEvent) {
 }
 
 // 走者進塁シミュレーション(名前つき)。advanceGameState と同一のルールを識別子付きで実行する。
-function applyMovement(bases, eventType, batterId) {
+// allowMovement=false は「この打席で3アウト目が成立する」ケース。advanceGameState と
+// 同じく、攻守交代が成立する打席では走者を動かさない(ゴロの押し出し得点も入らない)。
+function applyMovement(bases, eventType, batterId, allowMovement = true) {
   const scored = []; // [{ runner, fromBase }]
   let { first, second, third } = bases;
   const scoreFrom = (key, runner) => scored.push({ runner, fromBase: key });
+  if (!allowMovement) return { bases: { first, second, third }, scored };
   if (eventType === 'walk' || eventType === 'other') {
     if (first && second && third) { scoreFrom('third', third); third = second; second = first; }
     else if (first && second) { third = second; second = first; }
@@ -150,6 +155,16 @@ function applyMovement(bases, eventType, batterId) {
   } else if (eventType === 'sac_fly') {
     if (third) scoreFrom('third', third);
     third = null;
+  } else if (eventType === 'ground_out' || eventType === 'double_play') {
+    // ゴロで打者が一塁でアウトになると、フォースの走者は進むしかない。
+    // 併殺打はフォースの先頭走者が打者と一緒にアウトになる。
+    const [o1, o2, o3] = [first, second, third];
+    if (o1 && o2 && o3) scoreFrom('third', o3); // 満塁: 3塁走者は押し出されて生還
+    first = null;
+    if (eventType === 'ground_out') { second = o1 || o2; third = o1 && o2 ? o2 : o3; }
+    else if (o1) { second = null; third = o2 || o3; }
+    else if (o3) { third = null; }
+    else { second = null; }
   }
   return { bases: { first, second, third }, scored };
 }
@@ -172,14 +187,18 @@ function applyRunnerEventNarrative(bases, result, narrative) {
     if (runner) narrative.push(`${runner.name}に代走。`);
     return bases; // 交代後の選手名は記録されていないため識別子は維持する
   }
+  // 記録された塁に走者がいない(古い記録の重複補正など)ときは、
+  // 進塁先にいる走者を消してしまわないよう何もしない
   if (result.includes('で2塁へ')) {
+    if (!runner) return bases;
     const reason = (result.split(' ')[1] || '').split('で')[0];
-    if (runner) narrative.push(`${runner.name}${circledPos(runner.pos)}、${reason}で二塁へ進塁。`);
+    narrative.push(`${runner.name}${circledPos(runner.pos)}、${reason}で二塁へ進塁。`);
     const nb = { ...bases, [runnerKey]: null }; nb.second = runner; return nb;
   }
   if (result.includes('で3塁へ')) {
+    if (!runner) return bases;
     const reason = (result.split(' ')[1] || '').split('で')[0];
-    if (runner) narrative.push(`${runner.name}${circledPos(runner.pos)}、${reason}で三塁へ進塁。`);
+    narrative.push(`${runner.name}${circledPos(runner.pos)}、${reason}で三塁へ進塁。`);
     const nb = { ...bases, [runnerKey]: null }; nb.third = runner; return nb;
   }
   if (result.includes('で本塁へ')) {
@@ -286,6 +305,9 @@ export function buildPlayByPlayReport(pitches) {
     // 実際に起きた順番のまま並ぶようにする(打席結果の後に記録された
     // 進塁イベントは、実況でも打席結果の後ろに続く。逆に打席結果の前に
     // 記録されたイベントは実況でも先に出す)。
+    // この打席で3アウト目が成立するなら走者は動かない(攻守交代が先に成立する)
+    const outsAdded = outsAddedFor(finalLabel);
+    const movementAllowed = (last.outs || 0) + outsAdded < 3;
     let b = 0, s = 0;
     const pitchRows = [];
     const narrative = [];
@@ -307,7 +329,7 @@ export function buildPlayByPlayReport(pitches) {
       pitchRows.push({ isEvent: false, seq, label: p.result, count: isLast ? null : `${b}-${s}`, course: p.course ?? null, pitchType: p.type || null });
       if (isLast) {
         const basesBefore = bases;
-        const moved = applyMovement(bases, eventType, batterId);
+        const moved = applyMovement(bases, eventType, batterId, movementAllowed);
         bases = moved.bases;
         scored = moved.scored;
         narrative.push(...buildMainNarrative(batterTag, finalLabel, eventType, pf, scored, basesBefore));
@@ -316,10 +338,9 @@ export function buildPlayByPlayReport(pitches) {
 
     const isHit = ['single', 'double', 'triple', 'homerun'].includes(eventType);
     const isBB = finalLabel === '四球' || finalLabel === '死球';
-    const isOut = eventType === 'out' || eventType === 'sac_bunt' || eventType === 'sac_fly';
+    const isOut = ['out', 'ground_out', 'double_play', 'sac_bunt', 'sac_fly'].includes(eventType);
     const isError = eventType === 'error';
 
-    const outsAdded = outsAddedFor(finalLabel);
     const outsAfter = Math.min(3, (last.outs || 0) + outsAdded);
     const finalCount = pf ? preCount : { b, s };
 

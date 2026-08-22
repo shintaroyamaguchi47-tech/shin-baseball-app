@@ -17,7 +17,8 @@ const POS_NUM = {
 };
 
 // RBIを記録しない結果(エラーで出塁した打席は打点なし)
-const RBI_ELIGIBLE = new Set(['single', 'double', 'triple', 'homerun', 'walk', 'other', 'sac_bunt', 'sac_fly']);
+// (併殺打の間の生還は公式記録でも打点にならないため double_play は含めない)
+const RBI_ELIGIBLE = new Set(['single', 'double', 'triple', 'homerun', 'walk', 'other', 'sac_bunt', 'sac_fly', 'ground_out']);
 
 // 打席直後の進塁補正(runnerAdvance.js)が使う理由。自動進塁より先の塁まで
 // 走者が進んだ場合も打球によるものなので、生還すれば打者の打点に数える。
@@ -204,9 +205,17 @@ function newCell(play) {
 // 打席結果による自動進塁(App.jsxのadvanceGameStateと同一ルール)。
 // 走者を表すのは実際の走者名ではなく「元の打席セル」への参照そのもの。
 // 進塁・生還のたびに参照先セルのbasesReachedFinal/scoredを直接更新する。
-function applyAutoMovement(bases, eventType, batterCell, order) {
+function applyAutoMovement(bases, eventType, batterCell, order, outCounter) {
   const b = { ...bases };
   const scoredCells = [];
+  // 併殺打で打者と一緒にアウトになった走者。元の打席のマス目に走者アウトとして残す
+  const markRunnerOut = (cell) => {
+    if (!cell || !outCounter) return;
+    outCounter.n++;
+    cell.outOnBasesOrderInInning = outCounter.n;
+    cell.outOnBasesReason = '併殺';
+    cell.advancementNotes.push({ text: '併殺', isOut: true });
+  };
   // 打者自身以外の走者が新しい塁へ進んだら「何番打者の打席で」を記録する
   const stamp = (cell, n) => { if (cell && cell !== batterCell && order) cell.reachedBy[n] = order; };
   const setBase = (n, cell) => { b[n] = cell; if (cell) { cell.basesReachedFinal = n; stamp(cell, n); } };
@@ -242,6 +251,24 @@ function applyAutoMovement(bases, eventType, batterCell, order) {
   } else if (eventType === 'sac_fly') {
     if (b[3]) score(b[3]);
     setBase(3, null);
+  } else if (eventType === 'ground_out' || eventType === 'double_play') {
+    // ゴロで打者が一塁でアウトになると、フォース(その走者より後ろの塁が
+    // すべて埋まっている)の走者は進むしかない。動かない走者には触れない
+    // (触れると「この打席で進塁した」隅数字が付いてしまう)。
+    // 併殺打はフォースの先頭走者が打者と一緒にアウトになる。
+    const [o1, o2, o3] = [b[1], b[2], b[3]];
+    const forced2 = !!(o1 && o2), forced3 = !!(o1 && o2 && o3);
+    if (forced3) score(o3); // 満塁: 3塁走者は押し出されて生還
+    if (forced2) setBase(3, o2);
+    if (eventType === 'ground_out') {
+      if (o1) setBase(2, o1); else if (forced2) setBase(2, null);
+      setBase(1, null);
+    } else if (o1) {
+      if (forced2) setBase(2, null);
+      setBase(1, null);
+      markRunnerOut(o1); // フォースの先頭走者は打者と一緒にアウト
+    } else if (o3) { setBase(3, null); markRunnerOut(o3); }
+    else if (o2) { setBase(2, null); markRunnerOut(o2); }
   }
   return { bases: b, scoredCells };
 }
@@ -279,9 +306,11 @@ function handleRunnerEvent(bases, text, outCounter, order, link) {
     // それ以外(打球絡みの進塁)は「何番打者で」の数字を表示する。
     const code = reason.includes('盗塁') ? 'S' : reason.includes('暴投') ? 'WP' : reason.includes('捕逸') ? 'PB' : reason.includes('ボーク') ? 'BK' : null;
     const markBase = (base) => { if (!origin) return; if (code) origin.advanceMarks[base] = { code, link: link || null }; else if (order) origin.reachedBy[base] = order; };
-    if (dest[1] === '2塁') { if (origin) { origin.basesReachedFinal = 2; markBase(2); origin.advancementNotes.push({ text: `${reason}→2塁`, isOut: false }); } bases[2] = origin; bases[runnerKey] = null; }
-    else if (dest[1] === '3塁') { if (origin) { origin.basesReachedFinal = 3; markBase(3); origin.advancementNotes.push({ text: `${reason}→3塁`, isOut: false }); } bases[3] = origin; bases[runnerKey] = null; }
-    else { if (origin) { origin.basesReachedFinal = 4; origin.scored = true; if (reason === '進塁') origin.scoredUnearned = true; markBase(4); origin.advancementNotes.push({ text: `${reason}→生還`, isOut: false }); } bases[runnerKey] = null; }
+    // 記録された塁に走者がいない(古い記録の重複補正など)ときは、進塁先の走者を消さない
+    if (!origin) return !!code;
+    if (dest[1] === '2塁') { origin.basesReachedFinal = 2; markBase(2); origin.advancementNotes.push({ text: `${reason}→2塁`, isOut: false }); bases[2] = origin; bases[runnerKey] = null; }
+    else if (dest[1] === '3塁') { origin.basesReachedFinal = 3; markBase(3); origin.advancementNotes.push({ text: `${reason}→3塁`, isOut: false }); bases[3] = origin; bases[runnerKey] = null; }
+    else { origin.basesReachedFinal = 4; origin.scored = true; if (reason === '進塁') origin.scoredUnearned = true; markBase(4); origin.advancementNotes.push({ text: `${reason}→生還`, isOut: false }); bases[runnerKey] = null; }
     return !!code; // 盗塁/暴投/捕逸/ボークならリンク文字を消費
   }
   const reason = text.split(' ')[1] || '';
@@ -371,7 +400,10 @@ export function buildScorebookData(pitches, lineups, gameInfo, gameState) {
         }
         pitchIdx++;
         if (row.count === null) {
-          const moved = applyAutoMovement(bases, play.eventType, cell, order);
+          // この打席で3アウト目が成立するなら走者は動かない(advanceGameStateと同じ)
+          const moved = play.count.outs >= 3
+            ? { bases, scoredCells: [] }
+            : applyAutoMovement(bases, play.eventType, cell, order, outCounter);
           bases = moved.bases;
           scoredCells = moved.scoredCells;
           movementApplied = true;
