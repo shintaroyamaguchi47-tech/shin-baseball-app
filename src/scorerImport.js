@@ -103,9 +103,11 @@ function zoneInfo(token) {
 
 // 本アプリの自動進塁(App.jsxのadvanceGameState / playByPlayのapplyMovementと同一ルール)を
 // 走者ID付きで再現する
-function applyAutoMovement(bases, eventType, batterId) {
+function applyAutoMovement(bases, eventType, batterId, allowMovement = true) {
   const b = { ...bases };
   const scored = [];
+  // 3アウト目が成立する打席では走者を動かさない(advanceGameStateと同じ)
+  if (!allowMovement) return { bases: b, scored };
   if (eventType === 'walk' || eventType === 'other') {
     if (b[1] && b[2] && b[3]) { scored.push(b[3]); b[3] = b[2]; b[2] = b[1]; }
     else if (b[1] && b[2]) { b[3] = b[2]; b[2] = b[1]; }
@@ -135,6 +137,16 @@ function applyAutoMovement(bases, eventType, batterId) {
   } else if (eventType === 'sac_fly') {
     if (b[3]) scored.push(b[3]);
     b[3] = null;
+  } else if (eventType === 'ground_out' || eventType === 'double_play') {
+    // ゴロで打者が一塁でアウトになると、フォースの走者は進むしかない。
+    // 併殺打はフォースの先頭走者が打者と一緒にアウトになる。
+    const [o1, o2, o3] = [b[1], b[2], b[3]];
+    if (o1 && o2 && o3) scored.push(o3); // 満塁: 3塁走者は押し出されて生還
+    b[1] = null;
+    if (eventType === 'ground_out') { b[2] = o1 || o2; b[3] = o1 && o2 ? o2 : o3; }
+    else if (o1) { b[2] = null; b[3] = o2 || o3; }
+    else if (o3) { b[3] = null; }
+    else { b[2] = null; }
   }
   return { bases: b, scored };
 }
@@ -346,7 +358,8 @@ export function convertScorerGame(text) {
     const batterId = battingTeam().slots[batterSlot] ?? `slot-${inning}-${isTop}-${batterSlot}`;
     const before = { ...bases };
     const target = applyComps(before, batterId, comps);
-    const prelimAuto = applyAutoMovement(before, eventType, batterId);
+    const movementAllowed = outs + pitchOuts < 3;
+    const prelimAuto = applyAutoMovement(before, eventType, batterId, movementAllowed);
 
     // 各走者の「自動進塁後の位置」(1-3=塁, 4=生還)と「GDF上の最終位置」
     const autoPos = new Map();
@@ -395,7 +408,7 @@ export function convertScorerGame(text) {
 
     // 最終球を出力し、アプリ準拠の自動進塁を状態へ反映
     if (resultStr) emitPitch(resultStr, { ...(zone ? { hitX: zone.x, hitY: zone.y } : {}), ...(throwTo.length ? { throwTo } : {}) });
-    const auto = applyAutoMovement(bases, eventType, batterId);
+    const auto = applyAutoMovement(bases, eventType, batterId, outs + pitchOuts < 3);
     auto.scored.forEach((id) => addRun(id));
     bases = auto.bases;
     outs += pitchOuts;
@@ -440,7 +453,8 @@ export function convertScorerGame(text) {
     } else if (batterOut) {
       // 打者アウト。走者アウトが同時にある場合(併殺)は走塁死イベントで表現する
       resultStr = /^Go/.test(t) ? `${pos}ゴロ` : /^Fol/.test(t) ? `${pos}直飛` : /^Fof/.test(t) ? `${pos}邪飛` : `${pos}飛`;
-      eventType = 'out'; pitchOuts = 1;
+      // ゴロは打者が一塁でアウトになるため、フォースの走者が自動で進む
+      eventType = /^Go/.test(t) ? 'ground_out' : 'out'; pitchOuts = 1;
     } else if (errM) {
       const word = errM[1] === 'j' ? '落球エラー' : (errM[1] === 's' || t.includes('Th')) ? '送球エラー' : '捕球エラー';
       resultStr = `${pos}${word}`; eventType = 'error'; pitchOuts = 0;

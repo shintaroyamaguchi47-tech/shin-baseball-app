@@ -76,6 +76,16 @@ export const advanceGameState = (prev, eventType, addedOuts = 0) => {
       if (newRunners.third) runScored++; newRunners.third = newRunners.second; newRunners.second = newRunners.first; newRunners.first = false;
     } else if (eventType === 'sac_fly') {
       if (newRunners.third) runScored++; newRunners.third = false;
+    } else if (eventType === 'ground_out' || eventType === 'double_play') {
+      // ゴロで打者がアウトになるとき、フォースの状態にある走者(その走者より
+      // 後ろの塁がすべて埋まっている走者)は進むしかない。
+      //   1死1塁で三ゴロ → 打者は一塁でアウト、1塁走者は2塁へ
+      // 併殺打はフォースの先頭走者が打者と一緒にアウトになる(1死1塁なら走者なし)。
+      const r1 = newRunners.first, r2 = newRunners.second, r3 = newRunners.third;
+      if (r1 && r2 && r3) runScored++; // 満塁: 3塁走者は押し出されて生還
+      if (eventType === 'ground_out') newRunners = { first: false, second: r1 || r2, third: (r1 && r2) || r3 };
+      else if (r1) newRunners = { first: false, second: false, third: r2 || r3 };
+      else newRunners = { first: false, second: r3 ? r2 : false, third: false }; // 走者が1塁にいない併殺は先頭走者がアウト
     }
   }
   if (runScored > 0) newRunsArray[newInning - 1] = (newRunsArray[newInning - 1] || 0) + runScored;
@@ -99,6 +109,9 @@ export const resultToEventType = (result) => {
   if (['エラー', '敵失(エラー)', '野手選択'].some((w) => result.includes(w))) return 'error';
   if (result.includes('犠打')) return 'sac_bunt';
   if (result.includes('犠飛')) return 'sac_fly';
+  // ゴロ(併殺打を含む)は打者が一塁でアウトになるため、フォースの走者が進む
+  if (result.includes('併殺')) return 'double_play';
+  if (result.includes('ゴロ')) return 'ground_out';
   return 'out';
 };
 

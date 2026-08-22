@@ -27,8 +27,10 @@ const ORIGINAL_BASE = { first: 1, second: 2, third: 3 };
 const REASON_RUNNER = '打球';
 const REASON_BATTER = '送球間';
 
-// 打者が出塁し、走者が動く可能性がある打席結果(この結果のときに進塁確認を出す)
-const ADJUSTABLE_EVENT_TYPES = new Set(['single', 'double', 'triple', 'error']);
+// 走者が動く可能性がある打席結果(この結果のときに進塁確認を出す)。
+// 打者が出塁した打席に加えて、ゴロで打者がアウトになった打席も対象にする
+// (1死1塁の三ゴロで1塁走者が2塁へ進むなど、走者の動きは打球ごとに違うため)
+const ADJUSTABLE_EVENT_TYPES = new Set(['single', 'double', 'triple', 'error', 'ground_out', 'double_play']);
 
 export function isAdjustableEventType(eventType) {
   return ADJUSTABLE_EVENT_TYPES.has(eventType);
@@ -65,8 +67,20 @@ export function autoPositions(runnersBefore, eventType) {
     score(b3); b3 = b2; b2 = b1; b1 = null;
   } else if (eventType === 'sac_fly') {
     score(b3); b3 = null;
+  } else if (eventType === 'ground_out' || eventType === 'double_play') {
+    // ゴロで打者が一塁でアウトになると、フォースの走者(その走者より後ろの塁が
+    // すべて埋まっている走者)は進むしかない。併殺打はフォースの先頭走者が
+    // 打者と一緒にアウトになる(アウト数は打席結果側で数えているので、
+    // ここでは塁上から消えるだけ)。
+    const [o1, o2, o3] = [b1, b2, b3];
+    if (o1 && o2 && o3) score(o3); // 満塁: 3塁走者は押し出されて生還
+    b1 = null;
+    if (eventType === 'ground_out') { b2 = o1 || o2; b3 = o1 && o2 ? o2 : o3; }
+    else if (o1) { b2 = null; b3 = o2 || o3; }
+    else if (o3) { b3 = null; }
+    else { b2 = null; }
   }
-  // 'out' は走者に変化なし(現行ルール)
+  // 'out'(三振・フライなど) は走者に変化なし
 
   if (b1) pos[b1] = 1;
   if (b2) pos[b2] = 2;

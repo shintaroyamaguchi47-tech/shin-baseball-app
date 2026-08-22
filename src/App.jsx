@@ -578,9 +578,10 @@ import CumulativeStatsModal from './components/CumulativeStatsModal.jsx';
           return newPitches;
         });
         let eventType = 'out';
-        if (typeLabel.includes('本塁打')) eventType = 'homerun'; else if (typeLabel.includes('三塁打')) eventType = 'triple'; else if (typeLabel.includes('二塁打')) eventType = 'double'; else if (typeLabel.includes('安')) eventType = 'single'; else if (['エラー','敵失(エラー)','野手選択'].includes(typeLabel) || typeLabel.includes('エラー')) eventType = 'error'; else if (typeLabel === '犠打') eventType = 'sac_bunt'; else if (typeLabel === '犠飛') eventType = 'sac_fly';
-        // 走者がいる打席で打者が出塁したときは、自動進塁のままでよいかを確認する
-        // (1死2塁の単打が必ず1・3塁になってしまうのを防ぐ)
+        if (typeLabel.includes('本塁打')) eventType = 'homerun'; else if (typeLabel.includes('三塁打')) eventType = 'triple'; else if (typeLabel.includes('二塁打')) eventType = 'double'; else if (typeLabel.includes('安')) eventType = 'single'; else if (['エラー','敵失(エラー)','野手選択'].includes(typeLabel) || typeLabel.includes('エラー')) eventType = 'error'; else if (typeLabel === '犠打') eventType = 'sac_bunt'; else if (typeLabel === '犠飛') eventType = 'sac_fly'; else if (typeLabel === '併殺打') eventType = 'double_play'; else if (typeLabel === 'ゴロ') eventType = 'ground_out';
+        // 走者がいる打席で打者が出塁したとき・ゴロで打者がアウトになったときは、
+        // 自動進塁のままでよいかを確認する
+        // (1死2塁の単打が必ず1・3塁になる/1死1塁の三ゴロで走者が1塁に残るのを防ぐ)
         const hasRunner = gameState.runners.first || gameState.runners.second || gameState.runners.third;
         if (askAdvanceAfterHit && hasRunner && isAdjustableEventType(eventType) && gameState.outs + outCount < 3) {
           openAdvanceSheet(eventType, outCount, `${selectedPosition}${typeLabel}`);
@@ -3051,7 +3052,7 @@ import CumulativeStatsModal from './components/CumulativeStatsModal.jsx';
                   </div>
                   <label className="flex items-center justify-center gap-2 pb-3 text-[11px] font-bold text-slate-500 cursor-pointer">
                     <input type="checkbox" checked={askAdvanceAfterHit} onChange={e => setAskAdvanceAfterHit(e.target.checked)} className="w-3.5 h-3.5" />
-                    安打・出塁のあとに「走者はどこまで進んだ？」を出す
+                    打球のあとに「走者はどこまで進んだ？」を出す
                   </label>
                 </div>
               </div>
@@ -3116,7 +3117,7 @@ import CumulativeStatsModal from './components/CumulativeStatsModal.jsx';
                     </div>
                     <label className="flex items-center justify-center gap-2 pb-3 text-[11px] font-bold text-slate-500 cursor-pointer">
                       <input type="checkbox" checked={askAdvanceAfterHit} onChange={e => setAskAdvanceAfterHit(e.target.checked)} className="w-3.5 h-3.5" />
-                      出塁した打席のあと、毎回この確認を出す
+                      打球のあと、毎回この確認を出す
                     </label>
                   </div>
                 </div>

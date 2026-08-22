@@ -169,7 +169,9 @@ describe('resultToEventType', () => {
     ['野手選択', 'error'],
     ['送りバント犠打', 'sac_bunt'],
     ['犠飛', 'sac_fly'],
-    ['ショートゴロ', 'out'],
+    ['ショートゴロ', 'ground_out'],
+    ['セカンド併殺打', 'double_play'],
+    ['センター飛', 'out'],
   ])('%s を %s と判定する', (result, expected) => {
     expect(resultToEventType(result)).toBe(expected);
   });
