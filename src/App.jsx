@@ -3,7 +3,7 @@ import SprayChart from './components/SprayChart.jsx';
 import AnalystReport from './components/AnalystReport.jsx';
 import PlayByPlayReport from './components/PlayByPlayReport.jsx';
 import { buildAnalystInsights } from './analystInsights.js';
-import { buildPlayByPlayReport, outsAddedFor } from './playByPlay.js';
+import { buildPlayByPlayReport, outsAddedFor, deriveFinalLabel, isIncompletePA } from './playByPlay.js';
 import * as storage from './storage.js';
 import { asPlayerObj, findDuplicateNameIndices, mergeRosterPlayers, renamePlayersInGame, detectLineupRenames } from './teamUtils.js';
 import { renumberPitchNumbers, reassignPitchBatter } from './gameUtils.js';
@@ -995,11 +995,12 @@ import CumulativeStatsModal from './components/CumulativeStatsModal.jsx';
             const noEv = ab.filter(p => !p.isEvent); if (noEv.length === 0) return;
             const last = noEv[noEv.length-1]; const pName = last.pitcherName || '不明'; if (!pStats[pName]) pStats[pName] = { p: 0, k: 0, bb: 0, h: 0 };
             let s=0, b=0; noEv.forEach(p => { if(['ボール','ウエスト'].includes(p.result)) b++; else if(['ストライク','空振り','バント空振り'].includes(p.result)) s++; else if(['ファウル','バントファウル'].includes(p.result)&&s<2) s++; });
-            const res = last.result; let finalRes = res;
+            // 最終球そのもの(四球なら「ボール」)ではなく、打席結果の言葉で記録する
+            const res = last.result, finalRes = deriveFinalLabel(noEv);
             if (['安','塁打','本塁打'].some(w=>res.includes(w))) { pStats[pName].h++; }
-            else if (['死球','四球','ウエスト'].includes(res) || b>=4) { pStats[pName].bb++; finalRes = res==='死球'?'死球':'四球'; }
-            else if (res==='三振' || res==='スリーバント失敗' || res==='振り逃げ' || res==='振り逃げアウト' || s>=3) { pStats[pName].k++; finalRes = res==='スリーバント失敗'?'スリーバント失敗':res==='振り逃げ'?'振り逃げ':res==='振り逃げアウト'?'振り逃げアウト':'三振'; }
-            if (!(finalRes?.startsWith('牽制') || finalRes === '盗塁死')) { const tk = last.isTop ? 'top' : 'bottom'; if(bStats[tk][last.batter]) bStats[tk][last.batter].res.push(finalRes); }
+            else if (['死球','四球','ウエスト'].includes(res) || b>=4) { pStats[pName].bb++; }
+            else if (res==='三振' || res==='スリーバント失敗' || res==='振り逃げ' || res==='振り逃げアウト' || s>=3) { pStats[pName].k++; }
+            if (!(finalRes?.startsWith('牽制') || finalRes === '盗塁死')) { const tk = last.isTop ? 'top' : 'bottom'; if(bStats[tk][last.batter]) bStats[tk][last.batter].res.push(isIncompletePA(finalRes) ? '打席途中' : finalRes); }
           });
           text += `【投手】\n`; Object.entries(pStats).forEach(([n, s]) => text += `${n}: ${s.p}球 / 奪三振${s.k} / 与四死${s.bb} / 被安打${s.h}\n`);
           text += `\n【打席: ${gameInfo.teamTop}】\n`; Object.entries(bStats.top).forEach(([o, b]) => text += `${o}番(${b.pos}) ${b.name}: ${b.res.length>0?b.res.join('、'):'-'}\n`);
@@ -1111,7 +1112,8 @@ import CumulativeStatsModal from './components/CumulativeStatsModal.jsx';
             const lastPitch = ab[ab.length - 1]; if (!lastPitch) return;
             const bKey = `${lastPitch.batter}-${lastPitch.batterName}`;
             if (!playerStats[bKey]) playerStats[bKey] = { order: lastPitch.batter, name: lastPitch.batterName, pos: '途中', throws: lastPitch.batterThrows, bats: lastPitch.batterBats, posSeq: [], PA:0, AB:0, H:0, TB:0, BB_HBP:0, K:0, results: [], sprayHits: [], atBats: [] };
-            const pStat = playerStats[bKey], res = lastPitch.result;
+            // 最終球そのもの(四球なら「ボール」、三振なら「空振り」)ではなく打席結果の言葉に直す
+            const pStat = playerStats[bKey], res = deriveFinalLabel(ab);
             if (lastPitch.batterPos) pStat.posSeq.push(lastPitch.batterPos);
             teamStats.PA++; pStat.PA++;
             let s=0, b=0; ab.forEach(p => { if(['ボール','ウエスト'].includes(p.result)) b++; else if(['ストライク','空振り','バント空振り'].includes(p.result)) s++; else if(['ファウル','バントファウル'].includes(p.result)&&s<2) s++; });
@@ -1130,7 +1132,7 @@ import CumulativeStatsModal from './components/CumulativeStatsModal.jsx';
               sprayHit = sEnt;
               teamStats.sprayHits.push(sEnt); pStat.sprayHits.push(sEnt);
             }
-            if (!(res?.startsWith('牽制') || ['盗塁死','その他出塁'].includes(res))) pStat.results.push(res);
+            if (!(res?.startsWith('牽制') || ['盗塁死','その他出塁'].includes(res))) pStat.results.push(isIncompletePA(res) ? '打席途中' : res);
             if (!pStat.atBats) pStat.atBats = [];
             pStat.atBats.push({ pitches: ab, result: res, inning: lastPitch.inning, isTop: lastPitch.isTop, sprayHit });
           });
@@ -1272,7 +1274,7 @@ import CumulativeStatsModal from './components/CumulativeStatsModal.jsx';
             if (!perGameBatter[nm]) perGameBatter[nm] = { PA:0, AB:0, H:0, BB_HBP:0, K:0, TB:0, results: [] };
             const pg = perGameBatter[nm];
             let s=0,bb=0; ab.forEach(p => { if(['ボール','ウエスト'].includes(p.result)) bb++; else if(['ストライク','空振り','バント空振り'].includes(p.result)) s++; else if(['ファウル','バントファウル'].includes(p.result)&&s<2) s++; });
-            const res = last.result;
+            const res = deriveFinalLabel(ab); // 四球を「ボール」と書かないよう打席結果の言葉に直す
             const isHit = ['安','塁打','本塁打'].some(w=>res.includes(w));
             let isAB = true, tbAdd = 0;
             b.PA++; pg.PA++;
@@ -1292,7 +1294,8 @@ import CumulativeStatsModal from './components/CumulativeStatsModal.jsx';
               b.K++; pg.K++;
             }
             if (isAB) { b.AB++; pg.AB++; }
-            b.results.push(res); pg.results.push(res);
+            const label = isIncompletePA(res) ? '打席途中' : res;
+            b.results.push(label); pg.results.push(label);
           });
           Object.entries(perGameBatter).forEach(([nm, pg]) => {
             batters[nm].gameLog.push({ gameId: g.id, date: g.date, opponent: targetIsTop ? g.teamBottom : g.teamTop, ...pg });
@@ -1371,12 +1374,7 @@ import CumulativeStatsModal from './components/CumulativeStatsModal.jsx';
           const first = currentAb[0], key = `${first.inning}-${first.isTop}`;
           if (!innings[key]) innings[key] = { inning: first.inning, isTop: first.isTop, atBats: [] };
           const nonEvent = currentAb.filter(p => !p.isEvent), events = currentAb.filter(p => p.isEvent), lastPitch = nonEvent.length > 0 ? nonEvent[nonEvent.length - 1] : null;
-          let result = '';
-          if (lastPitch) {
-            const res = lastPitch.result;
-            if (['安', '塁打', '本塁打', 'インプレー', 'バント'].some(w => res.includes(w))) result = res;
-            else { let b = 0, s = 0; nonEvent.forEach(p => { if (['ボール','ウエスト'].includes(p.result)) b++; else if (['ストライク','空振り','バント空振り'].includes(p.result)) s++; else if (['ファウル','バントファウル'].includes(p.result) && s < 2) s++; }); if (res === '振り逃げ') result = '振り逃げ'; else if (res === '振り逃げアウト') result = '振り逃げアウト'; else if (s >= 3 || res === '三振' || res === 'スリーバント失敗') result = res === 'スリーバント失敗' ? 'スリーバント失敗' : '三振'; else if (b >= 4 || ['四球','ウエスト'].includes(res)) result = '四球'; else if (res === '死球') result = '死球'; else result = res; }
-          }
+          const result = lastPitch ? deriveFinalLabel(nonEvent) : '';
           // イベント記録も独立して追加する処理に変更可能ですが、今回は打席履歴とマージ
           innings[key].atBats.push({ batter: first.batter, batterName: first.batterName, pitcherName: first.pitcherName, pitchCount: nonEvent.length, result, events: events.map(e => e.result), pitches: currentAb });
         };

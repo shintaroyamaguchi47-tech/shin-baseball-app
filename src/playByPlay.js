@@ -100,9 +100,18 @@ const getBallFlight = (res) => res.includes('本塁打') ? 'hr'
   : ['直', 'ライナー', '安', '二塁打', '三塁打'].some(w => res.includes(w)) ? 'liner'
   : 'fly';
 
-// App.jsx の playByPlayData と同じ最終結果ラベル導出ロジック(意図的に重複)
-function deriveFinalLabel(nonEvent) {
-  const last = nonEvent[nonEvent.length - 1];
+/**
+ * 1打席の投球記録(イベントを除く)から、その打席の最終結果ラベルを導く。
+ * 最後の1球は四球なら「ボール」、三振なら「空振り」のように投球そのものが
+ * 記録されているため、ボール/ストライクを数え直して打席結果の言葉に直す。
+ * 速報・スコアブック・試合後の分析・共有テキストで同じ言葉を使うため、
+ * 導出はこの1か所に集約する。
+ * @param {Array} nonEvent その打席の投球記録(isEvent=false)の配列
+ * @returns {string} 打席結果ラベル(例: '四球', '三振', 'ショートゴロ')
+ */
+export function deriveFinalLabel(nonEvent) {
+  const last = (nonEvent || [])[(nonEvent || []).length - 1];
+  if (!last) return '';
   const res = last.result || '';
   if (['安', '塁打', '本塁打', 'インプレー', 'バント'].some(w => res.includes(w))) return res;
   let b = 0, s = 0;
