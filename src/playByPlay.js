@@ -1,3 +1,4 @@
+import { isBallResult, isStrikeResult, isFoulResult, PITCH_CLOCK_BALL, PITCH_CLOCK_STRIKE } from './pitchResults.js';
 // ============================================================
 // 打席速報ビルダー
 // pitches(投球/イベント記録の配列)を走者の出塁状況までシミュレートし、
@@ -54,7 +55,7 @@ function parseFieldResult(result) {
 // 中断打席の判定: 走者アウト等で打席の途中に3アウトが成立すると、最終球が
 // 素の投球結果(ボール/ストライク等)のまま打席が終わる。この打席は完了して
 // いないため、打者アウト・打席数・打数には数えない(公式規則と同じ)。
-const INCOMPLETE_PA_LABELS = new Set(['ボール', 'ストライク', '空振り', 'ファウル', 'バント空振り', 'バントファウル', 'ウエスト']);
+const INCOMPLETE_PA_LABELS = new Set(['ボール', 'ストライク', '空振り', 'ファウル', 'バント空振り', 'バントファウル', 'ウエスト', PITCH_CLOCK_BALL, PITCH_CLOCK_STRIKE]);
 function isIncompletePA(finalLabel) {
   return INCOMPLETE_PA_LABELS.has(finalLabel) || (finalLabel || '').startsWith('牽制');
 }
@@ -116,9 +117,9 @@ export function deriveFinalLabel(nonEvent) {
   if (['安', '塁打', '本塁打', 'インプレー', 'バント'].some(w => res.includes(w))) return res;
   let b = 0, s = 0;
   nonEvent.forEach(p => {
-    if (['ボール', 'ウエスト'].includes(p.result)) b++;
-    else if (['ストライク', '空振り', 'バント空振り'].includes(p.result)) s++;
-    else if (['ファウル', 'バントファウル'].includes(p.result) && s < 2) s++;
+    if (isBallResult(p.result)) b++;
+    else if (isStrikeResult(p.result)) s++;
+    else if (isFoulResult(p.result) && s < 2) s++;
   });
   if (res === '振り逃げ') return '振り逃げ';
   if (res === '振り逃げアウト') return '振り逃げアウト';
@@ -331,9 +332,9 @@ export function buildPlayByPlayReport(pitches) {
       }
       seq++;
       preCount = { b, s };
-      if (['ボール', 'ウエスト'].includes(p.result)) b++;
-      else if (['ストライク', '空振り', 'バント空振り'].includes(p.result)) s++;
-      else if (['ファウル', 'バントファウル'].includes(p.result) && s < 2) s++;
+      if (isBallResult(p.result)) b++;
+      else if (isStrikeResult(p.result)) s++;
+      else if (isFoulResult(p.result) && s < 2) s++;
       const isLast = p === last;
       pitchRows.push({ isEvent: false, seq, label: p.result, count: isLast ? null : `${b}-${s}`, course: p.course ?? null, pitchType: p.type || null });
       if (isLast) {

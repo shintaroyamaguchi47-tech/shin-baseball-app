@@ -1,4 +1,5 @@
 // 試合分析レポートのPDF(印刷用HTML)生成。App からは window.generatePdfReport(...) で呼ばれる。
+import { isBallResult } from './pitchResults.js';
   try {
   window.generatePdfReport = function(data) {
     var w = window.open('', '_blank');
@@ -180,7 +181,7 @@
         ps.forEach(function(p, pIdx) {
           var angle=ps.length>1?(pIdx/ps.length)*Math.PI*2-Math.PI/2:0, dist=ps.length>1?r*0.55:0;
           var cx=baseCx+Math.cos(angle)*dist, cy=baseCy+Math.sin(angle)*dist;
-          var color=ptColors[p.type] || '#94a3b8', isBall=['ボール','ウエスト'].includes(p.result), isLast=p.seq===(abPitches||[]).length;
+          var color=ptColors[p.type] || '#94a3b8', isBall=isBallResult(p.result), isLast=p.seq===(abPitches||[]).length;
           if (isLast) h+='<circle cx="'+cx+'" cy="'+cy+'" r="'+(r+cs*0.2)+'" fill="none" stroke="'+color+'" stroke-width="'+(cs>=12?1.8:1.3)+'" stroke-dasharray="'+(cs>=12?'3 1.5':'2 1')+'" opacity="0.7"/>';
           h+='<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="'+(isBall?'white':color)+'" stroke="'+color+'" stroke-width="'+(isBall?(cs>=12?1.6:1.2):0)+'" opacity="0.92"/>';
           h+='<text x="'+cx+'" y="'+(cy+mkFnt*0.36)+'" text-anchor="middle" font-size="'+mkFnt+'" font-weight="900" fill="'+(isBall?color:'white')+'">'+p.seq+'</text>';
