@@ -17,6 +17,7 @@ import { autoPositions, buildAdvanceChoices, buildAdvanceEvents, previewAdvanceR
 import { makeInitialGameState, makeInitialLineups, ensureRunArray, normalizeGameState, advanceGameState, resultToEventType, applyRunnerEventToState, rebuildGameStateFromPitches } from './gameState.js';
 import PostGameReport from './components/PostGameReport.jsx';
 import CumulativeStatsModal from './components/CumulativeStatsModal.jsx';
+import { isBallResult, isStrikeResult, isFoulResult, isPitchClockViolation, PITCH_CLOCK_BALL, PITCH_CLOCK_STRIKE } from './pitchResults.js';
 
     function App() {
       const loadStored = (key, fallback) => {
@@ -472,7 +473,7 @@ import CumulativeStatsModal from './components/CumulativeStatsModal.jsx';
           let newRunners = { first: false, second: false, third: false }, newOuts = prev.outs, newBalls = 0, newStrikes = 0;
           if (targetPitches.length > 0) {
             const lastPitch = targetPitches[targetPitches.length - 1]; newRunners = lastPitch.runners || newRunners; newOuts = lastPitch.outs || 0;
-            for (let p of targetPitches.filter(p => !p.isEvent)) { if (p.result === 'ボール' || p.result === 'ウエスト') newBalls++; else if (p.result === 'ストライク' || p.result === '空振り' || p.result === 'バント空振り') newStrikes++; else if (['ファウル','バントファウル'].includes(p.result) && newStrikes < 2) newStrikes++; }
+            for (let p of targetPitches.filter(p => !p.isEvent)) { if (isBallResult(p.result)) newBalls++; else if (isStrikeResult(p.result)) newStrikes++; else if (isFoulResult(p.result) && newStrikes < 2) newStrikes++; }
           }
           return { ...prev, ...(prev.isTop ? { batterTop: newBatterNum } : { batterBottom: newBatterNum }), runners: newRunners, outs: newOuts, balls: newBalls, strikes: newStrikes };
         });
@@ -535,7 +536,9 @@ import CumulativeStatsModal from './components/CumulativeStatsModal.jsx';
       };
 
       const recordPitch = (result, detailedResult = '') => {
-        if (!result?.startsWith('牽制') && !['その他出塁','ウエスト','死球'].includes(result) && currentPitch.course === null) { showToast("先にコースを選択してください！", "error"); return; }
+        // ピッチクロック違反は投球されていないので、球種・コースを持たずに記録する
+        const isViolation = isPitchClockViolation(result);
+        if (!result?.startsWith('牽制') && !['その他出塁','ウエスト','死球'].includes(result) && !isViolation && currentPitch.course === null) { showToast("先にコースを選択してください！", "error"); return; }
         recordAction();
         const currentBatterIndex = (gameState.isTop ? gameState.batterTop : gameState.batterBottom) - 1;
         const currentPitcherObj = lineups[gameState.isTop ? 'bottom' : 'top'].find(p => p.pos === '投' || p.pos === '1' || p.pos === '①') || { name: '投手未設定', throws: '右' };
@@ -544,14 +547,16 @@ import CumulativeStatsModal from './components/CumulativeStatsModal.jsx';
         const isThreeBunt = result === 'バントファウル' && gameState.strikes === 2;
         const actualResult = isThreeBunt ? 'スリーバント失敗' : detailedResult || result;
         setPitches([...pitches, {
-          ...currentPitch, course: result?.startsWith('牽制') || ['その他出塁','ウエスト'].includes(result) ? null : currentPitch.course, type: result?.startsWith('牽制') || result === 'その他出塁' ? '-' : currentPitch.type, result: actualResult, inning: gameState.inning, isTop: gameState.isTop, batter: currentBatterIndex + 1, pitchNumber: currentBatterPitches.length + 1, pitcherName: currentPitcherObj.name, pitcherThrows: currentPitcherObj.throws, batterName: currentBatterObj.name, batterBats: currentBatterObj.bats, batterThrows: currentBatterObj.throws, batterPos: currentBatterObj.pos, isEvent: false, runners: { ...gameState.runners }, outs: gameState.outs
+          ...currentPitch, course: result?.startsWith('牽制') || ['その他出塁','ウエスト'].includes(result) || isViolation ? null : currentPitch.course, type: result?.startsWith('牽制') || result === 'その他出塁' || isViolation ? '-' : currentPitch.type, result: actualResult, inning: gameState.inning, isTop: gameState.isTop, batter: currentBatterIndex + 1, pitchNumber: currentBatterPitches.length + 1, pitcherName: currentPitcherObj.name, pitcherThrows: currentPitcherObj.throws, batterName: currentBatterObj.name, batterBats: currentBatterObj.bats, batterThrows: currentBatterObj.throws, batterPos: currentBatterObj.pos, isEvent: false, runners: { ...gameState.runners }, outs: gameState.outs
         }]);
         setInputStep('type'); // ステップ入力: 1球記録したら球種の画面へ戻す
         if (result?.startsWith('牽制')) { setCurrentPitch(p => ({ ...p, course: null })); return; }
         if (isThreeBunt) { handleAdvanceAndNextBatter('out', 1); }
+        // 違反による3ストライク目は振り逃げが起きないので、そのまま三振
+        else if (result === PITCH_CLOCK_STRIKE) { if (gameState.strikes === 2) handleAdvanceAndNextBatter('out', 1); else setGameState(prev => ({ ...prev, strikes: prev.strikes + 1 })); }
         else if (result === 'ストライク' || result === '空振り' || result === 'バント空振り') { if (gameState.strikes === 2) setShowFurinigeModal(true); else setGameState(prev => ({ ...prev, strikes: prev.strikes + 1 })); }
         else if (result === 'ファウル' || result === 'バントファウル') { if (gameState.strikes < 2) setGameState(prev => ({ ...prev, strikes: prev.strikes + 1 })); }
-        else if (result === 'ボール' || result === 'ウエスト') { if (gameState.balls === 3) handleAdvanceAndNextBatter('walk', 0); else setGameState(prev => ({ ...prev, balls: prev.balls + 1 })); }
+        else if (isBallResult(result)) { if (gameState.balls === 3) handleAdvanceAndNextBatter('walk', 0); else setGameState(prev => ({ ...prev, balls: prev.balls + 1 })); }
         else if (result === '死球' || result === 'その他出塁') { handleAdvanceAndNextBatter(result === 'その他出塁' ? 'other' : 'walk', 0); }
         else if (result === 'インプレー' || result === 'バント') { setShowInPlayResult(true); }
         setCurrentPitch(p => ({ ...p, course: null }));
@@ -990,11 +995,11 @@ import CumulativeStatsModal from './components/CumulativeStatsModal.jsx';
           lineups.top.forEach((p, i) => bStats.top[i+1] = { name: p.name, pos: p.pos, res: [] });
           lineups.bottom.forEach((p, i) => bStats.bottom[i+1] = { name: p.name, pos: p.pos, res: [] });
           const abs = {};
-          pitches.forEach(p => { if (!p.isEvent && !(p.result?.startsWith('牽制') || ['盗塁死','その他出塁'].includes(p.result))) { const pName = p.pitcherName || '不明'; if (!pStats[pName]) pStats[pName] = { p: 0, k: 0, bb: 0, h: 0 }; pStats[pName].p++; } const key = `${p.inning}-${p.isTop}-${p.batter}`; if (!abs[key]) abs[key] = []; abs[key].push(p); });
+          pitches.forEach(p => { if (!p.isEvent && !(p.result?.startsWith('牽制') || ['盗塁死','その他出塁'].includes(p.result) || isPitchClockViolation(p.result))) { const pName = p.pitcherName || '不明'; if (!pStats[pName]) pStats[pName] = { p: 0, k: 0, bb: 0, h: 0 }; pStats[pName].p++; } const key = `${p.inning}-${p.isTop}-${p.batter}`; if (!abs[key]) abs[key] = []; abs[key].push(p); });
           Object.values(abs).forEach(ab => {
             const noEv = ab.filter(p => !p.isEvent); if (noEv.length === 0) return;
             const last = noEv[noEv.length-1]; const pName = last.pitcherName || '不明'; if (!pStats[pName]) pStats[pName] = { p: 0, k: 0, bb: 0, h: 0 };
-            let s=0, b=0; noEv.forEach(p => { if(['ボール','ウエスト'].includes(p.result)) b++; else if(['ストライク','空振り','バント空振り'].includes(p.result)) s++; else if(['ファウル','バントファウル'].includes(p.result)&&s<2) s++; });
+            let s=0, b=0; noEv.forEach(p => { if(isBallResult(p.result)) b++; else if(isStrikeResult(p.result)) s++; else if(isFoulResult(p.result)&&s<2) s++; });
             // 最終球そのもの(四球なら「ボール」)ではなく、打席結果の言葉で記録する
             const res = last.result, finalRes = deriveFinalLabel(noEv);
             if (['安','塁打','本塁打'].some(w=>res.includes(w))) { pStats[pName].h++; }
@@ -1019,13 +1024,13 @@ import CumulativeStatsModal from './components/CumulativeStatsModal.jsx';
              if (currentAbKey !== key) { currentAbKey = key; b = 0; s = 0; }
              let countState = 'even'; if (s > b) countState = 'ahead'; else if (b > s) countState = 'behind';
              result.push({...p, countState});
-             if (['ボール','ウエスト'].includes(p.result)) b++; else if (['ストライク','空振り','バント空振り'].includes(p.result)) s++; else if (['ファウル','バントファウル'].includes(p.result) && s < 2) s++;
+             if (isBallResult(p.result)) b++; else if (isStrikeResult(p.result)) s++; else if (isFoulResult(p.result) && s < 2) s++;
          });
          return result;
       }, [pitches]);
 
       const analysisData = useMemo(() => {
-        const valid = pitchesWithCountState.filter(p => !p.isEvent && !(p.result?.startsWith('牽制') || ['盗塁死','その他出塁'].includes(p.result)) && (analysisFilter.pitcher === 'ALL' || p.pitcherName === analysisFilter.pitcher) && (analysisFilter.batterSide === 'ALL' || p.batterBats === analysisFilter.batterSide));
+        const valid = pitchesWithCountState.filter(p => !p.isEvent && !(p.result?.startsWith('牽制') || ['盗塁死','その他出塁'].includes(p.result) || isPitchClockViolation(p.result)) && (analysisFilter.pitcher === 'ALL' || p.pitcherName === analysisFilter.pitcher) && (analysisFilter.batterSide === 'ALL' || p.batterBats === analysisFilter.batterSide));
         const makeBucket = () => ({ all: {}, ahead: {}, even: {}, behind: {}, max: {all:0, ahead:0, even:0, behind:0} });
         const heatmaps = { all: makeBucket(), fastball: makeBucket(), breaking: makeBucket() };
         const pitchTypeHeatmaps = {};
@@ -1116,7 +1121,7 @@ import CumulativeStatsModal from './components/CumulativeStatsModal.jsx';
             const pStat = playerStats[bKey], res = deriveFinalLabel(ab);
             if (lastPitch.batterPos) pStat.posSeq.push(lastPitch.batterPos);
             teamStats.PA++; pStat.PA++;
-            let s=0, b=0; ab.forEach(p => { if(['ボール','ウエスト'].includes(p.result)) b++; else if(['ストライク','空振り','バント空振り'].includes(p.result)) s++; else if(['ファウル','バントファウル'].includes(p.result)&&s<2) s++; });
+            let s=0, b=0; ab.forEach(p => { if(isBallResult(p.result)) b++; else if(isStrikeResult(p.result)) s++; else if(isFoulResult(p.result)&&s<2) s++; });
             const isHitPlay = ['安','塁打','本塁打'].some(w=>res.includes(w));
             let isAB = true, tbAdded = 0;
             if (isHitPlay) { teamStats.H++; pStat.H++; tbAdded = res.includes('二塁打')?2:res.includes('三塁打')?3:res.includes('本塁打')?4:1; teamStats.TB+=tbAdded; pStat.TB+=tbAdded; }
@@ -1164,6 +1169,7 @@ import CumulativeStatsModal from './components/CumulativeStatsModal.jsx';
           if (cAb.length > 0) abArr.push(cAb);
           abArr.forEach(ab => {
             ab.forEach(p => {
+              if (isPitchClockViolation(p.result)) return; // 投げていない球は投球の集計に含めない(カウントには下で数える)
               const st = pStats[p.pitcherName || '不明']; st.total++;
               const type = p.type ? p.type.replace(/系$/, '') : '不明';
               if (!st.typeStats[type]) st.typeStats[type] = { total: 0, calledStrikes: 0, whiffs: 0, swings: 0, strikes: 0 };
@@ -1202,7 +1208,7 @@ import CumulativeStatsModal from './components/CumulativeStatsModal.jsx';
             const lastP = ab[ab.length - 1]; if (!lastP) return;
             const st = pStats[lastP.pitcherName || '不明'];
             st.PA++; const res = lastP.result;
-            let fB=0, fS=0; ab.forEach(p => { if(['ボール','ウエスト'].includes(p.result)) fB++; else if(['ストライク','空振り','バント空振り'].includes(p.result)) fS++; else if(['ファウル','バントファウル'].includes(p.result)&&fS<2) fS++; });
+            let fB=0, fS=0; ab.forEach(p => { if(isBallResult(p.result)) fB++; else if(isStrikeResult(p.result)) fS++; else if(isFoulResult(p.result)&&fS<2) fS++; });
             const _isH = ['安','塁打','本塁打'].some(w=>res.includes(w));
             const _isBB = ['死球','四球','ウエスト'].includes(res) || fB>=4;
             const _isK = res==='三振' || res==='スリーバント失敗' || res==='振り逃げ' || res==='振り逃げアウト' || fS>=3;
@@ -1273,7 +1279,7 @@ import CumulativeStatsModal from './components/CumulativeStatsModal.jsx';
             const b = batters[nm]; b.games.add(g.id);
             if (!perGameBatter[nm]) perGameBatter[nm] = { PA:0, AB:0, H:0, BB_HBP:0, K:0, TB:0, results: [] };
             const pg = perGameBatter[nm];
-            let s=0,bb=0; ab.forEach(p => { if(['ボール','ウエスト'].includes(p.result)) bb++; else if(['ストライク','空振り','バント空振り'].includes(p.result)) s++; else if(['ファウル','バントファウル'].includes(p.result)&&s<2) s++; });
+            let s=0,bb=0; ab.forEach(p => { if(isBallResult(p.result)) bb++; else if(isStrikeResult(p.result)) s++; else if(isFoulResult(p.result)&&s<2) s++; });
             const res = deriveFinalLabel(ab); // 四球を「ボール」と書かないよう打席結果の言葉に直す
             const isHit = ['安','塁打','本塁打'].some(w=>res.includes(w));
             let isAB = true, tbAdd = 0;
@@ -1310,6 +1316,7 @@ import CumulativeStatsModal from './components/CumulativeStatsModal.jsx';
           const perGamePitcher = {};
           pAbs.forEach(ab => {
             ab.forEach(p => {
+              if (isPitchClockViolation(p.result)) return; // 投げていない球は投球の集計に含めない(カウントには下で数える)
               const nm = p.pitcherName || '不明';
               if (!pitchers[nm]) pitchers[nm] = mkPitcher(nm, p.pitcherThrows);
               const ps = pitchers[nm]; ps.games.add(g.id); ps.pitches++;
@@ -1329,10 +1336,14 @@ import CumulativeStatsModal from './components/CumulativeStatsModal.jsx';
             });
             const last = ab[ab.length - 1]; if (!last) return;
             const nm = last.pitcherName || '不明';
+            // 打席の最後がピッチクロック違反(押し出し四球・三振)で、その投手がまだ1球も投げていない場合に備える
+            if (!pitchers[nm]) pitchers[nm] = mkPitcher(nm, last.pitcherThrows);
+            if (!perGamePitcher[nm]) perGamePitcher[nm] = { pitches:0, PA:0, H:0, BB:0, K:0, strikes:0 };
+            pitchers[nm].games.add(g.id);
             const ps = pitchers[nm]; const pg = perGamePitcher[nm];
             ps.PA++; pg.PA++;
             const res = last.result;
-            let fB=0,fS=0; ab.forEach(p => { if(['ボール','ウエスト'].includes(p.result)) fB++; else if(['ストライク','空振り','バント空振り'].includes(p.result)) fS++; else if(['ファウル','バントファウル'].includes(p.result)&&fS<2) fS++; });
+            let fB=0,fS=0; ab.forEach(p => { if(isBallResult(p.result)) fB++; else if(isStrikeResult(p.result)) fS++; else if(isFoulResult(p.result)&&fS<2) fS++; });
             const isHit = ['安','塁打','本塁打'].some(w=>res.includes(w));
             const isBB = ['死球','四球','ウエスト'].includes(res) || fB>=4;
             const isK = res==='三振' || res==='スリーバント失敗' || res==='振り逃げ' || res==='振り逃げアウト' || fS>=3;
@@ -1556,14 +1567,26 @@ import CumulativeStatsModal from './components/CumulativeStatsModal.jsx';
         </>
       );
 
-      // コース不要で記録できる操作（死球・ウエスト・牽制・走者アウト・その他出塁）
+      // ピッチクロック違反（投手の違反＝ボール、打者の違反＝ストライク）。投球ではないので球種・コースは不要
+      const renderPitchClockButtons = () => (
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] font-bold text-slate-400 shrink-0">⏱ ﾋﾟｯﾁｸﾛｯｸ違反:</span>
+          <button onClick={() => recordPitch(PITCH_CLOCK_BALL)} className="flex-1 bg-white text-emerald-700 border-2 border-emerald-400 px-2 py-1.5 rounded-lg font-bold text-[11px] shadow-sm active:scale-95">投手 → ボール</button>
+          <button onClick={() => recordPitch(PITCH_CLOCK_STRIKE)} className="flex-1 bg-white text-slate-700 border-2 border-slate-500 px-2 py-1.5 rounded-lg font-bold text-[11px] shadow-sm active:scale-95">打者 → ストライク</button>
+        </div>
+      );
+
+      // コース不要で記録できる操作（死球・ウエスト・牽制・走者アウト・その他出塁・ピッチクロック違反）
       const renderSecondaryButtons = () => (
-        <div className="grid grid-cols-5 gap-1.5 pt-2 border-t border-slate-200">
+        <div className="flex flex-col gap-1.5 pt-2 border-t border-slate-200">
+        <div className="grid grid-cols-5 gap-1.5">
           <button onClick={() => recordPitch('死球')} className="bg-purple-600 text-white py-2.5 rounded-lg font-bold text-[10px] shadow-sm active:scale-95">死球</button>
           <button onClick={() => recordPitch('ウエスト')} className="bg-teal-600 text-white py-2.5 rounded-lg font-bold text-[10px] shadow-sm active:scale-95">ｳｴｽﾄ</button>
           <button onClick={() => setShowPickoffModal(true)} className="bg-orange-500 text-white py-2.5 rounded-lg font-bold text-[10px] shadow-sm active:scale-95">牽制</button>
           <button onClick={() => { setOutRunnerData({ runner: '', reason: '盗塁死' }); setShowOutRunnerModal(true); }} className="bg-rose-600 text-white py-2.5 rounded-lg font-bold text-[10px] shadow-sm active:scale-95">走者ｱｳﾄ</button>
           <button onClick={() => recordPitch('その他出塁')} className="bg-cyan-600 text-white py-2.5 rounded-lg font-bold text-[10px] shadow-sm active:scale-95">他出塁</button>
+        </div>
+        {renderPitchClockButtons()}
         </div>
       );
 
@@ -1849,6 +1872,7 @@ import CumulativeStatsModal from './components/CumulativeStatsModal.jsx';
                         <button onClick={() => { setOutRunnerData({ runner: '', reason: '盗塁死' }); setShowOutRunnerModal(true); }} className="bg-rose-600 text-white px-3 py-1.5 rounded-lg font-bold text-[11px] shadow-sm active:scale-95">走者ｱｳﾄ</button>
                         <button onClick={() => setShowAdvanceModal(true)} className="bg-blue-50 text-blue-700 border border-blue-200 px-3 py-1.5 rounded-lg font-bold text-[11px] active:scale-95">進塁</button>
                       </div>
+                      <div className="w-full max-w-[340px]">{renderPitchClockButtons()}</div>
                     </div>
                   )}
 
@@ -2142,7 +2166,7 @@ import CumulativeStatsModal from './components/CumulativeStatsModal.jsx';
                           <div className="flex-1 flex flex-col justify-center min-w-0 pr-2">
                             <div className="truncate font-bold text-xs text-slate-700">{p.type ? p.type.replace(/系$/, '') : ''}</div>
                           </div>
-                          <div className={`text-white text-[10px] font-black px-3 py-1.5 rounded-lg shadow-sm whitespace-nowrap shrink-0 ${p.result.includes('ストライク')||p.result.includes('空振')||p.result==='スリーバント失敗'?'bg-amber-500':p.result==='振り逃げ'?'bg-cyan-600':p.result==='振り逃げアウト'?'bg-cyan-800':p.result==='ボール'?'bg-emerald-500':p.result==='ウエスト'?'bg-teal-600':p.result==='死球'?'bg-purple-600':['安','塁打','本塁打'].some(w=>p.result.includes(w))?'bg-blue-600':p.result?.startsWith('牽制')?'bg-orange-500':p.result.includes('ファウル')?'bg-orange-400':'bg-rose-500'}`}>{p.result}</div>
+                          <div className={`text-white text-[10px] font-black px-3 py-1.5 rounded-lg shadow-sm whitespace-nowrap shrink-0 ${p.result===PITCH_CLOCK_BALL?'bg-emerald-400':p.result===PITCH_CLOCK_STRIKE?'bg-amber-400':p.result.includes('ストライク')||p.result.includes('空振')||p.result==='スリーバント失敗'?'bg-amber-500':p.result==='振り逃げ'?'bg-cyan-600':p.result==='振り逃げアウト'?'bg-cyan-800':p.result==='ボール'?'bg-emerald-500':p.result==='ウエスト'?'bg-teal-600':p.result==='死球'?'bg-purple-600':['安','塁打','本塁打'].some(w=>p.result.includes(w))?'bg-blue-600':p.result?.startsWith('牽制')?'bg-orange-500':p.result.includes('ファウル')?'bg-orange-400':'bg-rose-500'}`}>{p.result}</div>
                         </div>
                       )
                     ))
@@ -2293,6 +2317,10 @@ import CumulativeStatsModal from './components/CumulativeStatsModal.jsx';
                           <button onClick={() => setEditPitchData({...editPitchData, result: 'ファウル'})} className="col-span-2 bg-amber-500 text-white py-2.5 rounded-xl font-bold text-sm">ファウル</button>
                           <button onClick={() => setEditPitchData({...editPitchData, result: 'バントファウル'})} className="bg-amber-600 text-white py-2.5 rounded-xl font-bold text-[10px] leading-tight">ﾊﾞﾝﾄﾌｧｳﾙ</button>
                           <button onClick={() => setEditPitchData({...editPitchData, result: 'バント空振り'})} className="bg-slate-500 text-white py-2.5 rounded-xl font-bold text-[10px] leading-tight">ﾊﾞﾝﾄ空振S</button>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button onClick={() => setEditPitchData({...editPitchData, result: PITCH_CLOCK_BALL, type: '-', course: null})} className="bg-white text-emerald-700 border-2 border-emerald-400 py-2 rounded-xl font-bold text-[10px] leading-tight">ﾋﾟｯﾁｸﾛｯｸ違反<br/>(投手→ボール)</button>
+                          <button onClick={() => setEditPitchData({...editPitchData, result: PITCH_CLOCK_STRIKE, type: '-', course: null})} className="bg-white text-slate-700 border-2 border-slate-500 py-2 rounded-xl font-bold text-[10px] leading-tight">ﾋﾟｯﾁｸﾛｯｸ違反<br/>(打者→ストライク)</button>
                         </div>
                       </div>
                       <div className="flex flex-col bg-white p-4 rounded-2xl border border-slate-200">

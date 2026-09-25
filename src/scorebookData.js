@@ -10,6 +10,7 @@
 // ============================================================
 
 import { buildPlayByPlayReport, parseFieldResult, isIncompletePA, outsAddedFor } from './playByPlay.js';
+import { isBallResult, isFoulResult, PITCH_CLOCK_STRIKE } from './pitchResults.js';
 
 const POS_NUM = {
   'ピッチャー': 1, 'キャッチャー': 2, 'ファースト': 3, 'セカンド': 4, 'サード': 5,
@@ -125,10 +126,11 @@ function resultNotation(pf, finalLabel, lastStrikeType, throwTo) {
 // 投球1球ぶんのマーク種別
 function pitchMarkType(result) {
   if (result.startsWith('牽制')) return 'pickoff';
-  if (['ボール', 'ウエスト'].includes(result)) return 'ball';
-  if (result === 'ストライク') return 'looking';
+  if (isBallResult(result)) return 'ball';
+  // ピッチクロック違反のストライクは振っていないので見逃しと同じ扱い
+  if (result === 'ストライク' || result === PITCH_CLOCK_STRIKE) return 'looking';
   if (['空振り', 'バント空振り'].includes(result)) return 'swing';
-  if (['ファウル', 'バントファウル'].includes(result)) return 'foul';
+  if (isFoulResult(result)) return 'foul';
   if (result === '死球') return 'hbp';
   return 'other';
 }

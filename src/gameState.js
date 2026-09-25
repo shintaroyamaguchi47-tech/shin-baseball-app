@@ -7,6 +7,7 @@
 
 import { outsAddedFor } from './playByPlay.js';
 import { isEarnedAdvanceReason } from './runnerAdvance.js';
+import { isBallResult, isStrikeResult, isFoulResult } from './pitchResults.js';
 
 export const makeInitialGameState = () => ({
   inning: 1,
@@ -165,10 +166,10 @@ export const rebuildGameStateFromPitches = (records) => {
       return;
     }
     const res = p.result || '';
-    if (['ボール', 'ウエスト'].includes(res)) state = state.balls >= 3 ? advanceGameState(state, 'walk', 0) : { ...state, balls: state.balls + 1 };
+    if (isBallResult(res)) state = state.balls >= 3 ? advanceGameState(state, 'walk', 0) : { ...state, balls: state.balls + 1 };
     else if (res === '死球' || res === 'その他出塁') state = advanceGameState(state, res === 'その他出塁' ? 'other' : 'walk', 0);
-    else if (['ストライク', '空振り', 'バント空振り'].includes(res)) state = state.strikes >= 2 ? advanceGameState(state, 'out', 1) : { ...state, strikes: state.strikes + 1 };
-    else if (['ファウル', 'バントファウル'].includes(res)) state = state.strikes < 2 ? { ...state, strikes: state.strikes + 1 } : state;
+    else if (isStrikeResult(res)) state = state.strikes >= 2 ? advanceGameState(state, 'out', 1) : { ...state, strikes: state.strikes + 1 };
+    else if (isFoulResult(res)) state = state.strikes < 2 ? { ...state, strikes: state.strikes + 1 } : state;
     else if (res === 'スリーバント失敗' || res === '三振' || res === '振り逃げアウト') state = advanceGameState(state, 'out', 1);
     else if (res === '振り逃げ') state = advanceGameState(state, 'error', 0);
     // 打者アウトの数は結果テキストから判定する(併殺打=2、犠打/犠飛=1、

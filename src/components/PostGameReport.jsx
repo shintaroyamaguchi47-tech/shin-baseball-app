@@ -2,6 +2,7 @@ import React from 'react';
 import SprayChart from './SprayChart.jsx';
 import AnalystReport from './AnalystReport.jsx';
 import PlayByPlayReport from './PlayByPlayReport.jsx';
+import { isBallResult } from '../pitchResults.js';
 
 // 試合終了後の分析レポート(全画面モーダル)。
 // 表示専用: 受け取った集計をそのまま描くだけで、試合データは書き換えない。
@@ -133,7 +134,7 @@ export default function PostGameReport({
                           const cx = baseCx + Math.cos(angle) * dist;
                           const cy = baseCy + Math.sin(angle) * dist;
                           const color = ptColors[p.type] || '#94a3b8';
-                          const isBall = ['ボール','ウエスト'].includes(p.result);
+                          const isBall = isBallResult(p.result);
                           const isLastPitch = p.seq === abPitches.length;
                           return (
                             <g key={pIdx}>

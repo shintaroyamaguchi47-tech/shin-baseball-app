@@ -1,4 +1,5 @@
 import { deriveFinalLabel } from './playByPlay.js';
+import { isBallResult, isStrikeResult } from './pitchResults.js';
 
 const terminalWords = ['安', '塁打', '本塁打', '三振', '振り逃げ', '四球', '死球', '犠打', '犠飛', 'インプレー', 'ゴロ', '飛', '直', 'エラー', '野選', 'バント'];
 
@@ -68,8 +69,8 @@ export function normalizeArchive(savedGames = [], registeredTeams = [], homeTeam
       const paId = id('pa', gameId, paIndex++);
       // 最終球そのもの(四球なら「ボール」)ではなく、打席結果の言葉で持つ
       const result = nonEvents.length ? deriveFinalLabel(nonEvents) : (last?.result || current.at(-1)?.result || '');
-      const balls = nonEvents.filter(p => ['ボール','ウエスト'].includes(p.result)).length;
-      const strikes = nonEvents.filter(p => ['ストライク','空振り','バント空振り'].includes(p.result)).length;
+      const balls = nonEvents.filter(p => isBallResult(p.result)).length;
+      const strikes = nonEvents.filter(p => isStrikeResult(p.result)).length;
       const hit = isHit(result), walk = balls >= 4 || ['四球','死球'].includes(result), strikeout = strikes >= 3 || ['三振','振り逃げ','振り逃げアウト','スリーバント失敗'].includes(result);
       const batterId = players.get(`${battingTeam}|${last?.batterName}`)?.id || id('player', battingTeam, last?.batterName || '不明');
       const pitcherId = players.get(`${fieldingTeam}|${last?.pitcherName}`)?.id || id('player', fieldingTeam, last?.pitcherName || '不明');

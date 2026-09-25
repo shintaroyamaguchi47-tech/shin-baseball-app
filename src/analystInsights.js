@@ -1,3 +1,4 @@
+import { isBallResult, isStrikeResult, isFoulResult, isPitchClockViolation } from './pitchResults.js';
     // ============================================================
     // アナリスト指標の算出（収集データの範囲で算出可能な指標のみ）
     // MLB/NPBのアナリストが重視する指標のうち、本アプリが記録している
@@ -7,7 +8,8 @@
     // ============================================================
     function buildAnalystInsights(pwcs, lineups, gameInfo) {
       const inZone = (c) => { if (c === null || c === undefined) return false; const row = Math.floor(c / 7), col = c % 7; return row >= 2 && row <= 4 && col >= 2 && col <= 4; };
-      const isReal = (p) => p && !p.isEvent && !(p.result && (p.result.startsWith('牽制') || ['盗塁死', 'その他出塁'].includes(p.result)));
+      // ピッチクロック違反は投げていない球なので投球指標には含めず、カウントの進行にだけ使う
+      const isReal = (p) => p && !p.isEvent && !(p.result && (p.result.startsWith('牽制') || ['盗塁死', 'その他出塁'].includes(p.result) || isPitchClockViolation(p.result)));
       const WHIFF = (r) => r.includes('空振り');
       const CALLED = (r) => r === 'ストライク' || r.includes('見逃し');
       const CONTACT = (r) => ['ファウル', 'バントファウル', 'スリーバント失敗', 'インプレー', 'バント', 'ゴロ', '飛', '安', '塁打', '二塁打', '三塁打', '本塁打', 'エラー', '犠', '直', '野手選択', '併殺'].some(w => r.includes(w));
@@ -19,13 +21,13 @@
       let curKey = null, b = 0, s = 0;
       const enr = [];
       pwcs.forEach(p => {
-        if (!isReal(p)) return;
+        if (!isReal(p) && !(p && !p.isEvent && isPitchClockViolation(p.result))) return;
         const key = `${p.inning}-${p.isTop}-${p.batter}`;
         if (key !== curKey) { curKey = key; b = 0; s = 0; }
-        enr.push({ ...p, _sb: s });
-        if (['ボール', 'ウエスト'].includes(p.result)) b++;
-        else if (['ストライク', '空振り', 'バント空振り'].includes(p.result)) s++;
-        else if (['ファウル', 'バントファウル'].includes(p.result) && s < 2) s++;
+        if (isReal(p)) enr.push({ ...p, _sb: s });
+        if (isBallResult(p.result)) b++;
+        else if (isStrikeResult(p.result)) s++;
+        else if (isFoulResult(p.result) && s < 2) s++;
       });
 
       // プレートディシプリン（選球眼・制球）の集計
