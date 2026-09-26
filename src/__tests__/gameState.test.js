@@ -189,6 +189,13 @@ describe('applyRunnerEventToState', () => {
     expect(s.runners).toEqual(bases(false, false, false));
   });
 
+  it('打席途中の走者アウトではカウントを残す', () => {
+    const s = applyRunnerEventToState(state({ balls: 1, strikes: 2, runners: bases(true, false, false) }), '1塁走者が盗塁死');
+    expect(s.outs).toBe(1);
+    expect(s.balls).toBe(1);
+    expect(s.strikes).toBe(2);
+  });
+
   it('3アウト目の走者アウトで攻守が入れ替わる', () => {
     const s = applyRunnerEventToState(state({ outs: 2, runners: bases(true, false, false) }), '1塁走者が牽制死');
     expect(s.outs).toBe(0);
@@ -289,6 +296,34 @@ describe('rebuildGameStateFromPitches', () => {
     expect(runsIn(s, 1)).toBe(1);
     expect(s.isTop).toBe(false);
     expect(s.outs).toBe(0);
+  });
+
+  it('カウント途中の盗塁死のあとの三振もアウトに数え、次の回の得点がずれない', () => {
+    // 1死1塁、1-2から盗塁死(2死)→空振り三振で3アウト。
+    // 以前は盗塁死でカウントが0-0に戻り、三振が数えられずに以降の回が1アウトずれていた。
+    const s = rebuildGameStateFromPitches([
+      pitch('ショートゴロ', { batter: 1 }),
+      pitch('中前安打', { batter: 2 }),
+      pitch('ボール', { batter: 3 }),
+      pitch('ストライク', { batter: 3 }),
+      pitch('空振り', { batter: 3 }),
+      pitch('1塁走者が盗塁死', { batter: 3, isEvent: true }),
+      pitch('空振り', { batter: 3 }),
+      // 1回裏: 走者3塁から右翼手の捕球エラーで生還
+      pitch('ライト三塁打', { isTop: false, batter: 1 }),
+      pitch('ライト捕球エラー', { isTop: false, batter: 2 }),
+    ]);
+    expect(s.isTop).toBe(false);
+    expect(s.outs).toBe(0);
+    expect(runsIn(s, 1, 'bottom')).toBe(1);
+    expect(s.runners).toEqual(bases(true, false, false));
+  });
+
+  it('満塁の四球(押し出し)で得点する', () => {
+    const walk = (batter) => Array.from({ length: 4 }, () => pitch('ボール', { batter }));
+    const s = rebuildGameStateFromPitches([...walk(1), ...walk(2), ...walk(3), ...walk(4)]);
+    expect(runsIn(s, 1)).toBe(1);
+    expect(s.runners).toEqual(bases(true, true, true));
   });
 
   it('併殺打で2アウト増える', () => {

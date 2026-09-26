@@ -125,8 +125,12 @@ export const applyRunnerEventToState = (prev, resultText) => {
   if (!runnerKey) return state;
   if (res.includes('が')) {
     let newOuts = state.outs + 1, newRunners = { ...state.runners, [runnerKey]: false }, newInning = state.inning, newIsTop = state.isTop;
-    if (newOuts >= 3) { newOuts = 0; newRunners = { first: false, second: false, third: false }; if (state.isTop) newIsTop = false; else { newIsTop = true; newInning++; } }
-    return normalizeGameState({ ...state, outs: newOuts, inning: newInning, isTop: newIsTop, runners: newRunners, balls: 0, strikes: 0 });
+    // 打席の途中の走者アウト(盗塁死・牽制死など)ではカウントはそのまま続く。
+    // 以前はここで常に0-0に戻していたため、1-2から盗塁死→空振りの三振が
+    // 1ストライクとして数えられ、再計算するとアウトが1つ足りずに以降の回がずれていた。
+    const isChange = newOuts >= 3;
+    if (isChange) { newOuts = 0; newRunners = { first: false, second: false, third: false }; if (state.isTop) newIsTop = false; else { newIsTop = true; newInning++; } }
+    return normalizeGameState({ ...state, outs: newOuts, inning: newInning, isTop: newIsTop, runners: newRunners, ...(isChange ? { balls: 0, strikes: 0 } : {}) });
   }
   if (res.includes('で')) {
     const newRunners = { ...state.runners, [runnerKey]: false };
