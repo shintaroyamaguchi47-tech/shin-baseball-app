@@ -2070,6 +2070,9 @@ import { isBallResult, isStrikeResult, isFoulResult, isPitchClockViolation, PITC
                               <button onClick={() => handleInPlayFinalResult('送球エラー', 0)} className="bg-amber-50 text-amber-800 py-3 rounded-xl font-bold text-sm border border-amber-200 active:scale-95">送球</button>
                               <button onClick={() => handleInPlayFinalResult('落球エラー', 0)} className="bg-amber-50 text-amber-800 py-3 rounded-xl font-bold text-sm border border-amber-200 active:scale-95">落球</button>
                             </div>
+                            {['ピッチャー', 'キャッチャー', 'セカンド', 'サード', 'ショート'].includes(selectedPosition) && (
+                              <button onClick={() => handleInPlayFinalResult('一塁捕球エラー', 0)} className="mt-3 w-full bg-amber-50 text-amber-800 py-3 rounded-xl font-bold text-sm border border-amber-200 active:scale-95">一塁手の捕球エラー（送球を落とした）</button>
+                            )}
                           </div>
                         )}
                       </div>

@@ -28,6 +28,7 @@ const SUFFIX_LABEL = {
   '安': '安打', '二塁打': '二塁打', '三塁打': '三塁打', '本塁打': '本塁打',
   'ゴロ': 'ゴロ', '飛': 'フライ', '邪飛': 'ファウルフライ', '直飛': 'ライナー', '併殺打': '併殺打',
   '捕球エラー': '捕球エラー', '送球エラー': '送球エラー', '落球エラー': '落球エラー',
+  '一塁捕球エラー': '一塁手の捕球エラー',
   '野手選択': '野手選択', '犠打': '犠打', '犠飛': '犠飛',
   '安+エラー': '安打(相手失策)', '二塁打+エラー': '二塁打(相手失策)', '三塁打+エラー': '三塁打(相手失策)',
 };
@@ -97,7 +98,7 @@ function outsAddedFor(finalLabel) {
 }
 
 const getBallFlight = (res) => res.includes('本塁打') ? 'hr'
-  : ['ゴロ', '併殺打', 'バント'].some(w => res.includes(w)) ? 'grounder'
+  : ['ゴロ', '併殺打', 'バント', '一塁捕球エラー'].some(w => res.includes(w)) ? 'grounder'
   : ['直', 'ライナー', '安', '二塁打', '三塁打'].some(w => res.includes(w)) ? 'liner'
   : 'fly';
 
@@ -243,7 +244,9 @@ function buildMainNarrative(batterTag, finalLabel, eventType, pf, scored, basesB
       const tag = runCount === 4 ? '満塁' : runCount >= 2 ? `${runCount}ラン` : '';
       lines.push(`${batterTag}、${pf.fielder}への${tag}本塁打！`);
     } else if (eventType === 'error') {
-      lines.push(`${batterTag}、${pf.fielder}の${label}で出塁、一塁進塁。`);
+      lines.push(pf.suffix === '一塁捕球エラー'
+        ? `${batterTag}、${pf.fielder}ゴロ、一塁手の捕球エラーで出塁、一塁進塁。`
+        : `${batterTag}、${pf.fielder}の${label}で出塁、一塁進塁。`);
     } else if (eventType === 'sac_bunt') {
       lines.push(`${batterTag}、${pf.fielder}への犠打、アウト。`);
     } else if (eventType === 'sac_fly') {
