@@ -58,4 +58,21 @@ describe('打者アウトのカウント', () => {
     expect(cells.map((c) => c.resultNotation)).toEqual(['9-3', '9-3', '6-3']);
     expect(sb.bottom.pitcherStats[0].outs).toBe(3); // 投球回 1.0
   });
+
+  it('内野ゴロで一塁手が送球を捕り損ねたエラー(一塁捕球エラー)を記録できる', () => {
+    expect(outsAddedFor('サード一塁捕球エラー')).toBe(0);
+    expect(parseFieldResult('サード一塁捕球エラー')).toEqual({ fielder: 'サード', suffix: '一塁捕球エラー' });
+    const play = buildPlayByPlayReport([pitch(1, 'サード一塁捕球エラー')])[0].plays[0];
+    expect(play.isOut).toBe(false);
+    expect(play.flight).toBe('grounder');
+    expect(play.narrative.join('')).toContain('サードゴロ、一塁手の捕球エラーで出塁');
+    const lineups = { top: [{ name: '打者1', pos: '投', bats: '右', throws: '右' }], bottom: [] };
+    const gameState = { inning: 1, isTop: true, runs: { top: [0], bottom: [0] }, earnedRuns: { top: [0], bottom: [0] } };
+    const sb = buildScorebookData([pitch(1, 'サード一塁捕球エラー')], lineups, { teamTop: 'A', teamBottom: 'B' }, gameState);
+    const cell = sb.top.slots[0].cellsByInning[1][0];
+    expect(cell.resultNotation).toBe('5-3Ef');
+    expect(cell.resultKind).toBe('error');
+    expect(cell.summaryText).toBe('一失');
+    expect(sb.top.inningSummary[0].E).toBe(1);
+  });
 });

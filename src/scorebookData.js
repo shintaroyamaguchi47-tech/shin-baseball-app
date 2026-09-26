@@ -63,6 +63,8 @@ function summaryNotation(pf, finalLabel) {
     case '直飛': return `${k}直`;
     case '併殺打': return `${k}併`;
     case '捕球エラー': case '落球エラー': case '送球エラー': return `${k}失`;
+    // 内野ゴロの送球を一塁手が捕り損ねた: 失策は一塁手に付く
+    case '一塁捕球エラー': return '一失';
     case '野手選択': return `${k}野選`;
     case '犠打': return `${k}犠打`;
     case '犠飛': return `${k}犠飛`;
@@ -115,6 +117,8 @@ function resultNotation(pf, finalLabel, lastStrikeType, throwTo) {
     // 公式: 捕球エラー=Ef, 送球エラー=Et(守備位置番号+記号)
     case '捕球エラー': case '落球エラー': return { text: `${num}Ef`, kind: 'error' };
     case '送球エラー': return { text: `${num}Et`, kind: 'error' };
+    // 送球は正常で一塁手の捕球エラー: 捕球者→一塁手(3)の経路に Ef を付ける
+    case '一塁捕球エラー': return { text: `${num}-3Ef`, kind: 'error' };
     case '野手選択': return { text: hasRoute ? `Fc ${route()}` : 'Fc', kind: 'fc' };
     case '犠打': return { text: hasRoute ? route() : (n === 3 ? '3' : `${num}-3`), kind: 'sac' };
     case '犠飛': return { text: `${num}`, kind: 'sacfly' };
@@ -443,7 +447,7 @@ export function buildScorebookData(pitches, lineups, gameInfo, gameState) {
       const H = cellsThisInning.filter((c) => ['single', 'double', 'triple', 'homerun'].includes(c.eventType)).length;
       const BB = cellsThisInning.filter((c) => c.finalLabel === '四球' || c.finalLabel === 'その他出塁').length;
       const K = cellsThisInning.filter((c) => ['三振', 'スリーバント失敗', '振り逃げアウト', '振り逃げ'].includes(c.finalLabel)).length;
-      const E = cellsThisInning.filter((c) => ['捕球エラー', '送球エラー', '落球エラー'].includes(c.finalLabel)).length;
+      const E = cellsThisInning.filter((c) => /(捕球|送球|落球)エラー$/.test(c.finalLabel || '')).length;
       const pitchCount = pitches.filter((p) => !p.isEvent && p.isTop === (team === 'top') && p.inning === inn && !p.result?.startsWith('牽制')).length;
       inningSummary.push({ inning: inn, H, BB, K, R: Number(runsArr[inn - 1]) || 0, LOB: inningLOB[`${team}-${inn}`] ?? 0, pitchCount, E });
     }
