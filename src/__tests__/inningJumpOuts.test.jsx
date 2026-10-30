@@ -58,7 +58,9 @@ describe('回を切り替えて記録を再開したときのアウト数', () =
   it('🔄記録から再計算でも記録どおりのアウト数になる', async () => {
     await inplay('右', 'ゴロ');
     await inplay('右', 'ゴロ');
-    await click('🔄 記録から再計算');
+    // メニューの項目は説明文つきなので、見出しの文言で探す
+    const recalc = [...container.querySelectorAll('button')].find((b) => b.textContent.startsWith('🔄 記録から再計算'));
+    await act(async () => { recalc.click(); });
     await click('実行する');
     expect(state().outs).toBe(2);
   });

@@ -39,7 +39,7 @@ describe('打球中に走者アウトを記録した打席', () => {
     await pitch('打った！');
 
     // 打撃結果を選ぶ前に、1塁走者が盗塁死
-    await click('走者ｱｳﾄ');
+    await click('走者アウト');
     await click('1塁走者');
     await click('アウトを記録');
     expect(stored('baseball_gameState_v2').outs).toBe(1);

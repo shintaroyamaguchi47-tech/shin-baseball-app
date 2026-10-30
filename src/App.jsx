@@ -85,6 +85,8 @@ import { isBallResult, isStrikeResult, isFoulResult, isPitchClockViolation, PITC
       const [heatmapTab, setHeatmapTab] = useState('all');
       const [heatmapCountTab, setHeatmapCountTab] = useState('all');
       const [rightPanelMode, setRightPanelMode] = useState('current');
+      const [showActionMenu, setShowActionMenu] = useState(false); // ヘッダーの「☰ メニュー」(スマホ・狭い画面)
+      const [showMobilePanel, setShowMobilePanel] = useState(false); // スマホで打席履歴/速報を下から引き出す
       const [printMode, setPrintMode] = useState(false);
       const [expandedPitcherId, setExpandedPitcherId] = useState(null);
       const [expandedBatterId, setExpandedBatterId] = useState(null);
@@ -1557,7 +1559,7 @@ import { isBallResult, isStrikeResult, isFoulResult, isPitchClockViolation, PITC
           </div>
           <div className="grid grid-cols-4 gap-2">
             <button onClick={() => recordPitch('ファウル')} className="col-span-2 bg-amber-500 text-white py-3 rounded-xl font-bold text-base shadow-md active:scale-95">ファウル</button>
-            <button onClick={() => recordPitch('バントファウル')} className="col-span-1 bg-amber-600 text-white py-3 rounded-xl font-bold text-[11px] shadow-md active:scale-95 leading-tight">バント<br/>ﾌｧｳﾙ</button>
+            <button onClick={() => recordPitch('バントファウル')} className="col-span-1 bg-amber-600 text-white py-3 rounded-xl font-bold text-[11px] shadow-md active:scale-95 leading-tight">バント<br/>ファウル</button>
             <button onClick={() => recordPitch('バント空振り')} className="col-span-1 bg-slate-500 text-white py-3 rounded-xl font-bold text-[11px] shadow-md active:scale-95 leading-tight">バント<br/>空振S</button>
           </div>
           <div className="grid grid-cols-3 gap-2 mt-2">
@@ -1569,10 +1571,10 @@ import { isBallResult, isStrikeResult, isFoulResult, isPitchClockViolation, PITC
 
       // ピッチクロック違反（投手の違反＝ボール、打者の違反＝ストライク）。投球ではないので球種・コースは不要
       const renderPitchClockButtons = () => (
-        <div className="flex items-center gap-1.5">
-          <span className="text-[10px] font-bold text-slate-400 shrink-0">⏱ ﾋﾟｯﾁｸﾛｯｸ違反:</span>
-          <button onClick={() => recordPitch(PITCH_CLOCK_BALL)} className="flex-1 bg-white text-emerald-700 border-2 border-emerald-400 px-2 py-1.5 rounded-lg font-bold text-[11px] shadow-sm active:scale-95">投手 → ボール</button>
-          <button onClick={() => recordPitch(PITCH_CLOCK_STRIKE)} className="flex-1 bg-white text-slate-700 border-2 border-slate-500 px-2 py-1.5 rounded-lg font-bold text-[11px] shadow-sm active:scale-95">打者 → ストライク</button>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="basis-full text-[10px] font-bold text-slate-400">⏱ ピッチクロック違反</span>
+          <button onClick={() => recordPitch(PITCH_CLOCK_BALL)} className="flex-1 bg-white text-emerald-700 border-2 border-emerald-400 px-2 py-1.5 rounded-lg font-bold text-[11px] shadow-sm active:scale-95 whitespace-nowrap">投手 → ボール</button>
+          <button onClick={() => recordPitch(PITCH_CLOCK_STRIKE)} className="flex-1 bg-white text-slate-700 border-2 border-slate-500 px-2 py-1.5 rounded-lg font-bold text-[11px] shadow-sm active:scale-95 whitespace-nowrap">打者 → ストライク</button>
         </div>
       );
 
@@ -1581,9 +1583,9 @@ import { isBallResult, isStrikeResult, isFoulResult, isPitchClockViolation, PITC
         <div className="flex flex-col gap-1.5 pt-2 border-t border-slate-200">
         <div className="grid grid-cols-5 gap-1.5">
           <button onClick={() => recordPitch('死球')} className="bg-purple-600 text-white py-2.5 rounded-lg font-bold text-[10px] shadow-sm active:scale-95">死球</button>
-          <button onClick={() => recordPitch('ウエスト')} className="bg-teal-600 text-white py-2.5 rounded-lg font-bold text-[10px] shadow-sm active:scale-95">ｳｴｽﾄ</button>
+          <button onClick={() => recordPitch('ウエスト')} className="bg-teal-600 text-white py-2.5 rounded-lg font-bold text-[10px] shadow-sm active:scale-95">ウエスト</button>
           <button onClick={() => setShowPickoffModal(true)} className="bg-orange-500 text-white py-2.5 rounded-lg font-bold text-[10px] shadow-sm active:scale-95">牽制</button>
-          <button onClick={() => { setOutRunnerData({ runner: '', reason: '盗塁死' }); setShowOutRunnerModal(true); }} className="bg-rose-600 text-white py-2.5 rounded-lg font-bold text-[10px] shadow-sm active:scale-95">走者ｱｳﾄ</button>
+          <button onClick={() => { setOutRunnerData({ runner: '', reason: '盗塁死' }); setShowOutRunnerModal(true); }} className="bg-rose-600 text-white py-2.5 rounded-lg font-bold text-[10px] shadow-sm active:scale-95">走者アウト</button>
           <button onClick={() => recordPitch('その他出塁')} className="bg-cyan-600 text-white py-2.5 rounded-lg font-bold text-[10px] shadow-sm active:scale-95">他出塁</button>
         </div>
         {renderPitchClockButtons()}
@@ -1627,6 +1629,82 @@ import { isBallResult, isStrikeResult, isFoulResult, isPitchClockViolation, PITC
         </div>
       );
 
+      // ヘッダーの操作をまとめた一覧。スマホのメニュー、狭い画面のドロップダウン、広い画面の横並びで共用する
+      const actionTone = {
+        plain: 'bg-white hover:bg-slate-50 text-slate-700 border border-slate-300',
+        blue: 'bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200',
+        indigo: 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200',
+        purple: 'bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200',
+        danger: 'bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200',
+        emerald: 'bg-emerald-600 hover:bg-emerald-700 text-white border border-emerald-600',
+        cyan: 'bg-cyan-600 hover:bg-cyan-700 text-white border border-cyan-600',
+        dark: 'bg-slate-800 hover:bg-black text-white border border-slate-800',
+        primary: 'bg-blue-600 hover:bg-blue-700 text-white border border-blue-600',
+        violet: 'bg-indigo-600 hover:bg-indigo-700 text-white border border-indigo-600',
+      };
+      const headerActionGroups = [
+        { title: '試合中', items: [
+          { label: '⚙️ オーダー', tone: 'plain', onClick: openOrderSettings },
+          { label: '🔄 交代', tone: 'blue', onClick: () => openSubstitutionModal() },
+          { label: '📝 記録修正', tone: 'indigo', onClick: () => setShowRecordEditor(true) },
+          { label: '🔄 記録から再計算', tone: 'plain', onClick: recalcFromRecords, hint: 'アウト数・走者・得点を記録から計算し直す' },
+          { label: '✏️ スコア修正', tone: 'plain', onClick: () => openScoreEdit('current') },
+          { label: '⚡ 特延', tone: 'purple', onClick: handleTieBreak, hint: 'タイブレークで走者を置いて始める' },
+        ] },
+        { title: '分析', items: [
+          { label: '🏁 試合分析へ', hint: 'この試合のレポートを見る', tone: 'primary', onClick: () => setShowPostGameAnalysis(true) },
+          { label: '📈 アナリスト分析', tone: 'violet', onClick: () => setShowAnalystReport(true) },
+          { label: '📊 分析ハブ', tone: 'cyan', onClick: () => setShowAnalyticsHub(true), hint: '複数試合の累計・選手カルテ・対戦相手' },
+        ] },
+        { title: 'データ', items: [
+          { label: '📂 保存/読込', tone: 'emerald', onClick: () => setShowArchiveModal(true) },
+          { label: '📤 出力', tone: 'dark', onClick: () => setShowExport(true), hint: 'PDFレポート・スコアブック・書き出し' },
+          { label: '👥 チーム', tone: 'plain', onClick: () => { setEditingTeamIndex(null); setShowTeamManager(true); } },
+        ] },
+        { title: '試合管理', items: [
+          { label: '🔄 リセット', tone: 'danger', onClick: handleNewGame, hint: '記録を消して新しい試合を始める' },
+        ] },
+      ];
+      // スマホのヘッダーに常に出す、試合中によく使う操作
+      const mobileQuickActions = headerActionGroups[0].items.slice(0, 3);
+      const runAction = (item) => { setShowActionMenu(false); item.onClick(); };
+
+      // メニューの中身(グループ見出し付き)。スマホのボトムシートと狭い画面のドロップダウンで使う
+      const renderActionMenuBody = () => (
+        <div className="flex flex-col gap-4">
+          {headerActionGroups.map(group => (
+            <div key={group.title} className="flex flex-col gap-2">
+              <p className="text-[10px] font-black text-slate-400 tracking-widest">{group.title}</p>
+              <div className="grid grid-cols-2 gap-2">
+                {group.items.map(item => (
+                  <button key={item.label} onClick={() => runAction(item)} className={`text-left px-3 py-2.5 rounded-xl text-xs font-bold shadow-sm active:scale-[0.98] ${actionTone[item.tone]}`}>
+                    <span className="block">{item.label}</span>
+                    {item.hint && <span className="block text-[9px] font-bold opacity-70 mt-0.5 leading-tight">{item.hint}</span>}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      );
+
+      // 走者の塁(タップで走者の有無を切り替え)。size は 'sm'(デスクトップ) / 'lg'(スマホ。指で押しやすい大きさ)
+      const renderRunnerDiamond = (size = 'sm') => {
+        const box = size === 'lg' ? 'w-[52px] h-[52px]' : 'w-8 h-8';
+        const base = size === 'lg' ? 'w-[18px] h-[18px]' : 'w-3.5 h-3.5';
+        const baseBtn = (key, pos, label) => (
+          <button onClick={() => toggleRunner(key)} aria-label={`${label}塁の走者を切り替え`} aria-pressed={!!gameState.runners[key]} className={`absolute ${pos} ${base} transform rotate-45 border-2 ${gameState.runners[key] ? 'bg-blue-500 border-blue-600' : 'bg-white border-slate-400'}`}></button>
+        );
+        return (
+          <div className={`relative ${box}`}>
+            {baseBtn('second', 'top-0 left-1/2 -translate-x-1/2', '2')}
+            {baseBtn('third', 'top-1/2 left-0 -translate-y-1/2', '3')}
+            {baseBtn('first', 'top-1/2 right-0 -translate-y-1/2', '1')}
+            <div className={`absolute bottom-0 left-1/2 -translate-x-1/2 ${base} transform rotate-45 border border-slate-400 bg-slate-200`}></div>
+          </div>
+        );
+      };
+
       return (
         <div className="min-h-screen flex flex-col h-screen overflow-hidden bg-slate-50">
           {toast && <div className={`fixed top-6 left-1/2 transform -translate-x-1/2 px-6 py-3 rounded-full font-bold shadow-2xl z-[600] flex items-center gap-3 ${toast.type === 'error' ? 'bg-rose-600 text-white' : 'bg-slate-800 text-white border border-slate-700'}`}><span>{toast.type === 'error' ? '⚠️' : '✅'}</span>{toast.text}</div>}
@@ -1662,30 +1740,21 @@ import { isBallResult, isStrikeResult, isFoulResult, isPitchClockViolation, PITC
           )}
 
           {/* ===== HEADER ===== */}
-          <header className="bg-white shadow-sm border-b border-slate-200 p-2 md:p-3 xl:p-4 flex flex-col md:grid md:grid-cols-[auto_minmax(0,1fr)_auto] xl:flex xl:flex-row md:items-center md:justify-between shrink-0 gap-3 z-10 relative">
+          <header className="bg-white shadow-sm border-b border-slate-200 p-2 md:p-3 xl:p-4 flex flex-col md:grid md:grid-cols-[auto_minmax(0,1fr)_auto] xl:flex xl:flex-row md:items-center md:justify-between shrink-0 gap-3 z-20 relative">
             <div className="flex flex-col gap-2 md:w-auto w-full">
               <div className="flex items-center justify-between md:justify-start gap-4">
-                <div className="flex items-center gap-2 text-xl md:text-2xl font-black text-blue-700 tracking-tighter whitespace-nowrap"><span className="text-2xl">⚾</span>配球スコア <span className="text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full uppercase tracking-widest ml-1 font-bold border border-blue-200">Pro</span></div>
+                <div className="flex items-center gap-2 text-xl md:text-2xl font-black text-blue-700 tracking-tighter whitespace-nowrap"><span className="text-2xl">⚾</span>配球スコア <span className="hidden sm:inline text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full uppercase tracking-widest ml-1 font-bold border border-blue-200">Pro</span></div>
                 <button onClick={()=>openScoreEdit('current')} className="flex md:hidden items-center gap-2 text-xs font-bold bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200 active:bg-slate-200">
                   <span className="text-slate-600">{gameState.inning}回{gameState.isTop?'表':'裏'}</span>
                   <span className="text-slate-800 ml-1">{gameInfo.teamTop} <span className="text-blue-700 font-black text-sm">{gameState.runs.top.reduce((a,b)=>a+b,0)}</span> - <span className="text-blue-700 font-black text-sm">{gameState.runs.bottom.reduce((a,b)=>a+b,0)}</span> {gameInfo.teamBottom}</span>
                   <span className="text-[10px] text-slate-400">✏️</span>
                 </button>
               </div>
-              <div className="md:hidden horizontal-scroll custom-scrollbar flex gap-2 w-full pt-1 pb-1">
-                <button onClick={openOrderSettings} className="whitespace-nowrap shrink-0 bg-white text-slate-700 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-slate-300 shadow-sm">⚙️ オーダー</button>
-                <button onClick={()=>openSubstitutionModal()} className="whitespace-nowrap shrink-0 bg-blue-50 text-blue-700 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-blue-200 shadow-sm">🔄 交代</button>
-                <button onClick={()=>setShowRecordEditor(true)} className="whitespace-nowrap shrink-0 bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-indigo-200 shadow-sm">📝 記録修正</button>
-                <button onClick={recalcFromRecords} title="アウト数・走者・得点を記録から計算し直す" className="whitespace-nowrap shrink-0 bg-white text-slate-700 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-slate-300 shadow-sm">🔄 記録から再計算</button>
-                <button onClick={()=>openScoreEdit('current')} className="whitespace-nowrap shrink-0 bg-white text-slate-700 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-slate-300 shadow-sm">✏️ スコア修正</button>
-                <button onClick={()=>{ setEditingTeamIndex(null); setShowTeamManager(true); }} className="whitespace-nowrap shrink-0 bg-white text-slate-700 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-slate-300 shadow-sm">👥 チーム</button>
-                <button onClick={()=>setShowAnalyticsHub(true)} className="whitespace-nowrap shrink-0 bg-cyan-600 text-white px-3 py-1.5 rounded-lg text-[11px] font-bold shadow-sm">📊 分析ハブ</button>
-                <button onClick={()=>setShowArchiveModal(true)} className="whitespace-nowrap shrink-0 bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-[11px] font-bold shadow-sm">📂 保存/読込</button>
-                <button onClick={()=>setShowExport(true)} className="whitespace-nowrap shrink-0 bg-slate-800 text-white px-3 py-1.5 rounded-lg text-[11px] font-bold shadow-sm">📤 出力</button>
-                <button onClick={handleTieBreak} className="whitespace-nowrap shrink-0 bg-purple-50 text-purple-700 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-purple-200 shadow-sm">⚡ 特延</button>
-                <button onClick={handleNewGame} className="whitespace-nowrap shrink-0 bg-rose-50 text-rose-700 px-3 py-1.5 rounded-lg text-[11px] font-bold border border-rose-200 shadow-sm">🔄 リセット</button>
-                <button onClick={() => setShowPostGameAnalysis(true)} className="whitespace-nowrap shrink-0 bg-blue-600 text-white px-3 py-1.5 rounded-lg text-[11px] font-bold shadow-sm">🏁 分析レポート</button>
-                <button onClick={() => setShowAnalystReport(true)} className="whitespace-nowrap shrink-0 bg-indigo-600 text-white px-3 py-1.5 rounded-lg text-[11px] font-bold shadow-sm">📈 アナリスト分析</button>
+              <div className="md:hidden flex gap-2 w-full pt-1 pb-1">
+                {mobileQuickActions.map(item => (
+                  <button key={item.label} onClick={item.onClick} className={`flex-1 whitespace-nowrap px-2 py-2 rounded-lg text-[11px] font-bold shadow-sm ${actionTone[item.tone]}`}>{item.label}</button>
+                ))}
+                <button onClick={() => setShowActionMenu(true)} aria-haspopup="dialog" className="whitespace-nowrap shrink-0 bg-slate-800 text-white px-3 py-2 rounded-lg text-[11px] font-black shadow-sm">☰ メニュー</button>
               </div>
             </div>
 
@@ -1732,29 +1801,34 @@ import { isBallResult, isStrikeResult, isFoulResult, isPitchClockViolation, PITC
                 <div className="flex items-center gap-2 w-full"><span className="text-[13px] font-black text-amber-500 w-3">S</span><div className="flex gap-1">{[0,1].map(i=><div key={i} className={`w-4 h-4 rounded-full border-2 border-amber-500 ${i<gameState.strikes?'bg-amber-400':'bg-slate-100'}`}></div>)}</div></div>
                 <div className="flex items-center gap-2 w-full"><span className="text-[13px] font-black text-rose-600 w-3">O</span><div className="flex gap-1">{[0,1].map(i=><div key={i} className={`w-4 h-4 rounded-full border-2 border-rose-600 ${i<gameState.outs?'bg-rose-500':'bg-slate-100'}`}></div>)}</div></div>
               </div>
-              <details className="relative group xl:contents">
-                <summary className="xl:hidden list-none cursor-pointer whitespace-nowrap bg-slate-800 text-white px-3 py-2 rounded-lg text-[11px] font-black shadow-sm active:bg-slate-950">☰ 操作</summary>
-                <div className="absolute right-0 top-[calc(100%+0.5rem)] z-50 w-[34rem] max-w-[calc(100vw-2rem)] grid grid-cols-4 gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-2xl font-sans xl:static xl:w-auto xl:max-w-none xl:flex xl:flex-col xl:gap-2 xl:border-0 xl:bg-transparent xl:p-0 xl:shadow-none">
-                <div className="contents xl:flex xl:gap-1.5 xl:flex-wrap xl:justify-end">
-                  <button onClick={openOrderSettings} className="bg-white hover:bg-slate-50 text-slate-700 px-2 py-1.5 rounded-lg text-[11px] font-bold border border-slate-300 shadow-sm">⚙️ オーダー</button>
-                  <button onClick={()=>openSubstitutionModal()} className="bg-blue-50 hover:bg-blue-100 text-blue-700 px-2 py-1.5 rounded-lg text-[11px] font-bold border border-blue-200 shadow-sm">🔄 交代</button>
-                  <button onClick={()=>setShowRecordEditor(true)} className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-2 py-1.5 rounded-lg text-[11px] font-bold border border-indigo-200 shadow-sm">📝 記録修正</button>
-                  <button onClick={recalcFromRecords} title="アウト数・走者・得点を記録から計算し直す" className="bg-white hover:bg-slate-50 text-slate-700 px-2 py-1.5 rounded-lg text-[11px] font-bold border border-slate-300 shadow-sm">🔄 再計算</button>
-                  <button onClick={()=>{ setEditingTeamIndex(null); setShowTeamManager(true); }} className="bg-white hover:bg-slate-50 text-slate-700 px-2 py-1.5 rounded-lg text-[11px] font-bold border border-slate-300 shadow-sm">👥 チーム</button>
-                  <button onClick={()=>setShowArchiveModal(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-1.5 rounded-lg text-[11px] font-bold shadow-sm">📂 保存/読込</button>
-                  <button onClick={()=>setShowAnalyticsHub(true)} className="bg-cyan-600 hover:bg-cyan-700 text-white px-2 py-1.5 rounded-lg text-[11px] font-bold shadow-sm">📊 分析ハブ</button>
-                  <button onClick={()=>setShowExport(true)} className="bg-slate-800 hover:bg-black text-white px-2 py-1.5 rounded-lg text-[11px] font-bold shadow-sm">📤 出力</button>
+              {/* 広い画面: よく使う操作だけ横に出し、残りは ☰ 操作 から開く */}
+              <div className="hidden xl:flex gap-1.5">
+                {mobileQuickActions.map(item => <button key={item.label} onClick={item.onClick} className={`px-2.5 py-2 rounded-lg text-[11px] font-bold shadow-sm whitespace-nowrap ${actionTone[item.tone]}`}>{item.label}</button>)}
+              </div>
+              {/* ☰ 操作: すべての操作をグループ分けしたドロップダウンで開く */}
+              <div className="relative">
+                <button onClick={() => setShowActionMenu(v => !v)} aria-expanded={showActionMenu} className="whitespace-nowrap bg-slate-800 text-white px-3 py-2 rounded-lg text-[11px] font-black shadow-sm active:bg-slate-950">☰ 操作</button>
+                {showActionMenu && <div className="hidden md:block fixed inset-0 z-40" onClick={() => setShowActionMenu(false)}></div>}
+                {/* 閉じている間も DOM には置いておき、表示だけ切り替える */}
+                <div className={`${showActionMenu ? 'md:block' : ''} hidden absolute right-0 top-[calc(100%+0.5rem)] z-50 w-[30rem] max-w-[calc(100vw-2rem)] rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl`}>
+                  {renderActionMenuBody()}
                 </div>
-                <div className="contents xl:flex xl:gap-1.5 xl:flex-wrap xl:justify-end">
-                  <button onClick={handleTieBreak} className="bg-purple-50 text-purple-700 px-2 py-1.5 rounded-lg text-[10px] font-bold border border-purple-200">⚡ 特延</button>
-                  <button onClick={handleNewGame} className="bg-rose-50 text-rose-700 px-2 py-1.5 rounded-lg text-[10px] font-bold border border-rose-200">🔄 リセット</button>
-                  <button onClick={() => setShowPostGameAnalysis(true)} className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-[11px] font-bold shadow-md">🏁 試合分析へ</button>
-                  <button onClick={() => setShowAnalystReport(true)} className="bg-indigo-600 text-white px-3 py-1.5 rounded-lg text-[11px] font-bold shadow-md">📈 アナリスト分析</button>
-                </div>
-                </div>
-              </details>
+              </div>
             </div>
           </header>
+
+          {/* スマホ: ☰ メニュー(下から出るシート) */}
+          {showActionMenu && (
+            <div className="md:hidden fixed inset-0 z-[300] flex flex-col justify-end bg-slate-900/50 backdrop-blur-sm" onClick={() => setShowActionMenu(false)}>
+              <div role="dialog" aria-label="メニュー" className="bg-slate-50 rounded-t-3xl shadow-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-slate-200 shrink-0">
+                  <h2 className="text-sm font-black text-slate-800">☰ メニュー</h2>
+                  <button onClick={() => setShowActionMenu(false)} className="text-xs font-bold text-slate-500 bg-white border border-slate-300 px-3 py-1.5 rounded-lg">閉じる</button>
+                </div>
+                <div className="modal-scroll p-5">{renderActionMenuBody()}</div>
+              </div>
+            </div>
+          )}
 
           {/* Mobile BSO + runner bar */}
           <div className="md:hidden bg-white border-b border-slate-200 px-3 py-2 flex flex-col gap-2 shrink-0 shadow-sm z-0">
@@ -1765,17 +1839,12 @@ import { isBallResult, isStrikeResult, isFoulResult, isPitchClockViolation, PITC
                 <div className="flex items-center gap-1.5"><span className="text-[11px] font-black text-rose-600 w-2.5">O</span><div className="flex gap-1">{[0,1].map(i=><div key={i} className={`w-3.5 h-3.5 rounded-full border-[1.5px] border-rose-600 ${i<gameState.outs?'bg-rose-500':'bg-slate-100'}`}></div>)}</div></div>
               </div>
               <div className="flex flex-col items-center">
-                <span className="text-[9px] font-bold text-slate-400 mb-1">ランナー</span>
-                <div className="relative w-8 h-8">
-                  <button onClick={() => toggleRunner('second')} className={`absolute top-0 left-1/2 -translate-x-1/2 w-3.5 h-3.5 transform rotate-45 border-2 border-slate-400 ${gameState.runners.second ? 'bg-blue-500' : 'bg-white'}`}></button>
-                  <button onClick={() => toggleRunner('third')} className={`absolute top-1/2 left-0 -translate-y-1/2 w-3.5 h-3.5 transform rotate-45 border-2 border-slate-400 ${gameState.runners.third ? 'bg-blue-500' : 'bg-white'}`}></button>
-                  <button onClick={() => toggleRunner('first')} className={`absolute top-1/2 right-0 -translate-y-1/2 w-3.5 h-3.5 transform rotate-45 border-2 border-slate-400 ${gameState.runners.first ? 'bg-blue-500' : 'bg-white'}`}></button>
-                  <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-3.5 h-3.5 transform rotate-45 border border-slate-400 bg-slate-200"></div>
-                </div>
+                <span className="text-[9px] font-bold text-slate-400 mb-1">ランナー(タップで切替)</span>
+                {renderRunnerDiamond('lg')}
               </div>
               <div className="flex flex-col gap-1.5">
                 <button onClick={() => setShowAdvanceModal(true)} className="text-[10px] bg-blue-50 text-blue-700 px-3 py-1.5 rounded-lg font-bold border border-blue-200 w-full">進塁</button>
-                <button onClick={() => { setOutRunnerData({ runner: '', reason: '盗塁死' }); setShowOutRunnerModal(true); }} className="text-[10px] bg-rose-50 text-rose-700 px-3 py-1.5 rounded-lg font-bold border border-rose-200 w-full">走者ｱｳﾄ</button>
+                <button onClick={() => { setOutRunnerData({ runner: '', reason: '盗塁死' }); setShowOutRunnerModal(true); }} className="text-[10px] bg-rose-50 text-rose-700 px-3 py-1.5 rounded-lg font-bold border border-rose-200 w-full">走者アウト</button>
               </div>
             </div>
             <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-2">
@@ -1801,12 +1870,7 @@ import { isBallResult, isStrikeResult, isFoulResult, isPitchClockViolation, PITC
                   <div className="text-2xl font-black text-slate-800">{gameState.inning}回{gameState.isTop?'表':'裏'}</div>
                   <div className="flex items-center gap-1">
                     <span className="text-xs font-bold text-slate-400 mr-2 uppercase">Runner</span>
-                    <div className="relative w-8 h-8 mr-2">
-                      <button onClick={() => toggleRunner('second')} className={`absolute top-0 left-1/2 -translate-x-1/2 w-3.5 h-3.5 transform rotate-45 border-2 border-slate-400 ${gameState.runners.second ? 'bg-blue-500' : 'bg-white'}`}></button>
-                      <button onClick={() => toggleRunner('third')} className={`absolute top-1/2 left-0 -translate-y-1/2 w-3.5 h-3.5 transform rotate-45 border-2 border-slate-400 ${gameState.runners.third ? 'bg-blue-500' : 'bg-white'}`}></button>
-                      <button onClick={() => toggleRunner('first')} className={`absolute top-1/2 right-0 -translate-y-1/2 w-3.5 h-3.5 transform rotate-45 border-2 border-slate-400 ${gameState.runners.first ? 'bg-blue-500' : 'bg-white'}`}></button>
-                      <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-3.5 h-3.5 transform rotate-45 border border-slate-400 bg-slate-200"></div>
-                    </div>
+                    <div className="mr-2">{renderRunnerDiamond()}</div>
                     <button onClick={() => setShowAdvanceModal(true)} className="text-[10px] bg-blue-50 text-blue-700 px-3 py-1.5 rounded-lg font-bold border border-blue-200">＋進塁</button>
                   </div>
                 </div>
@@ -1833,7 +1897,7 @@ import { isBallResult, isStrikeResult, isFoulResult, isPitchClockViolation, PITC
               {!showInPlayResult ? (
                 stepInput ? (
                 /* ステップ入力: 球種→コース→結果を1画面ずつ。スクロールせずに1球を記録できる */
-                <div className="bg-white rounded-3xl shadow-sm p-3 md:p-5 border border-slate-200 flex-1 flex flex-col min-h-0">
+                <div className="bg-white rounded-3xl shadow-sm p-3 md:p-5 border border-slate-200 flex-1 flex flex-col min-h-fit">
                   <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-2 mb-3 shrink-0">
                     <div className="flex items-center gap-1">
                       {[
@@ -1869,7 +1933,7 @@ import { isBallResult, isStrikeResult, isFoulResult, isPitchClockViolation, PITC
                       <div className="flex items-center gap-2 pt-1">
                         <span className="text-[10px] font-bold text-slate-400">投球以外:</span>
                         <button onClick={() => setShowPickoffModal(true)} className="bg-orange-500 text-white px-3 py-1.5 rounded-lg font-bold text-[11px] shadow-sm active:scale-95">牽制</button>
-                        <button onClick={() => { setOutRunnerData({ runner: '', reason: '盗塁死' }); setShowOutRunnerModal(true); }} className="bg-rose-600 text-white px-3 py-1.5 rounded-lg font-bold text-[11px] shadow-sm active:scale-95">走者ｱｳﾄ</button>
+                        <button onClick={() => { setOutRunnerData({ runner: '', reason: '盗塁死' }); setShowOutRunnerModal(true); }} className="bg-rose-600 text-white px-3 py-1.5 rounded-lg font-bold text-[11px] shadow-sm active:scale-95">走者アウト</button>
                         <button onClick={() => setShowAdvanceModal(true)} className="bg-blue-50 text-blue-700 border border-blue-200 px-3 py-1.5 rounded-lg font-bold text-[11px] active:scale-95">進塁</button>
                       </div>
                       <div className="w-full max-w-[340px]">{renderPitchClockButtons()}</div>
@@ -2082,8 +2146,22 @@ import { isBallResult, isStrikeResult, isFoulResult, isPitchClockViolation, PITC
               )}
             </div>
 
+            {/* スマホ: 打席履歴/速報は下のバーから引き出す(入力欄を広く使うため) */}
+            <button onClick={() => setShowMobilePanel(true)} className="md:hidden shrink-0 flex items-center justify-between gap-2 bg-white border border-slate-200 rounded-2xl px-4 py-2.5 shadow-sm">
+              <span className="text-xs font-black text-slate-700">📋 打席履歴・📰 速報</span>
+              <span className="flex items-center gap-2">
+                <span className="text-[11px] bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-md font-mono font-black text-slate-700">{currentAtBatPitches.filter(p => !p.isEvent || p.countAsPitch).length} 球</span>
+                <span className="text-slate-400 text-xs">▲</span>
+              </span>
+            </button>
+            {showMobilePanel && <div className="md:hidden fixed inset-0 z-[250] bg-slate-900/50 backdrop-blur-sm" onClick={() => setShowMobilePanel(false)}></div>}
+
             {/* Right panel: history / play-by-play */}
-            <div className="w-full md:w-[40%] flex flex-col gap-3 md:gap-4 overflow-hidden">
+            <div className={`${showMobilePanel ? 'flex fixed inset-x-0 bottom-0 z-[260] h-[80vh] bg-slate-50 rounded-t-3xl p-3 shadow-2xl' : 'hidden'} md:flex md:static md:z-auto md:h-auto md:bg-transparent md:rounded-none md:p-0 md:shadow-none w-full md:w-[40%] flex-col gap-3 md:gap-4 overflow-hidden`}>
+              <div className="md:hidden relative flex items-center justify-center shrink-0 h-8">
+                <span className="w-10 h-1.5 rounded-full bg-slate-300"></span>
+                <button onClick={() => setShowMobilePanel(false)} className="absolute right-0 text-xs font-bold text-slate-500 bg-white border border-slate-300 px-3 py-1.5 rounded-lg">閉じる ▼</button>
+              </div>
               <div className="flex bg-slate-200 rounded-xl p-1 shrink-0 shadow-inner">
                 <button onClick={() => setRightPanelMode('current')} className={`flex-1 text-xs font-bold py-2 rounded-lg ${rightPanelMode === 'current' ? 'bg-white shadow-sm text-blue-700' : 'text-slate-500'}`}>📋 打席分析</button>
                 <button onClick={() => setRightPanelMode('playByPlay')} className={`flex-1 text-xs font-bold py-2 rounded-lg ${rightPanelMode === 'playByPlay' ? 'bg-white shadow-sm text-blue-700' : 'text-slate-500'}`}>📰 速報</button>
@@ -2140,7 +2218,7 @@ import { isBallResult, isStrikeResult, isFoulResult, isPitchClockViolation, PITC
               </div>
 
               {/* At-bat history */}
-              <div className="bg-white rounded-3xl shadow-sm border border-slate-200 flex-1 flex flex-col overflow-hidden max-h-[250px] md:max-h-none">
+              <div className="bg-white rounded-3xl shadow-sm border border-slate-200 flex-1 flex flex-col overflow-hidden min-h-0">
                  <div className="bg-slate-50 px-4 py-3 border-b border-slate-200 flex justify-between items-center shrink-0">
                   <div className="flex flex-col">
                     <h2 className="text-sm font-black text-slate-700">📝 打席履歴</h2>
@@ -2322,8 +2400,8 @@ import { isBallResult, isStrikeResult, isFoulResult, isPitchClockViolation, PITC
                           <button onClick={() => setEditPitchData({...editPitchData, result: 'バント空振り'})} className="bg-slate-500 text-white py-2.5 rounded-xl font-bold text-[10px] leading-tight">ﾊﾞﾝﾄ空振S</button>
                         </div>
                         <div className="grid grid-cols-2 gap-2">
-                          <button onClick={() => setEditPitchData({...editPitchData, result: PITCH_CLOCK_BALL, type: '-', course: null})} className="bg-white text-emerald-700 border-2 border-emerald-400 py-2 rounded-xl font-bold text-[10px] leading-tight">ﾋﾟｯﾁｸﾛｯｸ違反<br/>(投手→ボール)</button>
-                          <button onClick={() => setEditPitchData({...editPitchData, result: PITCH_CLOCK_STRIKE, type: '-', course: null})} className="bg-white text-slate-700 border-2 border-slate-500 py-2 rounded-xl font-bold text-[10px] leading-tight">ﾋﾟｯﾁｸﾛｯｸ違反<br/>(打者→ストライク)</button>
+                          <button onClick={() => setEditPitchData({...editPitchData, result: PITCH_CLOCK_BALL, type: '-', course: null})} className="bg-white text-emerald-700 border-2 border-emerald-400 py-2 rounded-xl font-bold text-[10px] leading-tight">ピッチクロック違反<br/>(投手→ボール)</button>
+                          <button onClick={() => setEditPitchData({...editPitchData, result: PITCH_CLOCK_STRIKE, type: '-', course: null})} className="bg-white text-slate-700 border-2 border-slate-500 py-2 rounded-xl font-bold text-[10px] leading-tight">ピッチクロック違反<br/>(打者→ストライク)</button>
                         </div>
                       </div>
                       <div className="flex flex-col bg-white p-4 rounded-2xl border border-slate-200">
