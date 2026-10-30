@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { buildPitcherReport, buildGamePlan, listTeamPitchers, quickTimeStats } from '../pitcherScouting.js';
+import { openPitcherScoutPdf } from '../pitcherScoutPdf.js';
 
 // 相手投手の分析レポート。次戦の打席・走塁で使う傾向と、試合で測ったクイックや変化球の印象をメモできる。
 const BREAK_TYPES = ['スライダー', 'カーブ', 'フォーク・スプリット', 'チェンジアップ', 'シュート', 'シンカー', 'カット', 'その他'];
@@ -45,6 +46,19 @@ export default function PitcherScoutReport({ db, games, team, teams, onSelectTea
   const quick = quickTimeStats(memo.quickTimes);
   const plan = report ? buildGamePlan(report, memo) : [];
   const opponentTeams = teams.filter(t => t.role !== 'own');
+  const [printError, setPrintError] = useState('');
+  const dates = games.map(g => g.dateKey || g.date).filter(Boolean).sort();
+  const gamesLabel = dates.length ? (dates[0] === dates.at(-1) ? dates[0] : `${dates[0]}〜${dates.at(-1)}`) : '';
+  const scoutMemoOf = p => ({ quickTimes: [], breaking: {}, ...((notes[p.id] && notes[p.id].scout) || {}) });
+  // targets: 印刷する投手。1人ならその投手、全員ならページを分けて1つの資料にする
+  const printPdf = (targets) => {
+    const pages = targets.map(p => {
+      const r = buildPitcherReport(db, games, team.id, p.name), m = scoutMemoOf(p);
+      return { teamName: team.name, pitcher: p, report: r, plan: buildGamePlan(r, m), memo: m, gamesLabel };
+    });
+    const title = `${team.name}_${targets.length === 1 ? targets[0].name : '全投手'}_相手投手レポート`.replace(/[\\/:*?"<>|\s]/g, '_');
+    setPrintError(openPitcherScoutPdf(pages, title) ? '' : 'ポップアップがブロックされて印刷画面を開けませんでした。ブラウザの設定で許可してください');
+  };
 
   return (
     <div className="space-y-4">
@@ -52,7 +66,14 @@ export default function PitcherScoutReport({ db, games, team, teams, onSelectTea
         <div className="flex flex-wrap items-center gap-2">
           <h3 className="text-lg">相手投手レポート</h3>
           <span className="text-[10px] font-bold text-slate-400">{team ? `${team.name}｜${games.length}試合の記録から集計` : ''}</span>
+          {pitcher && (
+            <div className="ml-auto flex gap-1.5 print:hidden">
+              <button onClick={() => printPdf([pitcher])} className="bg-slate-800 text-white px-3 py-2 rounded-lg text-xs font-black shadow-sm">🖨️ {pitcher.name}をPDF</button>
+              {pitchers.length > 1 && <button onClick={() => printPdf(pitchers)} className="bg-white text-slate-700 border border-slate-300 px-3 py-2 rounded-lg text-xs font-black shadow-sm">全投手({pitchers.length}人)をPDF</button>}
+            </div>
+          )}
         </div>
+        {printError && <p role="alert" className="text-xs font-bold text-rose-600 bg-rose-50 rounded-lg px-3 py-2">{printError}</p>}
         {opponentTeams.length > 0 && (
           <div className="flex flex-wrap gap-1.5 items-center">
             <span className="text-[10px] font-bold text-slate-400">チーム:</span>
@@ -97,7 +118,7 @@ export default function PitcherScoutReport({ db, games, team, teams, onSelectTea
                     <th className="text-[10px] font-black text-emerald-600 text-left whitespace-nowrap">{b}<span className="hidden md:inline">ボール</span><span className="md:hidden">B</span></th>
                     {[0, 1, 2].map(s => {
                       const c = report.byCount.find(x => x.count === `${b}-${s}`);
-                      const strong = c.top && c.top.pct >= 60;
+                      const strong = c.top && c.top.pct >= 60 && c.n >= 3; // 1〜2球だけの100%は強調しない
                       return (
                         <td key={s} className={`align-top rounded-xl border p-1.5 md:p-2 ${!c.n ? 'bg-slate-50 border-slate-100 text-slate-300' : strong ? 'bg-amber-50 border-amber-300' : 'bg-white border-slate-200'}`}>
                           <div className="flex justify-between text-[10px] font-bold text-slate-400"><span>{c.count}</span><span>{c.n}球</span></div>
