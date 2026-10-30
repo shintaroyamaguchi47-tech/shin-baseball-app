@@ -1654,7 +1654,7 @@ import { isBallResult, isStrikeResult, isFoulResult, isPitchClockViolation, PITC
         { title: '分析', items: [
           { label: '🏁 試合分析へ', hint: 'この試合のレポートを見る', tone: 'primary', onClick: () => setShowPostGameAnalysis(true) },
           { label: '📈 アナリスト分析', tone: 'violet', onClick: () => setShowAnalystReport(true) },
-          { label: '📊 分析ハブ', tone: 'cyan', onClick: () => setShowAnalyticsHub(true), hint: '複数試合の累計・選手カルテ・対戦相手' },
+          { label: '📊 分析ハブ', tone: 'cyan', onClick: () => setShowAnalyticsHub(true), hint: '複数試合の累計・選手カルテ・対戦相手・相手投手' },
         ] },
         { title: 'データ', items: [
           { label: '📂 保存/読込', tone: 'emerald', onClick: () => setShowArchiveModal(true) },
