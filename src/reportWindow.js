@@ -1,9 +1,10 @@
 // 印刷用レポート(試合分析・スコアブック・相手投手)を表示するウィンドウを用意する。
 //
 // PCのブラウザでは従来どおり別ウィンドウに開いて印刷する。
-// 次の環境では別ウィンドウが開けない(または開いても戻れない)ため、アプリ内に全画面で重ねて表示する:
+// iPhone/iPadのSafariとホーム画面に追加したWeb版は、同じタブでレポートのページへ移動する
+// (別タブは開かない・印刷されないことがあり、ホーム画面版は別タブから戻れない)。
+// 次の環境では別ウィンドウが使えないため、アプリ内に全画面で重ねて表示する:
 //  - iOSアプリ(Capacitor の WKWebView): window.open が null を返し、window.print も動かない
-//  - ホーム画面に追加したWeb版: 別ウィンドウから元の画面へ戻れない
 //  - ポップアップがブロックされたブラウザ
 // iOSアプリでの印刷はネイティブの印刷画面(ios/App/App/ReportPrintPlugin.swift)で行い、
 // そこからPDFとして保存・共有できる。
@@ -65,12 +66,23 @@ function openOverlay(title) {
   return w;
 }
 
+function isIOSBrowser() {
+  const ua = navigator.userAgent || '';
+  // iPadOS の Safari は Mac と同じUAを名乗るので、タッチ対応かどうかで見分ける
+  return /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+}
+
 /**
  * レポート用のウィンドウを開く。ボタンを押した直後(同期処理の中)に呼ぶこと。
  * 別ウィンドウが使えない環境ではアプリ内の全画面表示を返すので、通常は null にならない。
  */
 export function openReportWindow(title) {
-  if (!isNative() && !isStandalone()) {
+  // iPhone/iPadのSafariは window.open で開いた空のタブに書き込んでも表示・印刷されないことがある。
+  // 同じタブでレポートのページへ移動し、「閉じる」で戻る(writeReport で移動する)
+  if (!isNative() && (isIOSBrowser() || isStandalone())) {
+    return { __reportInPlace: { title }, print() {} };
+  }
+  if (!isNative()) {
     const w = window.open('', '_blank');
     if (w) return w;
   }
@@ -82,6 +94,12 @@ export function openReportWindow(title) {
  * アプリ内表示のときは、レポート内の「印刷」「閉じる」ボタンもアプリ内で動くように差し替える。
  */
 export function writeReport(w, html, { landscape = false } = {}) {
+  if (w.__reportInPlace) {
+    // 自分で開いたタブではないので window.close は効かない。「閉じる」はアプリの画面へ戻る
+    const page = html.replace('<head>', '<head><script>window.close=function(){history.back();};<\/script>');
+    window.location.href = URL.createObjectURL(new Blob([page], { type: 'text/html' }));
+    return;
+  }
   w.document.write(html);
   w.document.close();
   const overlay = w.__reportOverlay;
