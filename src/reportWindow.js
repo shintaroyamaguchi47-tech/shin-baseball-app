@@ -1,8 +1,9 @@
 // 印刷用レポート(試合分析・スコアブック・相手投手)を表示するウィンドウを用意する。
 //
 // PCのブラウザでは従来どおり別ウィンドウに開いて印刷する。
-// iPhone/iPadのSafariとホーム画面に追加したWeb版は、同じタブでレポートのページへ移動する
-// (別タブは開かない・印刷されないことがあり、ホーム画面版は別タブから戻れない)。
+// iPhone/iPadのSafariとホーム画面に追加したWeb版は、表示中のページをレポートに書き換える
+// (別タブは開かない・印刷されないことがあり、ホーム画面版は別タブから戻れない。
+//  blob: のページへ移動する方式は表示されても印刷画面が出なかった)。
 // 次の環境では別ウィンドウが使えないため、アプリ内に全画面で重ねて表示する:
 //  - iOSアプリ(Capacitor の WKWebView): window.open が null を返し、window.print も動かない
 //  - ポップアップがブロックされたブラウザ
@@ -78,7 +79,7 @@ function isIOSBrowser() {
  */
 export function openReportWindow(title) {
   // iPhone/iPadのSafariは window.open で開いた空のタブに書き込んでも表示・印刷されないことがある。
-  // 同じタブでレポートのページへ移動し、「閉じる」で戻る(writeReport で移動する)
+  // 表示中のページをレポートに書き換え、「閉じる」でアプリを読み込み直す(writeReport で書き換える)
   if (!isNative() && (isIOSBrowser() || isStandalone())) {
     return { __reportInPlace: { title }, print() {} };
   }
@@ -95,9 +96,15 @@ export function openReportWindow(title) {
  */
 export function writeReport(w, html, { landscape = false } = {}) {
   if (w.__reportInPlace) {
-    // 自分で開いたタブではないので window.close は効かない。「閉じる」はアプリの画面へ戻る
-    const page = html.replace('<head>', '<head><script>window.close=function(){history.back();};<\/script>');
-    window.location.href = URL.createObjectURL(new Blob([page], { type: 'text/html' }));
+    // 自分で開いたタブではないので window.close は効かない。「閉じる」はアプリを読み込み直して戻る
+    // (記録はlocalStorageに保存済みなので消えない)
+    const page = html.replace('<head>', '<head><script>window.close=function(){location.reload();};<\/script>');
+    // ボタンのクリック処理(React)が終わってから書き換える
+    setTimeout(() => {
+      document.open();
+      document.write(page);
+      document.close();
+    }, 0);
     return;
   }
   w.document.write(html);
