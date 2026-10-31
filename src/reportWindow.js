@@ -1,15 +1,16 @@
 // 印刷用レポート(試合分析・スコアブック・相手投手)を表示するウィンドウを用意する。
 //
 // PCのブラウザでは従来どおり別ウィンドウに開いて印刷する。
-// iPhone/iPadのSafariとホーム画面に追加したWeb版は、表示中のページをレポートに書き換える
-// (別タブは開かない・印刷されないことがあり、ホーム画面版は別タブから戻れない。
-//  blob: のページへ移動する方式は表示されても印刷画面が出なかった)。
 // 次の環境では別ウィンドウが使えないため、アプリ内に全画面で重ねて表示する:
+//  - iPhone/iPadのSafari・ホーム画面に追加したWeb版: 別タブが開かない・戻れないうえ、
+//    window.print を呼んでも印刷画面が出ない。印刷の代わりにPDFファイルを作って
+//    共有シートで渡す(src/reportPdf.js)
 //  - iOSアプリ(Capacitor の WKWebView): window.open が null を返し、window.print も動かない
 //  - ポップアップがブロックされたブラウザ
 // iOSアプリでの印刷はネイティブの印刷画面(ios/App/App/ReportPrintPlugin.swift)で行い、
 // そこからPDFとして保存・共有できる。
 import { Capacitor, registerPlugin } from '@capacitor/core';
+import { saveBlobFile } from './fileExport.js';
 
 const ReportPrint = registerPlugin('ReportPrint');
 
@@ -40,7 +41,45 @@ function overlayButton(label, primary) {
   return b;
 }
 
-function openOverlay(title) {
+// iPhoneのSafari向け: 「PDFを作成」→ 作成後に「PDFを保存」で共有シートを出す。
+// 共有シートはタップの直後でないと開けず、PDFの作成には数秒かかるので、2回のタップに分けている
+function setUpPdfButton(button, w) {
+  let file = null;
+  let busy = false;
+  button.textContent = '📄 PDFを作成';
+  button.addEventListener('click', () => {
+    const overlay = w.__reportOverlay;
+    if (busy || !overlay || !overlay.html) return;
+    if (file) {
+      saveBlobFile(file.name, file, 'application/pdf').catch((e) => {
+        console.error('PDFを保存できませんでした:', e);
+        window.alert('PDFを保存できませんでした。もう一度お試しください。');
+      });
+      return;
+    }
+    busy = true;
+    button.disabled = true;
+    button.textContent = '作成中…';
+    import('./reportPdf.js')
+      .then(({ buildReportPdf }) => buildReportPdf(overlay.html, {
+        landscape: overlay.landscape,
+        onProgress: (done, total) => { button.textContent = `作成中… ${done}/${total}`; },
+      }))
+      .then((blob) => {
+        const name = `${(w.document.title || overlay.title || 'レポート').replace(/[\\/:*?"<>|]/g, '')}.pdf`;
+        file = new File([blob], name, { type: 'application/pdf' });
+        button.textContent = '📤 PDFを保存';
+      })
+      .catch((e) => {
+        console.error('PDFを作成できませんでした:', e);
+        window.alert('PDFを作成できませんでした。もう一度お試しください。');
+        button.textContent = '📄 PDFを作成';
+      })
+      .finally(() => { busy = false; button.disabled = false; });
+  });
+}
+
+function openOverlay(title, { pdf = false } = {}) {
   const overlay = document.createElement('div');
   overlay.setAttribute('data-report-overlay', '');
   overlay.style.cssText = 'position:fixed;inset:0;z-index:10000;display:flex;flex-direction:column;background:#f1f5f9;';
@@ -61,9 +100,10 @@ function openOverlay(title) {
   const w = iframe.contentWindow;
   const close = () => overlay.remove();
   closeBtn.addEventListener('click', close);
+  if (pdf) setUpPdfButton(printBtn, w);
   // スコアブックは印刷前に紙面を組み直す関数(__sbPrint)を持つ
-  printBtn.addEventListener('click', () => (w.__sbPrint || w.print).call(w));
-  w.__reportOverlay = { close, title };
+  else printBtn.addEventListener('click', () => (w.__sbPrint || w.print).call(w));
+  w.__reportOverlay = { close, title, pdf };
   return w;
 }
 
@@ -78,11 +118,7 @@ function isIOSBrowser() {
  * 別ウィンドウが使えない環境ではアプリ内の全画面表示を返すので、通常は null にならない。
  */
 export function openReportWindow(title) {
-  // iPhone/iPadのSafariは window.open で開いた空のタブに書き込んでも表示・印刷されないことがある。
-  // 表示中のページをレポートに書き換え、「閉じる」でアプリを読み込み直す(writeReport で書き換える)
-  if (!isNative() && (isIOSBrowser() || isStandalone())) {
-    return { __reportInPlace: { title }, print() {} };
-  }
+  if (!isNative() && (isIOSBrowser() || isStandalone())) return openOverlay(title, { pdf: true });
   if (!isNative()) {
     const w = window.open('', '_blank');
     if (w) return w;
@@ -95,18 +131,6 @@ export function openReportWindow(title) {
  * アプリ内表示のときは、レポート内の「印刷」「閉じる」ボタンもアプリ内で動くように差し替える。
  */
 export function writeReport(w, html, { landscape = false } = {}) {
-  if (w.__reportInPlace) {
-    // 自分で開いたタブではないので window.close は効かない。「閉じる」はアプリを読み込み直して戻る
-    // (記録はlocalStorageに保存済みなので消えない)
-    const page = html.replace('<head>', '<head><script>window.close=function(){location.reload();};<\/script>');
-    // ボタンのクリック処理(React)が終わってから書き換える
-    setTimeout(() => {
-      document.open();
-      document.write(page);
-      document.close();
-    }, 0);
-    return;
-  }
   w.document.write(html);
   w.document.close();
   const overlay = w.__reportOverlay;
@@ -116,7 +140,11 @@ export function writeReport(w, html, { landscape = false } = {}) {
   style.textContent = '.no-print{display:none !important;}';
   w.document.head.appendChild(style);
   w.close = overlay.close;
+  overlay.html = html;
+  overlay.landscape = landscape;
   if (isNative()) w.print = () => printNative(html, overlay.title, landscape);
+  // iPhoneのSafariでは印刷画面が出ないので、自動印刷(開いた直後の w.print)は何もしない
+  else if (overlay.pdf) w.print = () => {};
 }
 
 /** 表示中の画面をそのまま印刷する(分析ハブ)。iOSアプリでは window.print が動かないのでネイティブで印刷する */
