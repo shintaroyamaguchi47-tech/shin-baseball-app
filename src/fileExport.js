@@ -48,7 +48,15 @@ export async function saveTextFile(filename, text, mimeType) {
     }
   }
 
-  const blob = new Blob([text], { type: mimeType });
+  return saveBlobFile(filename, new Blob([text], { type: mimeType }), mimeType);
+}
+
+/**
+ * ブラウザでファイル(Blob)を書き出す。スマホは共有シート、PCはダウンロード。
+ * 共有シートはユーザー操作の直後でないと開けないので、ボタンを押した処理の中で呼ぶこと。
+ * @returns {Promise<'downloaded'|'shared'|'cancelled'>}
+ */
+export async function saveBlobFile(filename, blob, mimeType) {
   if (isMobileBrowser() && typeof navigator.share === 'function' && typeof File === 'function') {
     const file = new File([blob], filename, { type: mimeType });
     if (!navigator.canShare || navigator.canShare({ files: [file] })) {
