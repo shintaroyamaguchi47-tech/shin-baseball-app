@@ -1,6 +1,7 @@
 // 相手投手レポートの印刷用HTML(ブラウザの印刷から「PDFに保存」できる)。
 // 1投手=A4縦1ページを目安に組む。複数投手はページを分けて1つの資料にする。
 import { quickTimeStats } from './pitcherScouting.js';
+import { openReportWindow, writeReport } from './reportWindow.js';
 
 const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const nl2br = s => esc(s).replace(/\n/g, '<br>');
@@ -142,13 +143,12 @@ export function buildPitcherScoutHtml(pages, title = '相手投手レポート')
 }
 
 /**
- * 新しいウィンドウに印刷用HTMLを開いて印刷ダイアログを出す。ポップアップがブロックされたら false。
+ * 印刷用HTMLを開いて印刷ダイアログを出す(開き方は reportWindow.js)。開けなければ false。
  */
 export function openPitcherScoutPdf(pages, title) {
-  const w = window.open('', '_blank');
+  const w = openReportWindow(title);
   if (!w) return false;
-  w.document.write(buildPitcherScoutHtml(pages, title));
-  w.document.close();
+  writeReport(w, buildPitcherScoutHtml(pages, title));
   setTimeout(() => { try { w.print(); } catch (e) { /* 画面の印刷ボタンから再実行できる */ } }, 600);
   return true;
 }

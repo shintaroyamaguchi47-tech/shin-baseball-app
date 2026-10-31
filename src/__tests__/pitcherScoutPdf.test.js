@@ -45,13 +45,23 @@ describe('相手投手レポートの印刷用HTML', () => {
     expect(html).toContain('.page+.page{break-before:page');
   });
 
-  it('ポップアップがブロックされたら false を返す', () => {
-    const open = vi.spyOn(window, 'open').mockReturnValue(null);
-    expect(openPitcherScoutPdf([page({})], 't')).toBe(false);
+  it('別ウィンドウに印刷用HTMLを書き込む', () => {
     let written = '';
-    open.mockReturnValue({ document: { write: s => { written += s; }, close: () => {} }, print: () => {} });
+    const open = vi.spyOn(window, 'open').mockReturnValue({ document: { write: s => { written += s; }, close: () => {} }, print: () => {} });
     expect(openPitcherScoutPdf([page({})], '相手_田中')).toBe(true);
     expect(written).toContain('<title>相手_田中</title>');
+    open.mockRestore();
+  });
+
+  it('ポップアップがブロックされたらアプリ内の全画面表示に切り替える', () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+    expect(openPitcherScoutPdf([page({})], '相手_田中')).toBe(true);
+    const overlay = document.querySelector('[data-report-overlay]');
+    expect(overlay).not.toBeNull();
+    expect(overlay.querySelector('iframe').contentDocument.title).toBe('相手_田中');
+    // レポート内の「閉じる」ボタン(window.close)でアプリ内表示が閉じる
+    overlay.querySelector('iframe').contentWindow.close();
+    expect(document.querySelector('[data-report-overlay]')).toBeNull();
     open.mockRestore();
   });
 });

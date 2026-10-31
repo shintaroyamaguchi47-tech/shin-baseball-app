@@ -55,3 +55,17 @@ npm run ios:sync
 - Web版: localStorage に自動保存
 - iOSアプリ版: localStorage に加えて **ネイティブストレージ(UserDefaults)へ二重保存**。
   OSがWebViewのlocalStorageを破棄しても、次回起動時に自動復元されます(`src/storage.js`)
+
+## ファイルの書き出し・レポート印刷(iOSアプリ版)
+
+WKWebView では `<a download>` によるダウンロードと `window.open` / `window.print` が動かないため、iOSアプリ版では次の方法に切り替えています。
+
+- **CSV / JSON**: `@capacitor/filesystem` で端末の一時領域に書き出し、`@capacitor/share` の共有シートを出す。
+  共有シートの「"ファイル"に保存」で保存できる(`src/fileExport.js`)
+- **PDFレポート(試合分析・スコアブック・相手投手)**: アプリ内に全画面で表示し、「印刷 / PDF保存」で
+  iOS標準の印刷画面を出す(`src/reportWindow.js`)。印刷画面の共有ボタンからPDFとして保存・送信できる
+- 印刷はアプリ内の独自プラグイン `ios/App/App/ReportPrintPlugin.swift` が担当する。
+  独自プラグインは自動登録されないため、`ios/App/App/MainViewController.swift` で登録し、
+  `Main.storyboard` の起動画面をこのクラスにしている
+
+プラグインを追加・更新したあとは `npm install` → `npm run ios:sync` を実行してからXcodeでビルドしてください。

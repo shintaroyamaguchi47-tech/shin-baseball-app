@@ -18,6 +18,7 @@ import { makeInitialGameState, makeInitialLineups, ensureRunArray, normalizeGame
 import PostGameReport from './components/PostGameReport.jsx';
 import CumulativeStatsModal from './components/CumulativeStatsModal.jsx';
 import { isBallResult, isStrikeResult, isFoulResult, isPitchClockViolation, PITCH_CLOCK_BALL, PITCH_CLOCK_STRIKE } from './pitchResults.js';
+import { saveTextFile } from './fileExport.js';
 
     function App() {
       const loadStored = (key, fallback) => {
@@ -922,7 +923,7 @@ import { isBallResult, isStrikeResult, isFoulResult, isPitchClockViolation, PITC
 
       const exportCSV = () => {
         const rows = pitches.map(p => [p.inning, p.isTop ? '表' : '裏', p.pitcherName, p.pitcherThrows, p.batterName, p.batterBats, p.pitchNumber, p.type, p.course !== null ? p.course : '', p.result, p.isEvent ? 'イベント' : ''].join(','));
-        const link = document.createElement("a"); link.setAttribute("href", encodeURI("data:text/csv;charset=utf-8,\uFEFF" + ["回,表裏,投手,投,打者,打,球数,球種,コース,結果,備考", ...rows].join('\n'))); link.setAttribute("download", `試合データ_${gameInfo.date}.csv`); link.click();
+        saveExportFile(`試合データ_${gameInfo.date}.csv`, "\uFEFF" + ["回,表裏,投手,投,打者,打,球数,球種,コース,結果,備考", ...rows].join('\n'), 'text/csv');
       };
 
       const copyForAI = () => {
@@ -932,8 +933,14 @@ import { isBallResult, isStrikeResult, isFoulResult, isPitchClockViolation, PITC
       };
 
       const exportData = () => {
-        const url = URL.createObjectURL(new Blob([JSON.stringify({ gameState, gameInfo, lineups, pitches })], { type: 'application/json' }));
-        const link = document.createElement('a'); link.href = url; link.download = `配球データ_${gameInfo.date}.json`; document.body.appendChild(link); link.click(); document.body.removeChild(link); URL.revokeObjectURL(url); showToast('ファイルを保存しました！');
+        saveExportFile(`配球データ_${gameInfo.date}.json`, JSON.stringify({ gameState, gameInfo, lineups, pitches }), 'application/json');
+      };
+
+      // iPhoneでは共有シートが開くので、そこで「ファイルに保存」などを選んでもらう(src/fileExport.js)
+      const saveExportFile = (filename, text, mimeType) => {
+        saveTextFile(filename, text, mimeType)
+          .then(result => { if (result === 'downloaded') showToast('ファイルを保存しました！'); })
+          .catch(e => { console.error('ファイルの書き出しに失敗:', e); showToast('ファイルを書き出せませんでした', 'error'); });
       };
 
       // スコアラーアプリ(GDF形式)の試合データをアーカイブへ取り込む
@@ -3052,12 +3059,12 @@ import { isBallResult, isStrikeResult, isFoulResult, isPitchClockViolation, PITC
           {/* ============================================================ */}
           {showExport && (
             <div className="fixed inset-0 bg-slate-900/70 z-[200] flex items-center justify-center p-4 backdrop-blur-sm">
-              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col border border-slate-200">
-                <div className="p-4 border-b border-slate-200 bg-slate-800 flex justify-between items-center">
+              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm max-h-full overflow-hidden flex flex-col border border-slate-200">
+                <div className="p-4 border-b border-slate-200 bg-slate-800 flex justify-between items-center shrink-0">
                   <h2 className="text-lg font-black text-white">📤 データ出力</h2>
                   <button onClick={() => setShowExport(false)} className="text-slate-400 hover:text-white font-bold text-xl px-2">✕</button>
                 </div>
-                <div className="p-6 space-y-3">
+                <div className="p-6 space-y-3 overflow-y-auto">
                   <button onClick={() => { copyShareText(); setShowExport(false); }} className="w-full bg-blue-600 text-white py-3.5 rounded-xl font-black shadow-md active:scale-95 flex items-center justify-center gap-2">📋 試合結果をコピー (LINE用)</button>
                   <button onClick={() => { copyForAI(); setShowExport(false); }} className="w-full bg-indigo-600 text-white py-3.5 rounded-xl font-black shadow-md active:scale-95 flex items-center justify-center gap-2">🤖 AI分析用データをコピー</button>
                   <button onClick={() => { setShowExport(false); setShowScorebookPrintSettings(true); }} className="w-full bg-amber-600 text-white py-3.5 rounded-xl font-black shadow-md active:scale-95 flex items-center justify-center gap-2">📖 スコアブックPDF</button>
@@ -3070,7 +3077,7 @@ import { isBallResult, isStrikeResult, isFoulResult, isPitchClockViolation, PITC
                     </label>
                   </div>
                 </div>
-                <div className="p-4 border-t border-slate-200 bg-slate-50">
+                <div className="p-4 border-t border-slate-200 bg-slate-50 shrink-0">
                   <button onClick={() => setShowExport(false)} className="w-full bg-slate-200 text-slate-700 py-3 rounded-xl font-bold">閉じる</button>
                 </div>
               </div>
