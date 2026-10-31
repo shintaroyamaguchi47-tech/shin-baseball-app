@@ -1747,7 +1747,7 @@ import { saveTextFile } from './fileExport.js';
           )}
 
           {/* ===== HEADER ===== */}
-          <header className="bg-white shadow-sm border-b border-slate-200 p-2 md:p-3 xl:p-4 flex flex-col md:grid md:grid-cols-[auto_minmax(0,1fr)_auto] xl:flex xl:flex-row md:items-center md:justify-between shrink-0 gap-3 z-20 relative">
+          <header className="bg-white shadow-sm border-b border-slate-200 p-2 md:p-3 xl:p-4 flex flex-col md:grid md:grid-cols-[auto_minmax(0,1fr)_auto] xl:flex xl:flex-row md:items-center md:justify-between shrink-0 gap-3 z-30 relative">
             <div className="flex flex-col gap-2 md:w-auto w-full">
               <div className="flex items-center justify-between md:justify-start gap-4">
                 <div className="flex items-center gap-2 text-xl md:text-2xl font-black text-blue-700 tracking-tighter whitespace-nowrap"><span className="text-2xl">⚾</span>配球スコア <span className="hidden sm:inline text-[10px] bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full uppercase tracking-widest ml-1 font-bold border border-blue-200">Pro</span></div>
