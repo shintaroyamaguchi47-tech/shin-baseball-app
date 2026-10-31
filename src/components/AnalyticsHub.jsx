@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { buildAnalytics, buildPlayerCard, buildScoutingReport } from '../analyticsData.js';
 import PitcherScoutReport from './PitcherScoutReport.jsx';
+import { printCurrentPage } from '../reportWindow.js';
 
 const tones={blue:'bg-blue-50 border-blue-100',rose:'bg-rose-50 border-rose-100',emerald:'bg-emerald-50 border-emerald-100',amber:'bg-amber-50 border-amber-100',slate:'bg-slate-50 border-slate-200'};
 const Card=({label,value,tone='blue',hint})=><div className={`rounded-2xl border p-3 ${tones[tone]}`}><div className="text-[10px] font-bold text-slate-500">{label}</div><div className="text-xl md:text-2xl font-black text-slate-800 mt-1">{value}</div>{hint&&<div className="text-[9px] text-slate-400 mt-1">{hint}</div>}</div>;
@@ -16,7 +17,7 @@ export default function AnalyticsHub({ db, notes, onNotesChange, onClose }) {
   const opponents=db.teams.filter(t=>t.id!==teamId),max=Math.max(1,...stats.innings.flatMap(x=>[x.for,x.against]));
   const memo=card?notes[card.player.id]:null; const memoObj=typeof memo==='string'?{general:memo,strength:'',challenge:'',practice:''}:{general:'',strength:'',challenge:'',practice:'',...(memo||{})};
   const setMemo=(key,value)=>card&&onNotesChange({...notes,[card.player.id]:{...memoObj,[key]:value,updatedAt:new Date().toISOString()}});
-  const printReport=()=>window.print();
+  const printReport=()=>printCurrentPage();
   return <div className="fixed inset-0 z-[700] bg-slate-950/80 backdrop-blur-sm p-0 md:p-4 print:static print:bg-white print:p-0"><div className="bg-slate-50 h-full max-w-6xl mx-auto md:rounded-3xl overflow-hidden flex flex-col shadow-2xl print:shadow-none">
     <header className="bg-slate-900 text-white p-4 flex items-center justify-between print:bg-white print:text-black"><div><h2 className="font-black text-lg">分析・育成・戦術ハブ</h2><p className="text-[10px] text-slate-300 print:text-slate-500">保存済みの生データから再計算／自チームと相手を分離</p></div><div className="flex gap-2 print:hidden"><button onClick={printReport} className="text-xs bg-white/10 px-3 py-2 rounded-lg">印刷</button><button onClick={onClose} className="text-2xl px-2">×</button></div></header>
     <nav className="grid grid-cols-4 bg-white border-b p-2 gap-2 print:hidden">{[['dashboard','自チーム分析'],['players','選手カルテ'],['opponent','対戦相手'],['pitcher','相手投手']].map(([k,l])=><button key={k} onClick={()=>{setTab(k);if(k==='pitcher'&&stats.team?.role==='own'){const opp=db.teams.find(t=>t.role!=='own');if(opp){setTeamId(opp.id);setPlayerId('');}}}} className={`py-2 rounded-xl text-xs font-black ${tab===k?'bg-blue-600 text-white':'bg-slate-100 text-slate-600'}`}>{l}</button>)}</nav>

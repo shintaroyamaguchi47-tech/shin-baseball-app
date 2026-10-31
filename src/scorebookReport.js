@@ -2,9 +2,10 @@
 // App からは window.generateScorebookReport({ scorebook, gameInfo, gameState }) で呼ばれる。
 // scorebook は src/scorebookData.js の buildScorebookData(...) の戻り値。
 // 記譜法の解読メモは docs/scorer-notation.md 参照。
+import { openReportWindow, writeReport } from './reportWindow.js';
   try {
   window.generateScorebookReport = function(data) {
-    var w = window.open('', '_blank');
+    var w = openReportWindow('スコアブック');
     if (!w) return false;
     var sb = data.scorebook, gi = data.gameInfo, gs = data.gameState;
     var options = Object.assign({ includeCharts: true, includeStats: true }, data.options || {});
@@ -734,8 +735,8 @@
       'function fitPreview(){',
       'var page=document.querySelector(".sb-page");if(!page)return;',
       'var sheet=document.querySelector(".sb-sheet");',
-      'var target=(sheet?sheet.offsetWidth:1085)+24;',
-      'var scale=Math.min(1,Math.max(.3,window.innerWidth/target));',
+      // 左右の余白(12px)は縮小されないので、画面幅から先に引いておく
+      'var scale=Math.min(1,Math.max(.3,(window.innerWidth-24)/(sheet?sheet.offsetWidth:1085)));',
       'document.documentElement.style.setProperty("--preview-scale",String(scale));',
       'document.body.style.height=Math.ceil(page.scrollHeight*scale+24)+"px";',
       '}',
@@ -750,8 +751,7 @@
       '})();'
     ].join('');
     var previewScript = '<script>' + fitScript + '<' + '/script>';
-    w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>' + esc(reportFileName) + '<\/title><style>' + style + '<\/style><\/head><body>' + closeBtn + body + previewScript + '<\/body><\/html>');
-    w.document.close();
+    writeReport(w, '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>' + esc(reportFileName) + '<\/title><style>' + style + '<\/style><\/head><body>' + closeBtn + body + previewScript + '<\/body><\/html>', { landscape: true });
     // 自動印刷の前に、フォント読み込み後のレイアウトで倍率を計算し直す
     setTimeout(function () {
       try {

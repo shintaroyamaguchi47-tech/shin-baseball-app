@@ -1,8 +1,9 @@
 // 試合分析レポートのPDF(印刷用HTML)生成。App からは window.generatePdfReport(...) で呼ばれる。
 import { isBallResult } from './pitchResults.js';
+import { openReportWindow, writeReport } from './reportWindow.js';
   try {
   window.generatePdfReport = function(data) {
-    var w = window.open('', '_blank');
+    var w = openReportWindow('試合分析レポート');
     if (!w) return false;
     var gi = data.gameInfo, gs = data.gameState, stats = data.advancedStats, ps = data.pitches, hAndE = data.hitsAndErrors, analyst = data.analystInsights;
     var topTotal = gs.runs.top.reduce(function(a,b){return a+b;},0);
@@ -536,8 +537,7 @@ import { isBallResult } from './pitchResults.js';
       +'.no-print{display:none !important;}}'
       +'table{page-break-inside:auto;}tr{page-break-inside:avoid;}'
       +'h1,h3{break-after:avoid;page-break-after:avoid;}';
-    w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>'+esc(reportFileName)+'<\/title><style>'+css+'<\/style><\/head><body>'+closeBtn+body+'<\/body><\/html>');
-    w.document.close();
+    writeReport(w, '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>'+esc(reportFileName)+'<\/title><style>'+css+'<\/style><\/head><body>'+closeBtn+body+'<\/body><\/html>');
     setTimeout(function(){w.print();},800);
     return true;
   };
