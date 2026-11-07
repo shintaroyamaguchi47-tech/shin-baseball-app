@@ -2002,7 +2002,7 @@ import { saveTextFile } from './fileExport.js';
                 </div>
                 )
               ) : (
-                <div className="bg-blue-50/50 rounded-3xl shadow-inner p-4 md:p-6 border border-blue-200 flex-1 flex flex-col min-h-[450px]">
+                <div className="bg-blue-50/50 rounded-3xl shadow-inner p-4 md:p-6 border border-blue-200 flex-[1_0_auto] flex flex-col min-h-[450px]">
                   <div className="flex justify-between items-center mb-4 border-b border-blue-200 pb-3">
                     <h2 className="text-lg font-black text-blue-800">🎯 打撃結果の入力</h2>
                     <button onClick={() => { handleUndo(); setSelectedHitCoord(null); setSelectedPosition(null); }} className="text-xs bg-white px-4 py-2 rounded-full border border-slate-300 shadow-sm font-bold text-slate-600">↩️ 取消して戻る</button>
