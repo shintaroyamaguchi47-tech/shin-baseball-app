@@ -23,7 +23,8 @@ function listPublicFiles(dir, base = '') {
 //
 // 更新の当て方: 新しい Service Worker は skipWaiting しない。
 // 試合中にアプリを開いたまま資産が入れ替わるのを避け、
-// すべてのタブを閉じて開き直したときに新版へ切り替わるようにしている。
+// すべてのタブを閉じて開き直したとき、または画面の「更新」ボタンを押したときに
+// 新版へ切り替わるようにしている。
 function precacheServiceWorker() {
   return {
     name: 'precache-service-worker',
@@ -45,6 +46,11 @@ const PRECACHE = ${JSON.stringify(precache, null, 2)};
 self.addEventListener('install', (event) => {
   // グラウンドで圏外になっても開けるよう、全資産を先に取り込む
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(PRECACHE)));
+});
+
+// 利用者が「更新」を押したときだけ新しい版に切り替える
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
