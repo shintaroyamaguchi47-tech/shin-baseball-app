@@ -2,7 +2,7 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
-import { registerServiceWorker } from '../registerServiceWorker.js';
+import { registerServiceWorker, watchForUpdates, applyUpdate, UPDATE_READY_EVENT } from '../registerServiceWorker.js';
 
 const root = path.resolve(__dirname, '../..');
 const manifest = JSON.parse(fs.readFileSync(path.join(root, 'public/manifest.webmanifest'), 'utf8'));
@@ -88,5 +88,56 @@ describe('Service Worker の登録', () => {
     expect(() => registerServiceWorker()).not.toThrow();
     await Promise.resolve();
     err.mockRestore();
+  });
+});
+
+describe('新しい版の通知', () => {
+  afterEach(() => { delete navigator.serviceWorker; });
+
+  const makeReg = (waiting) => {
+    const listeners = {};
+    return {
+      waiting,
+      installing: null,
+      update: vi.fn(() => Promise.resolve()),
+      addEventListener: (type, fn) => { listeners[type] = fn; },
+      listeners,
+    };
+  };
+
+  it('使用中の版があり、新しい版が待機していれば知らせる', () => {
+    navigator.serviceWorker = { controller: {} };
+    const onReady = vi.fn();
+    window.addEventListener(UPDATE_READY_EVENT, onReady);
+    const waiting = { postMessage: vi.fn() };
+    watchForUpdates(makeReg(waiting));
+    window.removeEventListener(UPDATE_READY_EVENT, onReady);
+    expect(onReady).toHaveBeenCalledTimes(1);
+    expect(onReady.mock.calls[0][0].detail).toBe(waiting);
+  });
+
+  it('初回インストール(使用中の版なし)では知らせない', () => {
+    navigator.serviceWorker = { controller: null };
+    const onReady = vi.fn();
+    window.addEventListener(UPDATE_READY_EVENT, onReady);
+    watchForUpdates(makeReg({ postMessage: vi.fn() }));
+    window.removeEventListener(UPDATE_READY_EVENT, onReady);
+    expect(onReady).not.toHaveBeenCalled();
+  });
+
+  it('アプリが前面に戻ったら新しい版を確認する', () => {
+    navigator.serviceWorker = { controller: {} };
+    const reg = makeReg(null);
+    watchForUpdates(reg);
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(reg.update).toHaveBeenCalled();
+  });
+
+  it('「更新」で待機中の版に切り替えを依頼する', () => {
+    navigator.serviceWorker = { addEventListener: vi.fn() };
+    const waiting = { postMessage: vi.fn() };
+    applyUpdate(waiting);
+    expect(waiting.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
+    expect(navigator.serviceWorker.addEventListener).toHaveBeenCalledWith('controllerchange', expect.any(Function));
   });
 });
