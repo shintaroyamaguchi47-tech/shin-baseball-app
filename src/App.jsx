@@ -2002,13 +2002,13 @@ import { saveTextFile } from './fileExport.js';
                 </div>
                 )
               ) : (
-                <div className="bg-blue-50/50 rounded-3xl shadow-inner p-4 md:p-6 border border-blue-200 flex-[1_0_auto] flex flex-col min-h-[450px]">
-                  <div className="flex justify-between items-center mb-4 border-b border-blue-200 pb-3">
-                    <h2 className="text-lg font-black text-blue-800">🎯 打撃結果の入力</h2>
-                    <button onClick={() => { handleUndo(); setSelectedHitCoord(null); setSelectedPosition(null); }} className="text-xs bg-white px-4 py-2 rounded-full border border-slate-300 shadow-sm font-bold text-slate-600">↩️ 取消して戻る</button>
+                <div className="bg-blue-50/50 rounded-3xl shadow-inner p-3 md:p-6 border border-blue-200 flex-[1_0_auto] flex flex-col md:min-h-[450px]">
+                  <div className="flex justify-between items-center mb-2 md:mb-4 border-b border-blue-200 pb-2 md:pb-3">
+                    <h2 className="text-base md:text-lg font-black text-blue-800">🎯 打撃結果の入力</h2>
+                    <button onClick={() => { handleUndo(); setSelectedHitCoord(null); setSelectedPosition(null); }} className="text-xs bg-white px-3 py-1.5 md:px-4 md:py-2 rounded-full border border-slate-300 shadow-sm font-bold text-slate-600">↩️ 取消して戻る</button>
                   </div>
                   {/* Step indicator */}
-                  <div className="flex items-center gap-1 mb-4 px-2">
+                  <div className="flex items-center gap-1 mb-2 md:mb-4 px-2">
                     <div className={`flex items-center gap-1 text-xs font-black ${!selectedHitCoord ? 'text-blue-700' : 'text-emerald-600'}`}>
                       <span className={`w-5 h-5 rounded-full flex items-center justify-center text-white text-[10px] ${!selectedHitCoord ? 'bg-blue-600' : 'bg-emerald-500'}`}>{selectedHitCoord ? '✓' : '1'}</span>位置
                     </div>
@@ -2086,8 +2086,8 @@ import { saveTextFile } from './fileExport.js';
                   {/* STEP 3: 結果 */}
                   {selectedHitCoord && selectedPosition && (
                     <div className="flex-auto shrink-0 flex flex-col items-center w-full">
-                      <div className="flex items-center gap-3 mb-4 w-full max-w-md">
-                        <div className="relative w-14 h-12 bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden shrink-0">
+                      <div className="flex items-center gap-3 mb-2 md:mb-4 w-full max-w-md">
+                        <div className="relative w-12 h-10 md:w-14 md:h-12 bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden shrink-0">
                           <svg viewBox="0 0 240 200" className="w-full h-full">
                             <path d="M 120 185 L 8 70 Q 120 -25 232 70 Z" fill="#dcfce7" />
                             <circle cx={selectedHitCoord.x} cy={selectedHitCoord.y} r="8" fill="#3b82f6" stroke="#fff" strokeWidth="2" />
@@ -2101,48 +2101,48 @@ import { saveTextFile } from './fileExport.js';
                         </div>
                         <button onClick={() => { setSelectedPosition(null); setShowErrorTypeSelect(false); }} className="text-[10px] bg-slate-100 text-slate-500 border border-slate-200 px-2.5 py-1.5 rounded-lg font-bold shrink-0">← 野手変更</button>
                       </div>
-                      <div className="w-full space-y-3 max-w-md">
-                        <div className="bg-white p-4 rounded-2xl border border-rose-100 shadow-sm"><div className="grid grid-cols-3 gap-3">
-                          <button onClick={() => handleInPlayFinalResult('ゴロ', 1)} className="bg-rose-50 text-rose-700 py-4 rounded-xl font-black text-lg active:scale-95 border border-rose-200">ゴロ</button>
-                          <button onClick={() => handleInPlayFinalResult('飛', 1)} className="bg-orange-50 text-orange-700 py-4 rounded-xl font-black text-lg active:scale-95 border border-orange-200">飛/直</button>
-                          <button onClick={() => handleInPlayFinalResult('併殺打', 2)} className="bg-rose-600 text-white py-4 rounded-xl font-black text-lg shadow-md active:scale-95">併殺打</button>
+                      <div className="w-full space-y-2 md:space-y-3 max-w-md">
+                        <div className="bg-white p-2.5 md:p-4 rounded-2xl border border-rose-100 shadow-sm"><div className="grid grid-cols-3 gap-2 md:gap-3">
+                          <button onClick={() => handleInPlayFinalResult('ゴロ', 1)} className="bg-rose-50 text-rose-700 py-3 md:py-4 rounded-xl font-black text-base md:text-lg active:scale-95 border border-rose-200">ゴロ</button>
+                          <button onClick={() => handleInPlayFinalResult('飛', 1)} className="bg-orange-50 text-orange-700 py-3 md:py-4 rounded-xl font-black text-base md:text-lg active:scale-95 border border-orange-200">飛/直</button>
+                          <button onClick={() => handleInPlayFinalResult('併殺打', 2)} className="bg-rose-600 text-white py-3 md:py-4 rounded-xl font-black text-base md:text-lg shadow-md active:scale-95">併殺打</button>
                         </div></div>
-                        <div className="bg-white p-4 rounded-2xl border border-blue-100 shadow-sm">
-                          <div className="grid grid-cols-4 gap-3">
-                          <button onClick={() => handleInPlayFinalResult('安', 0)} className="bg-blue-50 text-blue-700 py-4 rounded-xl font-black active:scale-95 border border-blue-200">単打</button>
-                          <button onClick={() => handleInPlayFinalResult('二塁打', 0)} className="bg-indigo-50 text-indigo-700 py-4 rounded-xl font-black active:scale-95 border border-indigo-200">二塁打</button>
-                          <button onClick={() => handleInPlayFinalResult('三塁打', 0)} className="bg-purple-50 text-purple-700 py-4 rounded-xl font-black active:scale-95 border border-purple-200">三塁打</button>
-                          <button onClick={() => handleInPlayFinalResult('本塁打', 0)} className="bg-pink-100 text-pink-700 py-4 rounded-xl font-black shadow-sm active:scale-95 border border-pink-200">本塁打</button>
+                        <div className="bg-white p-2.5 md:p-4 rounded-2xl border border-blue-100 shadow-sm">
+                          <div className="grid grid-cols-4 gap-2 md:gap-3">
+                          <button onClick={() => handleInPlayFinalResult('安', 0)} className="bg-blue-50 text-blue-700 py-3 md:py-4 rounded-xl font-black active:scale-95 border border-blue-200">単打</button>
+                          <button onClick={() => handleInPlayFinalResult('二塁打', 0)} className="bg-indigo-50 text-indigo-700 py-3 md:py-4 rounded-xl font-black active:scale-95 border border-indigo-200">二塁打</button>
+                          <button onClick={() => handleInPlayFinalResult('三塁打', 0)} className="bg-purple-50 text-purple-700 py-3 md:py-4 rounded-xl font-black active:scale-95 border border-purple-200">三塁打</button>
+                          <button onClick={() => handleInPlayFinalResult('本塁打', 0)} className="bg-pink-100 text-pink-700 py-3 md:py-4 rounded-xl font-black shadow-sm active:scale-95 border border-pink-200">本塁打</button>
                           </div>
-                          <div className="mt-3 pt-3 border-t border-blue-100">
+                          <div className="mt-2 pt-2 md:mt-3 md:pt-3 border-t border-blue-100">
                             <div className="text-[10px] font-black text-blue-600 mb-2">ヒット＋エラー（ワンヒットワンエラー）</div>
-                            <div className="grid grid-cols-3 gap-3">
-                              <button onClick={() => handleInPlayFinalResult('安+エラー', 0)} className="bg-blue-50 text-blue-700 py-3 rounded-xl font-bold text-sm active:scale-95 border border-blue-200">単打+E</button>
-                              <button onClick={() => handleInPlayFinalResult('二塁打+エラー', 0)} className="bg-indigo-50 text-indigo-700 py-3 rounded-xl font-bold text-sm active:scale-95 border border-indigo-200">二塁打+E</button>
-                              <button onClick={() => handleInPlayFinalResult('三塁打+エラー', 0)} className="bg-purple-50 text-purple-700 py-3 rounded-xl font-bold text-sm active:scale-95 border border-purple-200">三塁打+E</button>
+                            <div className="grid grid-cols-3 gap-2 md:gap-3">
+                              <button onClick={() => handleInPlayFinalResult('安+エラー', 0)} className="bg-blue-50 text-blue-700 py-2.5 md:py-3 rounded-xl font-bold text-sm active:scale-95 border border-blue-200">単打+E</button>
+                              <button onClick={() => handleInPlayFinalResult('二塁打+エラー', 0)} className="bg-indigo-50 text-indigo-700 py-2.5 md:py-3 rounded-xl font-bold text-sm active:scale-95 border border-indigo-200">二塁打+E</button>
+                              <button onClick={() => handleInPlayFinalResult('三塁打+エラー', 0)} className="bg-purple-50 text-purple-700 py-2.5 md:py-3 rounded-xl font-bold text-sm active:scale-95 border border-purple-200">三塁打+E</button>
                             </div>
                           </div>
                         </div>
                         {!showErrorTypeSelect ? (
-                          <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm"><div className="grid grid-cols-4 gap-3">
-                            <button onClick={() => setShowErrorTypeSelect(true)} className="bg-slate-100 text-slate-700 py-3 rounded-xl font-bold text-sm border border-slate-200">エラー</button>
-                            <button onClick={() => handleInPlayFinalResult('野手選択', 0)} className="bg-slate-100 text-slate-700 py-3 rounded-xl font-bold text-sm border border-slate-200">野選</button>
-                            <button onClick={() => handleInPlayFinalResult('犠打', 1)} className="bg-slate-100 text-slate-700 py-3 rounded-xl font-bold text-sm border border-slate-200">犠打</button>
-                            <button onClick={() => handleInPlayFinalResult('犠飛', 1)} className="bg-slate-100 text-slate-700 py-3 rounded-xl font-bold text-sm border border-slate-200">犠飛</button>
+                          <div className="bg-white p-2.5 md:p-4 rounded-2xl border border-slate-200 shadow-sm"><div className="grid grid-cols-4 gap-2 md:gap-3">
+                            <button onClick={() => setShowErrorTypeSelect(true)} className="bg-slate-100 text-slate-700 py-2.5 md:py-3 rounded-xl font-bold text-sm border border-slate-200">エラー</button>
+                            <button onClick={() => handleInPlayFinalResult('野手選択', 0)} className="bg-slate-100 text-slate-700 py-2.5 md:py-3 rounded-xl font-bold text-sm border border-slate-200">野選</button>
+                            <button onClick={() => handleInPlayFinalResult('犠打', 1)} className="bg-slate-100 text-slate-700 py-2.5 md:py-3 rounded-xl font-bold text-sm border border-slate-200">犠打</button>
+                            <button onClick={() => handleInPlayFinalResult('犠飛', 1)} className="bg-slate-100 text-slate-700 py-2.5 md:py-3 rounded-xl font-bold text-sm border border-slate-200">犠飛</button>
                           </div></div>
                         ) : (
-                          <div className="bg-white p-4 rounded-2xl border border-amber-300 shadow-sm">
+                          <div className="bg-white p-2.5 md:p-4 rounded-2xl border border-amber-300 shadow-sm">
                             <div className="flex items-center justify-between mb-3">
                               <span className="text-xs font-black text-amber-700">エラーの種類を選択</span>
                               <button onClick={() => setShowErrorTypeSelect(false)} className="text-[10px] bg-slate-100 text-slate-500 border border-slate-200 px-2 py-1 rounded-lg font-bold">← 戻る</button>
                             </div>
-                            <div className="grid grid-cols-3 gap-3">
-                              <button onClick={() => handleInPlayFinalResult('捕球エラー', 0)} className="bg-amber-50 text-amber-800 py-3 rounded-xl font-bold text-sm border border-amber-200 active:scale-95">捕球</button>
-                              <button onClick={() => handleInPlayFinalResult('送球エラー', 0)} className="bg-amber-50 text-amber-800 py-3 rounded-xl font-bold text-sm border border-amber-200 active:scale-95">送球</button>
-                              <button onClick={() => handleInPlayFinalResult('落球エラー', 0)} className="bg-amber-50 text-amber-800 py-3 rounded-xl font-bold text-sm border border-amber-200 active:scale-95">落球</button>
+                            <div className="grid grid-cols-3 gap-2 md:gap-3">
+                              <button onClick={() => handleInPlayFinalResult('捕球エラー', 0)} className="bg-amber-50 text-amber-800 py-2.5 md:py-3 rounded-xl font-bold text-sm border border-amber-200 active:scale-95">捕球</button>
+                              <button onClick={() => handleInPlayFinalResult('送球エラー', 0)} className="bg-amber-50 text-amber-800 py-2.5 md:py-3 rounded-xl font-bold text-sm border border-amber-200 active:scale-95">送球</button>
+                              <button onClick={() => handleInPlayFinalResult('落球エラー', 0)} className="bg-amber-50 text-amber-800 py-2.5 md:py-3 rounded-xl font-bold text-sm border border-amber-200 active:scale-95">落球</button>
                             </div>
                             {['ピッチャー', 'キャッチャー', 'セカンド', 'サード', 'ショート'].includes(selectedPosition) && (
-                              <button onClick={() => handleInPlayFinalResult('一塁捕球エラー', 0)} className="mt-3 w-full bg-amber-50 text-amber-800 py-3 rounded-xl font-bold text-sm border border-amber-200 active:scale-95">一塁手の捕球エラー（送球を落とした）</button>
+                              <button onClick={() => handleInPlayFinalResult('一塁捕球エラー', 0)} className="mt-3 w-full bg-amber-50 text-amber-800 py-2.5 md:py-3 rounded-xl font-bold text-sm border border-amber-200 active:scale-95">一塁手の捕球エラー（送球を落とした）</button>
                             )}
                           </div>
                         )}
