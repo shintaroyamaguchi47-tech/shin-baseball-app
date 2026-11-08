@@ -2024,7 +2024,7 @@ import { saveTextFile } from './fileExport.js';
 
                   {/* STEP 1: 打球の落下点 */}
                   {!selectedHitCoord && (
-                    <div className="flex-1 flex flex-col items-center justify-center w-full">
+                    <div className="flex-auto shrink-0 flex flex-col items-center justify-center w-full">
                       <p className="text-slate-600 font-bold text-sm mb-3">打球の落下点・処理位置をタップ</p>
                       <div className="relative w-full max-w-[360px] aspect-[1.2] mb-2 mx-auto bg-white p-2 rounded-3xl shadow-sm border border-slate-200 overflow-hidden flex items-center justify-center">
                         <svg viewBox="0 0 240 200" preserveAspectRatio="xMidYMid meet" className="w-full h-full cursor-crosshair rounded-2xl" onClick={handleFieldClick} style={{ touchAction: 'none' }}>
@@ -2050,7 +2050,7 @@ import { saveTextFile } from './fileExport.js';
 
                   {/* STEP 2: 処理した野手 */}
                   {selectedHitCoord && !selectedPosition && (
-                    <div className="flex-1 flex flex-col items-center w-full">
+                    <div className="flex-auto shrink-0 flex flex-col items-center w-full">
                       <div className="flex items-center gap-3 mb-3">
                         <div className="relative w-16 h-14 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden shrink-0">
                           <svg viewBox="0 0 240 200" className="w-full h-full">
@@ -2085,7 +2085,7 @@ import { saveTextFile } from './fileExport.js';
 
                   {/* STEP 3: 結果 */}
                   {selectedHitCoord && selectedPosition && (
-                    <div className="flex-1 flex flex-col items-center w-full">
+                    <div className="flex-auto shrink-0 flex flex-col items-center w-full">
                       <div className="flex items-center gap-3 mb-4 w-full max-w-md">
                         <div className="relative w-14 h-12 bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden shrink-0">
                           <svg viewBox="0 0 240 200" className="w-full h-full">
